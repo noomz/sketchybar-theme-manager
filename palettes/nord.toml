@@ -1,7 +1,10 @@
 # Nord — https://www.nordtheme.com/docs/colors-and-palettes
 # nord0 #2e3440 · nord1 #3b4252 · nord2 #434c5e · nord3 #4c566a · nord4 #d8dee9
-# nord8 #88c0d0 · nord11 #bf616a · nord12 #d08770 · nord13 #ebcb8b
+# nord9 #81a1c1 · nord11 #bf616a · nord12 #d08770 · nord13 #ebcb8b
 # nord14 #a3be8c · nord15 #b48ead
+#
+# blue is nord9, not nord8. Nord's own terminal palette maps nord9 to ANSI blue
+# and nord8 (#88c0d0) to ANSI cyan.
 
 name = "Nord"
 slug = "nord"
@@ -12,7 +15,7 @@ black = "0xff2e3440"
 white = "0xffd8dee9"
 red = "0xffbf616a"
 green = "0xffa3be8c"
-blue = "0xff88c0d0"
+blue = "0xff81a1c1"
 yellow = "0xffebcb8b"
 orange = "0xffd08770"
 magenta = "0xffb48ead"

@@ -1,5 +1,7 @@
 # Gruvbox Dark (medium) — https://github.com/morhetz/gruvbox
-# dark0 #282828 · dark0_soft #32302f · dark2 #504945 · light1 #ebdbb2
+# dark0 #282828 · dark1 #3c3836 · dark2 #504945 · light1 #ebdbb2
+# bg1 is dark1, not dark0_soft: dark0_soft belongs to gruvbox's separate "soft
+# contrast" background track, not the medium one this palette follows.
 # gray #928374 · bright_red #fb4934 · bright_green #b8bb26
 # bright_yellow #fabd2f · bright_blue #83a598 · bright_purple #d3869b
 # bright_orange #fe8019
@@ -18,9 +20,9 @@ yellow = "0xfffabd2f"
 orange = "0xfffe8019"
 magenta = "0xffd3869b"
 grey = "0xff928374"
-bg1 = "0xff32302f"
+bg1 = "0xff3c3836"
 bg2 = "0xff504945"
 bar_bg = "0x00282828"
 bar_border = "0xff504945"
-popup_bg = "0xc032302f"
+popup_bg = "0xc03c3836"
 popup_border = "0xff928374"

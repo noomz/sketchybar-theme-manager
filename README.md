@@ -374,7 +374,7 @@ dark text colour. The slot names describe roles, not brightness.
 | white | `0xffd8dee9` |
 | red | `0xffbf616a` |
 | green | `0xffa3be8c` |
-| blue | `0xff88c0d0` |
+| blue | `0xff81a1c1` |
 | yellow | `0xffebcb8b` |
 | orange | `0xffd08770` |
 | magenta | `0xffb48ead` |
