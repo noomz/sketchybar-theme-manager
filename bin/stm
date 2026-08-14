@@ -79,7 +79,7 @@ cleanup_tmp() {
   for f in $STM_TMPDIRS; do
     # Only ever remove a directory we created ourselves, by name.
     case "$f" in
-      */.stm-list.??????) rm -rf "$f" 2>/dev/null ;;
+      */.stm-list.?????? | */.stm-blk.??????) rm -rf "$f" 2>/dev/null ;;
     esac
   done
   IFS="$old_ifs"
@@ -638,6 +638,9 @@ OPT_FORCE=0
 OPT_PORCELAIN=0
 OPT_APPEND_MISSING=0
 OPT_LUA_DIALECT=""
+OPT_OUT=""
+OPT_SLUG=""
+OPT_BASE=""
 
 RESOLVED_CONFIG=""
 RESOLVED_DIR=""
@@ -970,6 +973,176 @@ write_lua_nested() {
   printf -- '}\n'
 }
 
+# ---------------------------------------------------------------------------
+# Templates
+#
+# If the user drops <template_dir>/<format>.tpl into their own config tree, it
+# replaces the built-in writer entirely. That is the escape hatch for configs
+# whose layout stm does not model.
+#
+# A template is TRUSTED: it lives in the user's own directory and may contain
+# whatever Lua or shell they like. A palette is NOT trusted, and the only thing
+# it ever contributes to a render is a value already validated as
+# ^0x[0-9a-f]{8}$. stm never installs a template from a palette or the network.
+#
+# Substitution is a single awk pass. Nothing is eval'd and the template text is
+# never expanded by the shell.
+#
+# A placeholder is exactly {{identifier}} where identifier is [a-z_][a-z0-9_]*.
+# Anything else after {{ is literal text and is passed through untouched, which
+# is what lets a Lua template contain a nested constructor like {{1,2},{3,4}}.
+# Write {{{{ for a literal {{.
+# ---------------------------------------------------------------------------
+
+# shellcheck disable=SC2016  # awk source
+STM_TEMPLATE_AWK='
+function fail(msg) {
+  printf("%s: %s: line %d: %s\n", prog, tplname, FNR, msg) > "/dev/stderr"
+  bad = 1
+  exit 1
+}
+function is_block(nm) {
+  return (nm == "colors_lua" || nm == "colors_bash" || nm == "extras_lua" ||
+          nm == "extras_bash" || nm == "children_lua" || nm == "with_alpha")
+}
+# Multi-line expansions are read from files. awk -v cannot carry a newline in
+# its value, so they cannot be passed on the command line.
+function readblock(nm,   f, l, acc, first) {
+  if (nm in blockcache) return blockcache[nm]
+  f = blockdir "/" nm
+  acc = ""
+  first = 1
+  while ((getline l < f) > 0) {
+    if (first) { acc = l; first = 0 } else acc = acc "\n" l
+  }
+  close(f)
+  blockcache[nm] = acc
+  return acc
+}
+function lookup(nm) {
+  if (nm == "name") return m_name
+  if (nm == "slug") return m_slug
+  if (nm == "variant_label") return m_variant
+  if (nm == "generated") return m_generated
+  if (is_block(nm)) return readblock(nm)
+  if (nm in map) return map[nm]
+  fail("unknown placeholder {{" nm "}}")
+}
+BEGIN { SUBSEP = "\034"; bad = 0 }
+
+NR == FNR { if (NF >= 2) map[$1] = $2; next }
+
+{
+  line = $0
+  sub(/\r$/, "", line)
+
+  # Protect the {{{{ escape before any substitution happens.
+  gsub(/\{\{\{\{/, "\001", line)
+
+  out = ""
+  while (1) {
+    p = index(line, "{{")
+    if (p == 0) break
+    out = out substr(line, 1, p - 1)
+    rest = substr(line, p + 2)
+    q = index(rest, "}}")
+    nm = (q == 0) ? "" : substr(rest, 1, q - 1)
+    if (q > 0 && nm ~ /^[a-z_][a-z0-9_]*$/) {
+      out = out lookup(nm)
+      line = substr(rest, q + 2)
+    } else {
+      # Not a placeholder: emit the braces literally and keep scanning.
+      out = out "{{"
+      line = rest
+    }
+  }
+  out = out line
+  gsub(/\001/, "{{", out)
+  print out
+}
+'
+
+# template_dir — where user templates live. Relative paths resolve inside the
+# SketchyBar config dir.
+template_dir() {
+  local d="stm/templates"
+  if [ -n "$RESOLVED_CONFIG" ]; then
+    local configured
+    if configured=$(stm_config_section_get "$RESOLVED_CONFIG" output template_dir); then
+      d="$configured"
+    fi
+  fi
+  d=$(expand_tilde "$d")
+  case "$d" in
+    /*) printf '%s\n' "$d" ;;
+    *) printf '%s\n' "$RESOLVED_DIR/$d" ;;
+  esac
+}
+
+# find_template <format> — echo the template path, or fail if there is none.
+find_template() {
+  local f="$1" dir
+  dir=$(template_dir)
+  [ -f "$dir/$f.tpl" ] || return 1
+  printf '%s\n' "$dir/$f.tpl"
+}
+
+# render_template <records> <template> <target> — write the rendered template
+# to <target>, atomically.
+render_template() {
+  local records="$1" tpl="$2" target="$3"
+  local dir tmp blk name slug variant stamp
+
+  dir=$(dirname "$target")
+  name=$(stm_records_meta "$records" name)
+  slug=$(stm_records_meta "$records" slug)
+  variant=$(stm_records_meta "$records" variant_label)
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  blk=$(mktemp -d "${TMPDIR:-/tmp}/.stm-blk.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$blk"
+
+  stm_records_colors "$records" >"$blk/map"
+  stm_records_colors "$records" | awk -F"\t" '{ printf("  %s = %s,\n", $1, $2) }' >"$blk/colors_lua"
+  stm_records_colors "$records" |
+    awk -F"\t" '{ k = toupper($1); printf("export %s=%s\n", k, $2) }' >"$blk/colors_bash"
+  stm_records_extras "$records" | awk -F"\t" '{ printf("  %s = %s,\n", $1, $2) }' >"$blk/extras_lua"
+  stm_records_extras "$records" |
+    awk -F"\t" '{ k = toupper($1); printf("export %s=%s\n", k, $2) }' >"$blk/extras_bash"
+  lua_children_block "$records" >"$blk/children_lua"
+  printf '%s\n' "$STM_WITH_ALPHA" >"$blk/with_alpha"
+
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+
+  if ! awk -v prog="$PROGNAME" -v tplname="$tpl" -v blockdir="$blk" \
+    -v m_name="$name" -v m_slug="$slug" -v m_variant="$variant" -v m_generated="$stamp" \
+    "$STM_TEMPLATE_AWK" "$blk/map" "$tpl" >"$tmp"; then
+    rm -rf "$blk"
+    die "$EX_INVALID" "template render failed: $tpl"
+  fi
+
+  rm -rf "$blk"
+  commit_tmp "$tmp" "$target"
+}
+
+# lua_children_block <records> — the bar/popup sub-tables, for {{children_lua}}.
+lua_children_block() {
+  local records="$1" tbl k v field
+  for tbl in bar popup; do
+    printf '  %s = {\n' "$tbl"
+    stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+      field=$(lua_nested_field "$k") || continue
+      case "$field" in
+        "$tbl".*) printf '    %s = %s,\n' "${field#*.}" "$v" ;;
+      esac
+    done
+    printf '  },\n'
+  done
+}
+
 # The awk program that performs the in-place colors.sh value swap.
 #
 # Pass 1 (NR==FNR) loads "KEY<TAB>value" pairs. Pass 2 rewrites matching
@@ -1255,7 +1428,7 @@ EOF
 }
 
 cmd_apply() {
-  local slug="$1" file records target name reloaded note_text
+  local slug="$1" file records target name reloaded note_text tpl
 
   file=$(find_palette "$slug") || {
     err "theme not found: $slug"
@@ -1310,10 +1483,16 @@ cmd_apply() {
   # is going to be refused anyway.
   assert_writable_target "$target"
 
-  case "$RESOLVED_FORMAT" in
-    lua) write_lua "$records" "$target" ;;
-    bash) write_bash "$records" "$target" ;;
-  esac
+  # A user template, when present, replaces the built-in writer for that format.
+  if tpl=$(find_template "$RESOLVED_FORMAT"); then
+    note "rendering via template: $tpl"
+    render_template "$records" "$tpl" "$target"
+  else
+    case "$RESOLVED_FORMAT" in
+      lua) write_lua "$records" "$target" ;;
+      bash) write_bash "$records" "$target" ;;
+    esac
+  fi
 
   write_state "$slug"
 
@@ -1596,6 +1775,236 @@ $tmpdir"
   return "$rc"
 }
 
+# ---------------------------------------------------------------------------
+# import / export
+# ---------------------------------------------------------------------------
+
+# Extract `key<TAB>0xAARRGGBB` pairs from an existing Lua colours module. One
+# level of nesting is folded to the flat canonical name (bar.bg -> bar_bg).
+# Functions and any non-hex value are skipped and counted.
+#
+# shellcheck disable=SC2016  # awk source
+STM_IMPORT_LUA_AWK='
+BEGIN { tbl = "" }
+{
+  line = $0
+  sub(/\r$/, "", line)
+  sub(/--.*$/, "", line)
+
+  if (line ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*\{[ \t]*$/) {
+    tbl = line
+    sub(/^[ \t]*/, "", tbl)
+    sub(/[ \t]*=.*$/, "", tbl)
+    next
+  }
+  if (line ~ /^[ \t]*\}/) { tbl = ""; next }
+
+  if (line !~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=/) next
+
+  k = line
+  sub(/^[ \t]*/, "", k)
+  sub(/[ \t]*=.*$/, "", k)
+
+  v = line
+  sub(/^[^=]*=[ \t]*/, "", v)
+  sub(/[ \t]*,?[ \t]*$/, "", v)
+
+  if (v !~ /^0[xX][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/) {
+    printf("skip\t%s\t%s\n", (tbl == "" ? k : tbl "_" k), v) > "/dev/stderr"
+    next
+  }
+  full = (tbl == "" ? k : tbl "_" k)
+  if (full !~ /^[a-z][a-z0-9_]*$/) {
+    printf("skip\t%s\t%s\n", full, v) > "/dev/stderr"
+    next
+  }
+  printf("%s\t%s\n", full, tolower(v))
+}
+'
+
+# Extract pairs from an existing colors.sh. `export A=$B` reference lines are
+# resolved one level so the imported palette carries real values.
+#
+# shellcheck disable=SC2016  # awk source
+STM_IMPORT_BASH_AWK='
+{
+  line = $0
+  sub(/\r$/, "", line)
+  sub(/[ \t]*#.*$/, "", line)
+  sub(/^[ \t]*/, "", line)
+  sub(/^export[ \t]+/, "", line)
+
+  if (line !~ /^[A-Za-z_][A-Za-z0-9_]*=/) next
+
+  k = line
+  sub(/=.*$/, "", k)
+  v = line
+  sub(/^[^=]*=/, "", v)
+  gsub(/^["'"'"']|["'"'"']$/, "", v)
+
+  if (v ~ /^\$/) {
+    ref = v
+    sub(/^\$\{?/, "", ref)
+    sub(/\}$/, "", ref)
+    if (ref in seen) v = seen[ref]
+    else { printf("skip\t%s\t%s\n", tolower(k), v) > "/dev/stderr"; next }
+  }
+
+  if (v !~ /^0[xX][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/) {
+    printf("skip\t%s\t%s\n", tolower(k), v) > "/dev/stderr"
+    next
+  }
+  seen[k] = v
+  lk = tolower(k)
+  if (lk !~ /^[a-z][a-z0-9_]*$/) {
+    printf("skip\t%s\t%s\n", lk, v) > "/dev/stderr"
+    next
+  }
+  printf("%s\t%s\n", lk, tolower(v))
+}
+'
+
+cmd_export() {
+  local slug="$1" file records out name variant k v
+
+  file=$(find_palette "$slug") || die "$EX_NOTFOUND" "theme not found: $slug"
+  records=$(stm_parse_palette "$file")
+  name=$(stm_records_meta "$records" name)
+  variant=$(stm_records_meta "$records" variant_label)
+
+  out=$(
+    printf '# Exported by stm %s\n' "$STM_VERSION"
+    printf 'name = "%s"\n' "$name"
+    printf 'slug = "%s"\n' "$slug"
+    printf 'variant_label = "%s"\n' "$variant"
+    printf '\n[colors]\n'
+    printf '%s\n' "$records" |
+      awk -F'\t' '$1=="color" { printf("%s\t%s\n", $2, $3) }' | sort |
+      while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
+    if stm_records_extras "$records" | grep -q .; then
+      printf '\n[extras]\n'
+      stm_records_extras "$records" |
+        while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
+    fi
+  )
+
+  if [ -n "$OPT_OUT" ]; then
+    printf '%s\n' "$out" >"$OPT_OUT"
+    info "exported $slug -> $OPT_OUT"
+  else
+    printf '%s\n' "$out"
+  fi
+}
+
+cmd_import() {
+  local src="${1:-}" slug fmt dest dir n missing k v
+  local blk
+
+  if [ -n "$src" ]; then
+    [ -f "$src" ] || die "$EX_NOTFOUND" "file not found: $src"
+    case "$src" in
+      *.lua) fmt=lua ;;
+      *.sh) fmt=bash ;;
+      *) die "$EX_USAGE" "cannot tell the format of $src (expected .lua or .sh)" ;;
+    esac
+  else
+    [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
+    fmt=$(detect_format "$RESOLVED_DIR")
+    case "$fmt" in
+      lua) src="$RESOLVED_DIR/colors.lua" ;;
+      bash) src="$RESOLVED_DIR/colors.sh" ;;
+    esac
+    [ -f "$src" ] || die "$EX_NOTFOUND" "no colours file found in $RESOLVED_DIR"
+  fi
+
+  slug="${OPT_SLUG:-imported}"
+  validate_slug "$slug"
+
+  blk=$(mktemp -d "${TMPDIR:-/tmp}/.stm-blk.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$blk"
+
+  if [ "$fmt" = "lua" ]; then
+    awk "$STM_IMPORT_LUA_AWK" "$src" >"$blk/pairs" 2>"$blk/skips"
+  else
+    awk "$STM_IMPORT_BASH_AWK" "$src" >"$blk/pairs" 2>"$blk/skips"
+  fi
+
+  # Later definitions win, matching how both formats actually behave.
+  sort -u -k1,1 "$blk/pairs" >"$blk/uniq" 2>/dev/null ||
+    awk -F'\t' '{ v[$1] = $2 } END { for (k in v) printf("%s\t%s\n", k, v[k]) }' \
+      "$blk/pairs" | sort >"$blk/uniq"
+
+  n=$(wc -l <"$blk/uniq" | tr -d ' ')
+  [ "$n" -gt 0 ] || die "$EX_INVALID" "found no colour definitions in $src"
+
+  dir=$(user_palette_dir) ||
+    die "$EX_CONFIG" "could not determine a writable palette directory; pass --palette-dir"
+  mkdir -p "$dir"
+  dest="$dir/$slug.toml"
+  if [ -e "$dest" ] && [ "$OPT_FORCE" -eq 0 ]; then
+    die "$EX_EXISTS" "$dest already exists (use --force to overwrite)"
+  fi
+
+  {
+    printf '# Imported by stm %s from %s\n' "$STM_VERSION" "$src"
+    printf 'name = "%s"\n' "$slug"
+    printf 'slug = "%s"\n' "$slug"
+    printf 'variant_label = "%s"\n' "$slug"
+    [ -n "$OPT_BASE" ] && printf 'base = "%s"\n' "$OPT_BASE"
+    printf '\n[colors]\n'
+    while IFS=$'\t' read -r k v; do
+      printf '%s = "%s"\n' "$k" "$v"
+    done <"$blk/uniq"
+  } >"$dest"
+
+  info "imported $n colours from $src -> $dest"
+
+  missing=""
+  if [ -n "$OPT_BASE" ]; then
+    # With a base, the merged set is what matters, so ask the parser.
+    if ! stm_parse_palette "$dest" >/dev/null 2>&1; then
+      missing=" (see the error above)"
+      stm_parse_palette "$dest" >/dev/null || true
+    fi
+  else
+    for k in $STM_REQUIRED_KEYS; do
+      if ! awk -F'\t' -v k="$k" '$1==k' "$blk/uniq" | grep -q .; then
+        missing="$missing $k"
+      fi
+    done
+  fi
+
+  if [ -s "$blk/skips" ]; then
+    info ""
+    info "Could not import these (not an 0xAARRGGBB value):"
+    awk -F'\t' '{ printf("  %-24s %s\n", $2, $3) }' "$blk/skips"
+  fi
+
+  if [ -n "$missing" ]; then
+    info ""
+    info "Missing required key(s):$missing"
+    info ""
+    info "Your config names its colours differently, which is fine. The quickest"
+    info "fix is to inherit the canonical keys from a bundled theme, so yours"
+    info "override only what they cover:"
+    info ""
+    info "  stm import $src --slug $slug --base tokyo-night --force"
+    info ""
+    info "Or add the keys to $dest by hand. Note that [mapping] in"
+    info "stm.config.toml will not help here: it is applied after a palette is"
+    info "validated, so it can rename keys for your config but cannot supply"
+    info "ones the palette is missing."
+    rm -rf "$blk"
+    return 1
+  fi
+
+  rm -rf "$blk"
+  info ""
+  info "Ready: stm apply $slug"
+}
+
 cmd_add() {
   local slug="$1" src="$2" records declared dest dir
 
@@ -1636,6 +2045,8 @@ COMMANDS
   add <theme> <palette-file>    Install a palette into your palette directory
   preview <theme>               Print a theme's colour table (writes nothing)
   doctor [theme]                Diagnose the config: format, dialect, key coverage
+  import [<file>]               Turn an existing colours file into a palette
+  export <theme>                Print a theme as canonical palette TOML
   help                          Show this help
   version                       Print the version
 
@@ -1650,6 +2061,9 @@ OPTIONS
   --force               Allow \`add\` to overwrite an existing palette
   --append-missing      (bash) Append palette keys absent from colors.sh
   --porcelain           Machine-readable output for \`list\` and \`preview\`
+  --out <file>          Write \`export\` output to a file instead of stdout
+  --slug <slug>         Name for the palette \`import\` creates
+  --base <slug>         Make the imported palette inherit from <slug>
   -v, --verbose         Extra detail on stderr
   -q, --quiet           Suppress non-error output
   -h, --help            Show this help
@@ -1716,6 +2130,24 @@ main() {
         shift 2
         ;;
       --lua-dialect=*) OPT_LUA_DIALECT="${1#--lua-dialect=}"; shift ;;
+      --out)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--out needs a value"
+        OPT_OUT="$2"
+        shift 2
+        ;;
+      --out=*) OPT_OUT="${1#--out=}"; shift ;;
+      --slug)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--slug needs a value"
+        OPT_SLUG="$2"
+        shift 2
+        ;;
+      --slug=*) OPT_SLUG="${1#--slug=}"; shift ;;
+      --base)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--base needs a value"
+        OPT_BASE="$2"
+        shift 2
+        ;;
+      --base=*) OPT_BASE="${1#--base=}"; shift ;;
       --no-reload) OPT_NO_RELOAD=1; shift ;;
       --dry-run) OPT_DRY_RUN=1; shift ;;
       --force) OPT_FORCE=1; shift ;;
@@ -1793,6 +2225,17 @@ main() {
     add)
       [ "$args_left" -ge 2 ] || die "$EX_USAGE" "add needs a theme name and a palette file"
       cmd_add "${positional[1]}" "${positional[2]}"
+      ;;
+    export)
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "export needs a theme name"
+      cmd_export "${positional[1]}"
+      ;;
+    import)
+      if [ "$args_left" -ge 1 ]; then
+        cmd_import "${positional[1]}"
+      else
+        cmd_import
+      fi
       ;;
     doctor)
       if [ "$args_left" -ge 1 ]; then
