@@ -1,0 +1,24 @@
+# Catppuccin Macchiato — https://github.com/catppuccin/catppuccin
+# base #24273a · mantle #1e2030 · surface0 #363a4f · surface1 #494d64
+# text #cad3f5 · overlay0 #6e738d
+
+name = "Catppuccin Macchiato"
+slug = "catppuccin-macchiato"
+variant_label = "Macchiato"
+
+[colors]
+black = "0xff24273a"
+white = "0xffcad3f5"
+red = "0xffed8796"
+green = "0xffa6da95"
+blue = "0xff8aadf4"
+yellow = "0xffeed49f"
+orange = "0xfff5a97f"
+magenta = "0xffc6a0f6"
+grey = "0xff6e738d"
+bg1 = "0xff1e2030"
+bg2 = "0xff363a4f"
+bar_bg = "0x0024273a"
+bar_border = "0xff494d64"
+popup_bg = "0xc01e2030"
+popup_border = "0xff6e738d"

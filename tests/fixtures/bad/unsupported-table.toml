@@ -1,0 +1,9 @@
+name = "Nested"
+slug = "unsupported-table"
+variant_label = "Nested"
+
+[colors]
+black = "0xff000000"
+
+[colors.extra]
+foo = "0xff111111"

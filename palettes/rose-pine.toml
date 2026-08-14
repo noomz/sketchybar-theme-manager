@@ -1,0 +1,28 @@
+# Rosé Pine (main) — https://rosepinetheme.com/palette/
+# base #191724 · surface #1f1d2e · overlay #26233a · highlight-med #403d52
+# text #e0def4 · muted #6e6a86 · love #eb6f92 · gold #f6c177 · rose #ebbcba
+# pine #31748f · foam #9ccfd8 · iris #c4a7e7
+#
+# Rose Pine has no dedicated green; `foam` (its cyan-green) fills that slot and
+# `pine` fills blue. `rose` fills orange.
+
+name = "Rose Pine"
+slug = "rose-pine"
+variant_label = "Rose Pine (main)"
+
+[colors]
+black = "0xff191724"
+white = "0xffe0def4"
+red = "0xffeb6f92"
+green = "0xff9ccfd8"
+blue = "0xff31748f"
+yellow = "0xfff6c177"
+orange = "0xffebbcba"
+magenta = "0xffc4a7e7"
+grey = "0xff6e6a86"
+bg1 = "0xff1f1d2e"
+bg2 = "0xff26233a"
+bar_bg = "0x00191724"
+bar_border = "0xff403d52"
+popup_bg = "0xc01f1d2e"
+popup_border = "0xff6e6a86"

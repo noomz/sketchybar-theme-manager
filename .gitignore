@@ -1,0 +1,24 @@
+# Agent / tooling scratch
+.claude/
+.omc/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# stm runtime artifacts (should never be committed from a working config)
+.stm-state
+colors_generated.lua
+*.stm-backup
+*.stm-tmp.*
+
+# Editors
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Test sandboxes
+tests/tmp/

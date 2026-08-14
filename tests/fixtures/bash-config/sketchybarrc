@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fixture: minimal bash-format sketchybar config. Present only so format
+# detection has a realistic directory to look at.
+
+CONFIG_DIR="$HOME/.config/sketchybar"
+source "$CONFIG_DIR/colors.sh"
+
+sketchybar --bar color="$BAR_BG" border_color="$BAR_BORDER" height=40
+sketchybar --default icon.color="$WHITE" label.color="$WHITE"
+sketchybar --update

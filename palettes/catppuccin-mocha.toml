@@ -1,0 +1,24 @@
+# Catppuccin Mocha — https://github.com/catppuccin/catppuccin
+# base #1e1e2e · mantle #181825 · surface0 #313244 · surface1 #45475a
+# text #cdd6f4 · overlay0 #6c7086
+
+name = "Catppuccin Mocha"
+slug = "catppuccin-mocha"
+variant_label = "Mocha"
+
+[colors]
+black = "0xff1e1e2e"
+white = "0xffcdd6f4"
+red = "0xfff38ba8"
+green = "0xffa6e3a1"
+blue = "0xff89b4fa"
+yellow = "0xfff9e2af"
+orange = "0xfffab387"
+magenta = "0xffcba6f7"
+grey = "0xff6c7086"
+bg1 = "0xff181825"
+bg2 = "0xff313244"
+bar_bg = "0x001e1e2e"
+bar_border = "0xff45475a"
+popup_bg = "0xc0181825"
+popup_border = "0xff6c7086"

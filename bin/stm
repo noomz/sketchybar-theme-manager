@@ -1,0 +1,1247 @@
+#!/usr/bin/env bash
+#
+# stm — SketchyBar Theme Manager
+#
+# Switches SketchyBar colour themes on macOS. Reads a language-neutral TOML
+# palette and writes either a Lua module (colors_generated.lua) or an in-place
+# value swap into a shell colours file (colors.sh).
+#
+# Compatibility: written for bash 3.2 (the /bin/bash that ships with macOS).
+#   - no associative arrays, no `mapfile`, no `${v^^}`, no `[[ -v ]]`
+#   - no GNU-only flags: no `sed -i` without an arg, no `grep -P`,
+#     no `readlink -f`, no `sort -V`, no `date -d`
+#
+# Security posture: palette files are untrusted input. They are parsed by awk
+# only — never eval'd, never sourced. Every key and value is validated against
+# a strict allowlist before any of it reaches generated code.
+#
+# https://github.com/noomz/sketchybar-theme-manager
+# MIT License
+
+set -euo pipefail
+IFS=$' \t\n'
+
+# Force the C locale. Without it, glob ranges like [!a-z0-9._-] use the locale's
+# collation order, which in en_US.UTF-8 makes [a-z] match "A" — quietly
+# defeating the slug validation. It also keeps `sort`, `tr` and `awk` byte-wise
+# and deterministic, so generated files are identical on every machine.
+LC_ALL=C
+export LC_ALL
+
+STM_VERSION="0.1.0"
+PROGNAME="stm"
+
+# Every palette must define these. Order here is documentation only; output is
+# always sorted alphabetically.
+STM_REQUIRED_KEYS="black white red green blue yellow orange magenta grey bg1 bg2 bar_bg bar_border popup_bg popup_border"
+
+# Exit codes (documented in README).
+EX_OK=0
+EX_INVALID=1   # palette failed validation
+EX_CONFIG=2    # config dir or format could not be resolved
+EX_NOTFOUND=3  # theme not found
+EX_EXISTS=4    # refusing to overwrite without --force
+EX_USAGE=64    # bad command line
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+OPT_QUIET=0
+OPT_VERBOSE=0
+
+err() { printf '%s: %s\n' "$PROGNAME" "$*" >&2; }
+die() {
+  local code="$1"
+  shift
+  err "$*"
+  exit "$code"
+}
+info() { [ "$OPT_QUIET" -eq 1 ] || printf '%s\n' "$*"; }
+note() { [ "$OPT_VERBOSE" -eq 1 ] && printf '%s: %s\n' "$PROGNAME" "$*" >&2; return 0; }
+
+# ---------------------------------------------------------------------------
+# Temp file handling — atomic writes, cleaned up on any exit
+# ---------------------------------------------------------------------------
+
+# Newline-separated, so a path containing a space or a glob character is still
+# handled correctly.
+STM_TMPFILES=""
+STM_TMPDIRS=""
+
+cleanup_tmp() {
+  local f old_ifs
+  old_ifs="$IFS"
+  IFS=$'\n'
+  for f in $STM_TMPFILES; do
+    [ -n "$f" ] && rm -f "$f" 2>/dev/null
+  done
+  for f in $STM_TMPDIRS; do
+    # Only ever remove a directory we created ourselves, by name.
+    case "$f" in
+      */.stm-list.??????) rm -rf "$f" 2>/dev/null ;;
+    esac
+  done
+  IFS="$old_ifs"
+  STM_TMPFILES=""
+  STM_TMPDIRS=""
+}
+trap cleanup_tmp EXIT
+trap 'cleanup_tmp; exit 130' INT
+trap 'cleanup_tmp; exit 143' TERM
+
+# mktemp_in <dir> — create a private temp file in <dir> (the same filesystem as
+# the destination, so the final `mv` is atomic).
+#
+# The path is returned in the global STM_TMP rather than on stdout: calling this
+# as `f=$(mktemp_in ...)` would run it in a subshell, and the STM_TMPFILES
+# bookkeeping — and therefore the cleanup trap — would be silently lost.
+STM_TMP=""
+mktemp_in() {
+  local dir="$1" old_umask
+  [ -d "$dir" ] || die "$EX_CONFIG" "not a directory: $dir"
+  old_umask=$(umask)
+  umask 077
+  STM_TMP=$(mktemp "$dir/.stm-tmp.XXXXXX") || {
+    umask "$old_umask"
+    die "$EX_CONFIG" "could not create a temporary file in $dir"
+  }
+  umask "$old_umask"
+  STM_TMPFILES="$STM_TMPFILES
+$STM_TMP"
+}
+
+# assert_writable_target <path> — refuse to write anywhere that is not either
+# absent or a plain file. Without this, `mv tmp somedir` would cheerfully move
+# the temp file *into* the directory and report success.
+assert_writable_target() {
+  local target="$1" dir
+  if [ -e "$target" ] && [ ! -f "$target" ]; then
+    die "$EX_CONFIG" "refusing to write $target: it exists and is not a regular file"
+  fi
+  dir=$(dirname "$target")
+  [ -d "$dir" ] || die "$EX_CONFIG" "not a directory: $dir"
+  [ -w "$dir" ] || die "$EX_CONFIG" "directory is not writable: $dir"
+}
+
+# commit_tmp <tmpfile> <target> — atomically move tmp over target, preserving a
+# sensible mode (mktemp gives 0600; config files should be readable).
+commit_tmp() {
+  local tmp="$1" target="$2" f old_ifs kept=""
+  assert_writable_target "$target"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$target"
+  # Drop it from the cleanup list: it no longer exists under the temp name.
+  old_ifs="$IFS"
+  IFS=$'\n'
+  for f in $STM_TMPFILES; do
+    [ -n "$f" ] || continue
+    [ "$f" = "$tmp" ] && continue
+    kept="$kept
+$f"
+  done
+  IFS="$old_ifs"
+  STM_TMPFILES="$kept"
+}
+
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+# expand_tilde <path> — expand a leading ~ or ~/ to $HOME. Nothing else is
+# expanded: no $VAR, no globbing, no command substitution.
+expand_tilde() {
+  local p="$1"
+  # shellcheck disable=SC2088  # the ~ here is a literal pattern, not an expansion
+  case "$p" in
+    "~") printf '%s\n' "$HOME" ;;
+    "~/"*) printf '%s\n' "$HOME/${p#\~/}" ;;
+    *) printf '%s\n' "$p" ;;
+  esac
+}
+
+# resolve_symlinks <path> — macOS has no `readlink -f`. Walk the chain by hand
+# with a hop limit so a symlink loop cannot hang us.
+resolve_symlinks() {
+  local p="$1" hops=0 dir base target
+  while [ -L "$p" ] && [ "$hops" -lt 40 ]; do
+    target=$(readlink "$p") || break
+    case "$target" in
+      /*) p="$target" ;;
+      *)
+        dir=$(dirname "$p")
+        p="$dir/$target"
+        ;;
+    esac
+    hops=$((hops + 1))
+  done
+  # Normalise the directory part; leave the basename alone (it may not exist).
+  dir=$(dirname "$p")
+  base=$(basename "$p")
+  if [ -d "$dir" ]; then
+    dir=$(cd -- "$dir" 2>/dev/null && pwd) || dir=$(dirname "$p")
+  fi
+  printf '%s/%s\n' "$dir" "$base"
+}
+
+# script_dir — directory holding this script, with symlinks resolved so a
+# `~/.local/bin/stm -> ../share/stm/bin/stm` install still finds its palettes.
+script_dir() {
+  local self
+  self=$(resolve_symlinks "$0")
+  dirname "$self"
+}
+
+# bundled_palette_dir — where the palettes shipped with stm live.
+bundled_palette_dir() {
+  local sd c
+  if [ -n "${STM_ROOT:-}" ] && [ -d "$STM_ROOT/palettes" ]; then
+    printf '%s\n' "$STM_ROOT/palettes"
+    return 0
+  fi
+  sd=$(script_dir)
+  for c in \
+    "$sd/../palettes" \
+    "$sd/../share/stm/palettes" \
+    "/opt/homebrew/share/stm/palettes" \
+    "/usr/local/share/stm/palettes"; do
+    if [ -d "$c" ]; then
+      (cd -- "$c" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# TOML parsing
+#
+# stm_parse_palette <file> emits a normalised, already-validated record stream:
+#
+#   meta<TAB>name<TAB>Tokyo Night
+#   meta<TAB>slug<TAB>tokyo-night
+#   color<TAB>black<TAB>0xff1a1b26
+#
+# Anything the strict subset does not cover is a hard error. Nothing is ever
+# eval'd, sourced, or expanded.
+# ---------------------------------------------------------------------------
+
+# shellcheck disable=SC2016  # this is awk source; $ and " are awk syntax, not shell
+STM_TOML_AWK='
+function fail(msg) {
+  printf("%s: %s: line %d: %s\n", prog, FILENAME, FNR, msg) > "/dev/stderr"
+  bad = 1
+  exit 1
+}
+BEGIN {
+  section = ""
+  bad = 0
+  nreq = split(required, reqlist, " ")
+}
+{
+  line = $0
+  # Strip a trailing CR so CRLF files do not silently fail validation.
+  sub(/\r$/, "", line)
+
+  # Blank line
+  if (line ~ /^[ \t]*$/) next
+  # Whole-line comment
+  if (line ~ /^[ \t]*#/) next
+
+  # Table header
+  if (line ~ /^[ \t]*\[/) {
+    if (line !~ /^[ \t]*\[[ \t]*[A-Za-z0-9_-]+[ \t]*\][ \t]*(#.*)?$/)
+      fail("unsupported table syntax (only a plain [colors] header is allowed)")
+    sec = line
+    sub(/^[ \t]*\[[ \t]*/, "", sec)
+    sub(/[ \t]*\].*$/, "", sec)
+    if (sec != "colors")
+      fail("unsupported table [" sec "] (only [colors] is allowed)")
+    if (section == "colors")
+      fail("duplicate [colors] table")
+    section = "colors"
+    next
+  }
+
+  # key = "value"
+  #
+  # The value may not contain a double quote or a backslash. That single rule
+  # kills escape-sequence smuggling (\", \n) before it can reach generated Lua.
+  if (line !~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*"[^"\\]*"[ \t]*(#.*)?$/)
+    fail("unsupported or malformed line (expected: key = \"value\")")
+
+  key = line
+  sub(/^[ \t]*/, "", key)
+  sub(/[ \t]*=.*$/, "", key)
+
+  val = line
+  sub(/^[^=]*=[ \t]*"/, "", val)
+  sub(/".*$/, "", val)
+
+  if (section == "colors") {
+    if (key !~ /^[a-z][a-z0-9_]*$/)
+      fail("invalid colour key \"" key "\" (want lower-case [a-z][a-z0-9_]*)")
+    if (length(key) > 32)
+      fail("colour key \"" key "\" is too long (max 32)")
+    if (val !~ /^0[xX][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/)
+      fail("invalid colour value for \"" key "\": \"" val "\" (want 0xAARRGGBB, exactly 8 hex digits)")
+    if (key in colors)
+      fail("duplicate colour key \"" key "\"")
+    colors[key] = tolower(val)
+    sub(/^0X/, "0x", colors[key])
+    order[++ncolors] = key
+    next
+  }
+
+  # Root level
+  if (key in meta)
+    fail("duplicate key \"" key "\"")
+  meta[key] = val
+  next
+}
+END {
+  if (bad) exit 1
+
+  if (!("slug" in meta)) fail_end("missing required key: slug")
+  if (!("name" in meta)) fail_end("missing required key: name")
+
+  slug = meta["slug"]
+  if (slug !~ /^[a-z0-9][a-z0-9._-]*$/)
+    fail_end("invalid slug \"" slug "\" (want [a-z0-9][a-z0-9._-]*)")
+  if (length(slug) > 64)
+    fail_end("slug is too long (max 64)")
+  if (slug == "." || slug == "..")
+    fail_end("invalid slug \"" slug "\"")
+  if (index(slug, "/") > 0)
+    fail_end("slug may not contain \"/\"")
+
+  # name and variant_label are embedded in generated comments, so their charset
+  # is restricted to something that cannot break out of a comment.
+  check_label("name", meta["name"])
+  if ("variant_label" in meta) check_label("variant_label", meta["variant_label"])
+
+  if (ncolors == 0) fail_end("no [colors] table found")
+
+  missing = ""
+  for (i = 1; i <= nreq; i++) {
+    if (!(reqlist[i] in colors)) missing = missing " " reqlist[i]
+  }
+  if (missing != "") fail_end("missing required colour key(s):" missing)
+
+  printf("meta\tname\t%s\n", meta["name"])
+  printf("meta\tslug\t%s\n", slug)
+  if ("variant_label" in meta)
+    printf("meta\tvariant_label\t%s\n", meta["variant_label"])
+  else
+    printf("meta\tvariant_label\t%s\n", meta["name"])
+
+  for (i = 1; i <= ncolors; i++)
+    printf("color\t%s\t%s\n", order[i], colors[order[i]])
+}
+function fail_end(msg) {
+  printf("%s: %s: %s\n", prog, FILENAME, msg) > "/dev/stderr"
+  exit 1
+}
+function check_label(what, s) {
+  if (s !~ /^[A-Za-z0-9 ._()+-]+$/)
+    fail_end("invalid " what " \"" s "\" (allowed: letters, digits, space . _ ( ) + -)")
+  if (length(s) > 64)
+    fail_end(what " is too long (max 64)")
+}
+'
+
+# stm_parse_palette <file> — prints the record stream, or fails with EX_INVALID.
+stm_parse_palette() {
+  local file="$1"
+  [ -f "$file" ] || die "$EX_NOTFOUND" "palette file not found: $file"
+  [ -r "$file" ] || die "$EX_INVALID" "palette file is not readable: $file"
+
+  if ! awk -v prog="$PROGNAME" -v required="$STM_REQUIRED_KEYS" "$STM_TOML_AWK" "$file"; then
+    die "$EX_INVALID" "invalid palette: $file"
+  fi
+}
+
+# stm_records_meta <records> <key> — pull one meta value out of a record stream.
+stm_records_meta() {
+  printf '%s\n' "$1" | awk -F'\t' -v k="$2" '$1=="meta" && $2==k { print $3; exit }'
+}
+
+# stm_records_colors <records> — emit "key<TAB>value" colour lines, sorted.
+stm_records_colors() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="color" { printf("%s\t%s\n", $2, $3) }' | sort
+}
+
+# ---------------------------------------------------------------------------
+# Minimal reader for stm.config.toml (root-level strings only)
+# ---------------------------------------------------------------------------
+
+stm_config_get() {
+  local file="$1" key="$2"
+  [ -f "$file" ] || return 1
+  awk -v want="$key" '
+    { line = $0; sub(/\r$/, "", line) }
+    line ~ /^[ \t]*#/ { next }
+    line ~ /^[ \t]*\[/ { insection = 1; next }
+    insection { next }
+    line ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*"[^"\\]*"[ \t]*(#.*)?$/ {
+      k = line; sub(/^[ \t]*/, "", k); sub(/[ \t]*=.*$/, "", k)
+      if (k != want) next
+      v = line; sub(/^[^=]*=[ \t]*"/, "", v); sub(/".*$/, "", v)
+      print v
+      found = 1
+      exit
+    }
+    END { if (!found) exit 1 }
+  ' "$file"
+}
+
+# ---------------------------------------------------------------------------
+# Resolution: config file, sketchybar dir, palette dirs, format
+# ---------------------------------------------------------------------------
+
+OPT_CONFIG=""
+OPT_DIR=""
+OPT_PALETTE_DIR=""
+OPT_FORMAT=""
+OPT_NO_RELOAD=0
+OPT_DRY_RUN=0
+OPT_FORCE=0
+OPT_PORCELAIN=0
+OPT_APPEND_MISSING=0
+
+RESOLVED_CONFIG=""
+RESOLVED_DIR=""
+RESOLVED_FORMAT=""
+
+resolve_config_file() {
+  local c
+  if [ -n "$OPT_CONFIG" ]; then
+    c=$(expand_tilde "$OPT_CONFIG")
+    [ -f "$c" ] || die "$EX_CONFIG" "config file not found: $c"
+    RESOLVED_CONFIG="$c"
+    return 0
+  fi
+  if [ -n "${STM_CONFIG:-}" ]; then
+    c=$(expand_tilde "$STM_CONFIG")
+    [ -f "$c" ] || die "$EX_CONFIG" "STM_CONFIG points at a missing file: $c"
+    RESOLVED_CONFIG="$c"
+    return 0
+  fi
+  for c in \
+    "./stm.config.toml" \
+    "${XDG_CONFIG_HOME:-$HOME/.config}/stm/stm.config.toml"; do
+    if [ -f "$c" ]; then
+      RESOLVED_CONFIG="$c"
+      return 0
+    fi
+  done
+  RESOLVED_CONFIG=""
+  return 0
+}
+
+resolve_sketchybar_dir() {
+  local d=""
+  if [ -n "$OPT_DIR" ]; then
+    d="$OPT_DIR"
+  elif [ -n "${SKETCHYBAR_CONFIG_DIR:-}" ]; then
+    d="$SKETCHYBAR_CONFIG_DIR"
+  elif [ -n "$RESOLVED_CONFIG" ] && d=$(stm_config_get "$RESOLVED_CONFIG" sketchybar_dir); then
+    :
+  else
+    d="${XDG_CONFIG_HOME:-$HOME/.config}/sketchybar"
+  fi
+  RESOLVED_DIR=$(expand_tilde "$d")
+  note "sketchybar dir: $RESOLVED_DIR"
+}
+
+# palette_dirs — echo the search path, one directory per line, highest
+# precedence first. User directories shadow bundled palettes of the same slug.
+palette_dirs() {
+  local d bundled
+  if [ -n "$OPT_PALETTE_DIR" ]; then
+    printf '%s\n' "$(expand_tilde "$OPT_PALETTE_DIR")"
+    return 0
+  fi
+  [ -n "${STM_PALETTE_DIR:-}" ] && printf '%s\n' "$(expand_tilde "$STM_PALETTE_DIR")"
+  if [ -n "$RESOLVED_CONFIG" ] && d=$(stm_config_get "$RESOLVED_CONFIG" palette_dir); then
+    printf '%s\n' "$(expand_tilde "$d")"
+  fi
+  [ -n "$RESOLVED_DIR" ] && printf '%s\n' "$RESOLVED_DIR/palettes"
+  if bundled=$(bundled_palette_dir); then
+    printf '%s\n' "$bundled"
+  fi
+}
+
+# user_palette_dir — the first writable non-bundled directory, for `stm add`.
+user_palette_dir() {
+  local bundled d
+  bundled=$(bundled_palette_dir 2>/dev/null || true)
+  palette_dirs | while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    [ "$d" = "$bundled" ] && continue
+    printf '%s\n' "$d"
+    break
+  done
+}
+
+# find_palette <slug> — echo the path of the highest-precedence palette file.
+find_palette() {
+  local slug="$1" d
+  validate_slug "$slug"
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    if [ -f "$d/$slug.toml" ]; then
+      printf '%s\n' "$d/$slug.toml"
+      return 0
+    fi
+  done <<EOF
+$(palette_dirs)
+EOF
+  return 1
+}
+
+# validate_slug <slug> — the same rule the parser enforces, applied to CLI input
+# before it is ever concatenated into a path.
+validate_slug() {
+  local s="$1"
+  case "$s" in
+    "" | "." | "..") die "$EX_NOTFOUND" "invalid theme name: \"$s\"" ;;
+    */*) die "$EX_NOTFOUND" "invalid theme name (may not contain \"/\"): \"$s\"" ;;
+  esac
+  if [ "${#s}" -gt 64 ]; then
+    die "$EX_NOTFOUND" "theme name is too long (max 64): \"$s\""
+  fi
+  # Portable charset check without bash 4 features.
+  case "$s" in
+    *[!a-z0-9._-]*) die "$EX_NOTFOUND" "invalid theme name \"$s\" (allowed: a-z 0-9 . _ -)" ;;
+  esac
+  case "$s" in
+    [a-z0-9]*) : ;;
+    *) die "$EX_NOTFOUND" "theme name must start with a letter or digit: \"$s\"" ;;
+  esac
+}
+
+# detect_format — inspect the sketchybar dir and decide lua vs bash.
+detect_format() {
+  local dir="$1" has_lua=0 has_bash=0 f
+
+  [ -d "$dir" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $dir"
+
+  [ -f "$dir/colors.lua" ] && has_lua=1
+  [ -f "$dir/colors_generated.lua" ] && has_lua=1
+  if [ "$has_lua" -eq 0 ]; then
+    for f in "$dir"/*.lua; do
+      if [ -f "$f" ]; then
+        has_lua=1
+        break
+      fi
+    done
+  fi
+  [ -f "$dir/colors.sh" ] && has_bash=1
+
+  if [ "$has_lua" -eq 1 ] && [ "$has_bash" -eq 1 ]; then
+    die "$EX_CONFIG" "ambiguous config format in $dir (found both Lua and colors.sh); pass --format lua or --format bash"
+  fi
+  [ "$has_lua" -eq 1 ] && { printf 'lua\n'; return 0; }
+  [ "$has_bash" -eq 1 ] && { printf 'bash\n'; return 0; }
+
+  die "$EX_CONFIG" "could not detect a config format in $dir (expected colors.lua, another .lua file, or colors.sh)"
+}
+
+resolve_format() {
+  local f=""
+  if [ -n "$OPT_FORMAT" ]; then
+    f="$OPT_FORMAT"
+  elif [ -n "${STM_FORMAT:-}" ]; then
+    f="$STM_FORMAT"
+  elif [ -n "$RESOLVED_CONFIG" ] && f=$(stm_config_get "$RESOLVED_CONFIG" format 2>/dev/null); then
+    [ "$f" = "auto" ] && f=""
+  fi
+  if [ -z "$f" ]; then
+    f=$(detect_format "$RESOLVED_DIR")
+  fi
+  case "$f" in
+    lua | bash) : ;;
+    *) die "$EX_CONFIG" "unknown format \"$f\" (want lua or bash)" ;;
+  esac
+  RESOLVED_FORMAT="$f"
+  note "format: $RESOLVED_FORMAT"
+}
+
+# ---------------------------------------------------------------------------
+# Writers
+# ---------------------------------------------------------------------------
+
+# write_lua <records> <target>
+write_lua() {
+  local records="$1" target="$2" dir tmp name slug variant stamp
+
+  dir=$(dirname "$target")
+  name=$(stm_records_meta "$records" name)
+  slug=$(stm_records_meta "$records" slug)
+  variant=$(stm_records_meta "$records" variant_label)
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  {
+    printf -- '-- Generated by stm (sketchybar-theme-manager). DO NOT EDIT.\n'
+    # shellcheck disable=SC2016  # literal backticks inside a Lua comment
+    printf -- '-- Edit your palette .toml and re-run `stm apply` instead.\n'
+    printf -- '-- theme: %s\n' "$slug"
+    printf -- '-- name: %s\n' "$name"
+    printf -- '-- variant: %s\n' "$variant"
+    printf -- '-- generated: %s\n' "$stamp"
+    printf -- '\n'
+    printf -- 'return {\n'
+    stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+      printf -- '  %s = %s,\n' "$k" "$v"
+    done
+    printf -- '}\n'
+  } >"$tmp"
+
+  commit_tmp "$tmp" "$target"
+}
+
+# The awk program that performs the in-place colors.sh value swap.
+#
+# Pass 1 (NR==FNR) loads "KEY<TAB>value" pairs. Pass 2 rewrites matching
+# assignment lines, replacing ONLY the value token and leaving indentation,
+# `export`, quoting style and trailing comments byte-identical.
+# shellcheck disable=SC2016  # this is awk source; $ and " are awk syntax, not shell
+STM_SHELL_AWK='
+function is_hex8(s,   i, c) {
+  if (length(s) != 8) return 0
+  for (i = 1; i <= 8; i++) {
+    c = substr(s, i, 1)
+    if (c !~ /[0-9a-fA-F]/) return 0
+  }
+  return 1
+}
+BEGIN { FS = "\t"; nout = 0; changed = 0 }
+
+# Pass 1: the palette, already uppercased by the caller.
+NR == FNR { if (NF >= 2) map[$1] = $2; next }
+
+# Pass 2: the users colors.sh
+{
+  line = $0
+
+  # Track and drop any previous stm header lines; they are re-emitted in END.
+  if (line ~ /^#[ \t]*stm-(theme|name):/) { next }
+
+  pos = index(line, "=")
+  if (pos < 2) { out[++nout] = line; next }
+
+  head = substr(line, 1, pos)
+  tail = substr(line, pos + 1)
+
+  # The variable name: strip indentation and an optional `export`.
+  nm = substr(line, 1, pos - 1)
+  sub(/^[ \t]*/, "", nm)
+  sub(/^export[ \t]+/, "", nm)
+  sub(/[ \t]+$/, "", nm)
+  if (nm !~ /^[A-Za-z_][A-Za-z0-9_]*$/) { out[++nout] = line; next }
+  if (!(nm in map)) { out[++nout] = line; next }
+
+  # The value: optional quote, 0x, exactly 8 hex digits, matching quote, then
+  # end-of-line / whitespace / comment. Anything else is left alone -- this is
+  # what stops a 10-digit literal from being half-rewritten.
+  t = tail
+  q = ""
+  c = substr(t, 1, 1)
+  if (c == "\"" || c == "'"'"'") { q = c; t = substr(t, 2) }
+
+  if (substr(t, 1, 2) != "0x" && substr(t, 1, 2) != "0X") { out[++nout] = line; next }
+  hex = substr(t, 3, 8)
+  if (!is_hex8(hex)) { out[++nout] = line; next }
+
+  after = substr(t, 11)
+  if (q != "") {
+    if (substr(after, 1, 1) != q) { out[++nout] = line; next }
+    after = substr(after, 2)
+  }
+  # \r is allowed as a terminator so a CRLF file still gets swapped; it stays in
+  # `after`, so the line keeps its original ending.
+  if (after != "" && after !~ /^[ \t\r]/ && substr(after, 1, 1) != "#") {
+    out[++nout] = line
+    next
+  }
+
+  out[++nout] = head q map[nm] q after
+  changed++
+  seen[nm] = 1
+}
+
+END {
+  # Re-emit a single header block, after a shebang if the file has one.
+  start = 1
+  if (nout >= 1 && out[1] ~ /^#!/) {
+    print out[1]
+    start = 2
+  }
+  print "# stm-theme: " theme_slug
+  print "# stm-name: " theme_name
+  for (i = start; i <= nout; i++) print out[i]
+
+  if (append_missing == "1") {
+    first = 1
+    n = split(all_keys, ks, " ")
+    for (i = 1; i <= n; i++) {
+      k = ks[i]
+      if (k in seen) continue
+      if (!(k in map)) continue
+      if (first) {
+        print ""
+        print "# --- added by stm (keys absent from the original file) ---"
+        first = 0
+      }
+      print "export " k "=" map[k]
+    }
+  }
+
+  printf("%d\n", changed) > "/dev/stderr"
+}
+'
+
+# write_bash <records> <target>
+write_bash() {
+  local records="$1" target="$2" dir tmp mapfile_path name slug backup all_keys
+
+  [ -f "$target" ] || die "$EX_CONFIG" "no colors.sh found at $target"
+
+  dir=$(dirname "$target")
+  name=$(stm_records_meta "$records" name)
+  slug=$(stm_records_meta "$records" slug)
+
+  # Uppercase the palette keys once, here, using tr (bash 3.2 has no ${v^^}).
+  mktemp_in "$dir"
+  mapfile_path="$STM_TMP"
+  stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+    # Keys are already validated as [a-z][a-z0-9_]*, and LC_ALL=C is in force,
+    # so an explicit ASCII range is exactly right here.
+    # shellcheck disable=SC2018,SC2019
+    printf '%s\t%s\n' "$(printf '%s' "$k" | tr 'a-z' 'A-Z')" "$v"
+  done >"$mapfile_path"
+
+  all_keys=$(cut -f1 "$mapfile_path" | tr '\n' ' ')
+
+  # One-time backup before the first destructive edit.
+  backup="$target.stm-backup"
+  if [ ! -f "$backup" ]; then
+    cp -p "$target" "$backup"
+    note "backup written: $backup"
+  fi
+
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  awk -v theme_slug="$slug" \
+    -v theme_name="$name" \
+    -v append_missing="$OPT_APPEND_MISSING" \
+    -v all_keys="$all_keys" \
+    "$STM_SHELL_AWK" "$mapfile_path" "$target" >"$tmp" 2>/dev/null
+
+  rm -f "$mapfile_path"
+  commit_tmp "$tmp" "$target"
+}
+
+# target_path <format> — where the given format writes.
+target_path() {
+  case "$1" in
+    lua) printf '%s\n' "$RESOLVED_DIR/colors_generated.lua" ;;
+    bash) printf '%s\n' "$RESOLVED_DIR/colors.sh" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+
+state_file() { printf '%s\n' "$RESOLVED_DIR/.stm-state"; }
+
+write_state() {
+  local slug="$1" sf tmp
+  sf=$(state_file)
+  mktemp_in "$RESOLVED_DIR"
+  tmp="$STM_TMP"
+  printf '%s\n' "$slug" >"$tmp"
+  commit_tmp "$tmp" "$sf"
+}
+
+read_state() {
+  local sf gen sh
+  sf=$(state_file)
+  if [ -f "$sf" ]; then
+    head -n 1 "$sf" | tr -d '[:space:]'
+    return 0
+  fi
+  gen="$RESOLVED_DIR/colors_generated.lua"
+  if [ -f "$gen" ]; then
+    awk '/^-- theme:/ { print $3; exit }' "$gen"
+    return 0
+  fi
+  sh="$RESOLVED_DIR/colors.sh"
+  if [ -f "$sh" ]; then
+    awk '/^#[ \t]*stm-theme:/ { print $3; exit }' "$sh"
+    return 0
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_list() {
+  local d bundled active seen_file listing slug name src marker workdir
+  bundled=$(bundled_palette_dir 2>/dev/null || true)
+  active=$(read_state 2>/dev/null || true)
+
+  # A private directory rather than two loose files in $TMPDIR, so nothing is
+  # left at a predictable path if we are killed mid-run.
+  workdir=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$workdir"
+  seen_file="$workdir/seen"
+  listing="$workdir/listing"
+  : >"$seen_file"
+  : >"$listing"
+
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    [ -d "$d" ] || continue
+    for f in "$d"/*.toml; do
+      [ -f "$f" ] || continue
+      slug=$(basename "$f" .toml)
+      # Highest-precedence directory wins for a given slug.
+      if grep -qxF -- "$slug" "$seen_file" 2>/dev/null; then
+        continue
+      fi
+      printf '%s\n' "$slug" >>"$seen_file"
+      name=$(awk '
+        /^[ \t]*name[ \t]*=/ {
+          v = $0; sub(/^[^=]*=[ \t]*"/, "", v); sub(/".*$/, "", v); print v; exit
+        }' "$f")
+      [ -n "$name" ] || name="$slug"
+      if [ -n "$bundled" ] && [ "$d" = "$bundled" ]; then src="bundled"; else src="user"; fi
+      printf '%s\t%s\t%s\n' "$slug" "$name" "$src" >>"$listing"
+    done
+  done <<EOF
+$(palette_dirs)
+EOF
+
+  if [ ! -s "$listing" ]; then
+    err "no palettes found (searched: $(palette_dirs | tr '\n' ' '))"
+    return 0
+  fi
+
+  sort "$listing" | while IFS=$'\t' read -r slug name src; do
+    if [ "$OPT_PORCELAIN" -eq 1 ]; then
+      if [ "$slug" = "$active" ]; then
+        printf '%s\t%s\t%s\t1\n' "$slug" "$name" "$src"
+      else
+        printf '%s\t%s\t%s\t0\n' "$slug" "$name" "$src"
+      fi
+    else
+      if [ "$slug" = "$active" ]; then marker="*"; else marker=" "; fi
+      printf '%s %-24s %-24s (%s)\n' "$marker" "$slug" "$name" "$src"
+    fi
+  done
+}
+
+cmd_apply() {
+  local slug="$1" file records target name reloaded
+
+  file=$(find_palette "$slug") || {
+    err "theme not found: $slug"
+    err "available themes:"
+    OPT_PORCELAIN=0 cmd_list >&2 || true
+    exit "$EX_NOTFOUND"
+  }
+
+  records=$(stm_parse_palette "$file")
+
+  # The file name and the declared slug must agree, or `stm current` lies.
+  local declared
+  declared=$(stm_records_meta "$records" slug)
+  if [ "$declared" != "$slug" ]; then
+    die "$EX_INVALID" "palette $file declares slug \"$declared\" but is filed as \"$slug\""
+  fi
+
+  [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
+  resolve_format
+  target=$(target_path "$RESOLVED_FORMAT")
+  name=$(stm_records_meta "$records" name)
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would apply $name ($slug)"
+    info "  format: $RESOLVED_FORMAT"
+    info "  target: $target"
+    if [ "$RESOLVED_FORMAT" = "bash" ]; then
+      info "  backup: $target.stm-backup"
+    fi
+    info "  colours:"
+    stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+      info "    $k = $v"
+    done
+    return 0
+  fi
+
+  # Follow a symlinked target so `stow`-style dotfiles keep working, but refuse
+  # anything that is not a plain file.
+  if [ -L "$target" ]; then
+    local real
+    real=$(resolve_symlinks "$target")
+    if [ -e "$real" ] && [ ! -f "$real" ]; then
+      die "$EX_CONFIG" "$target is a symlink to a non-regular file ($real); refusing to write"
+    fi
+    note "target is a symlink -> $real"
+    target="$real"
+  fi
+
+  # Check up front, so we never take a backup or do any work for a write that
+  # is going to be refused anyway.
+  assert_writable_target "$target"
+
+  case "$RESOLVED_FORMAT" in
+    lua) write_lua "$records" "$target" ;;
+    bash) write_bash "$records" "$target" ;;
+  esac
+
+  write_state "$slug"
+
+  reloaded=""
+  if [ "$OPT_NO_RELOAD" -eq 0 ]; then
+    if command -v sketchybar >/dev/null 2>&1; then
+      if sketchybar --reload >/dev/null 2>&1; then
+        reloaded=" (reloaded)"
+      else
+        err "warning: \`sketchybar --reload\` failed; the theme was still written"
+      fi
+    else
+      err "warning: sketchybar is not on PATH; skipped reload"
+    fi
+  fi
+
+  info "Applied $name ($slug) -> $target$reloaded"
+}
+
+cmd_current() {
+  local slug file
+  if ! slug=$(read_state) || [ -z "$slug" ]; then
+    info "none"
+    return 1
+  fi
+  if [ "$OPT_VERBOSE" -eq 1 ]; then
+    if file=$(find_palette "$slug" 2>/dev/null); then
+      printf '%s\t%s\n' "$slug" "$file"
+    else
+      printf '%s\t(palette file not found)\n' "$slug"
+    fi
+  else
+    printf '%s\n' "$slug"
+  fi
+}
+
+cmd_preview() {
+  local slug="$1" file records use_color=0 name variant
+
+  file=$(find_palette "$slug") || die "$EX_NOTFOUND" "theme not found: $slug"
+  records=$(stm_parse_palette "$file")
+
+  if [ "$OPT_PORCELAIN" -eq 1 ]; then
+    stm_records_colors "$records"
+    return 0
+  fi
+
+  if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+    use_color=1
+  fi
+
+  name=$(stm_records_meta "$records" name)
+  variant=$(stm_records_meta "$records" variant_label)
+  printf '%s (%s)\n' "$name" "$slug"
+  [ "$variant" != "$name" ] && printf 'variant: %s\n' "$variant"
+  printf '\n'
+
+  stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+    if [ "$use_color" -eq 1 ]; then
+      local rgb r g b
+      rgb=${v#0x}
+      rgb=${rgb#??} # drop the alpha byte
+      r=$((16#${rgb:0:2}))
+      g=$((16#${rgb:2:2}))
+      b=$((16#${rgb:4:2}))
+      printf '  %-14s %s  \033[48;2;%d;%d;%dm    \033[0m\n' "$k" "$v" "$r" "$g" "$b"
+    else
+      printf '  %-14s %s\n' "$k" "$v"
+    fi
+  done
+}
+
+cmd_init() {
+  local dest="./palettes" cfg="./stm.config.toml" bundled f slug copied=0 fmt
+
+  if [ -n "$OPT_FORMAT" ]; then
+    fmt="$OPT_FORMAT"
+  elif [ -d "$RESOLVED_DIR" ] && fmt=$(detect_format "$RESOLVED_DIR" 2>/dev/null); then
+    :
+  else
+    fmt="auto"
+  fi
+
+  mkdir -p "$dest"
+
+  if bundled=$(bundled_palette_dir); then
+    for f in "$bundled"/*.toml; do
+      [ -f "$f" ] || continue
+      slug=$(basename "$f")
+      if [ -e "$dest/$slug" ]; then
+        note "kept existing $dest/$slug"
+        continue
+      fi
+      cp "$f" "$dest/$slug"
+      copied=$((copied + 1))
+    done
+  else
+    err "warning: could not locate the bundled palettes; created an empty $dest"
+  fi
+
+  if [ -e "$cfg" ]; then
+    info "kept existing $cfg"
+  else
+    cat >"$cfg" <<EOF
+# stm — SketchyBar Theme Manager
+# https://github.com/noomz/sketchybar-theme-manager
+
+sketchybar_dir = "$RESOLVED_DIR"
+format = "$fmt"
+palette_dir = "$(pwd)/palettes"
+default_theme = "tokyo-night"
+EOF
+    info "wrote $cfg"
+  fi
+
+  info "palettes: $dest ($copied new)"
+
+  if [ "$fmt" = "lua" ] || [ "$fmt" = "auto" ]; then
+    cat <<'EOF'
+
+Wire the generated palette into your Lua config by making colors.lua fall back
+to it. stm writes colors_generated.lua and never touches colors.lua, so your
+own values stay in place as the default:
+
+    local defaults = {
+      black = 0xff1a1b26,
+      -- ... your existing colours ...
+    }
+
+    local ok, generated = pcall(require, "colors_generated")
+    if ok and type(generated) == "table" then
+      for k, v in pairs(generated) do
+        defaults[k] = v
+      end
+    end
+
+    return defaults
+EOF
+  fi
+}
+
+cmd_add() {
+  local slug="$1" src="$2" records declared dest dir
+
+  validate_slug "$slug"
+  [ -f "$src" ] || die "$EX_NOTFOUND" "palette file not found: $src"
+
+  records=$(stm_parse_palette "$src")
+  declared=$(stm_records_meta "$records" slug)
+  if [ "$declared" != "$slug" ]; then
+    die "$EX_INVALID" "palette declares slug \"$declared\" but you asked to add it as \"$slug\""
+  fi
+
+  dir=$(user_palette_dir)
+  [ -n "$dir" ] || die "$EX_CONFIG" "could not determine a writable palette directory; pass --palette-dir"
+  mkdir -p "$dir"
+  dest="$dir/$slug.toml"
+
+  if [ -e "$dest" ] && [ "$OPT_FORCE" -eq 0 ]; then
+    die "$EX_EXISTS" "$dest already exists (use --force to overwrite)"
+  fi
+
+  cp "$src" "$dest"
+  info "added $slug -> $dest"
+}
+
+usage() {
+  cat <<EOF
+$PROGNAME $STM_VERSION — SketchyBar Theme Manager
+
+USAGE
+  $PROGNAME <command> [args] [options]
+
+COMMANDS
+  list                          List available themes
+  apply <theme>                 Apply a theme, then run \`sketchybar --reload\`
+  current                       Print the active theme slug
+  init [--format lua|bash]      Scaffold ./palettes and ./stm.config.toml
+  add <theme> <palette-file>    Install a palette into your palette directory
+  preview <theme>               Print a theme's colour table (writes nothing)
+  help                          Show this help
+  version                       Print the version
+
+OPTIONS
+  --dir <path>          SketchyBar config dir (overrides \$SKETCHYBAR_CONFIG_DIR)
+  --palette-dir <path>  Palette directory to search
+  --config <path>       Path to stm.config.toml
+  --format lua|bash     Force the output format instead of auto-detecting
+  --no-reload           Do not run \`sketchybar --reload\` after applying
+  --dry-run             Show what would change; write nothing
+  --force               Allow \`add\` to overwrite an existing palette
+  --append-missing      (bash) Append palette keys absent from colors.sh
+  --porcelain           Machine-readable output for \`list\` and \`preview\`
+  -v, --verbose         Extra detail on stderr
+  -q, --quiet           Suppress non-error output
+  -h, --help            Show this help
+  -V, --version         Print the version
+
+ENVIRONMENT
+  SKETCHYBAR_CONFIG_DIR   SketchyBar config directory
+  STM_CONFIG              Path to stm.config.toml
+  STM_PALETTE_DIR         Additional palette directory
+  STM_FORMAT              lua | bash
+  NO_COLOR                Disable colour swatches in \`preview\`
+
+EXIT CODES
+  0 success   1 invalid palette   2 config/format error
+  3 theme not found   4 refusing to overwrite   64 usage error
+
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+main() {
+  local cmd="" args_left=""
+  local -a positional
+  positional=()
+
+  if [ "$#" -eq 0 ]; then
+    usage >&2
+    exit "$EX_USAGE"
+  fi
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--dir needs a value"
+        OPT_DIR="$2"
+        shift 2
+        ;;
+      --dir=*) OPT_DIR="${1#--dir=}"; shift ;;
+      --palette-dir)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--palette-dir needs a value"
+        OPT_PALETTE_DIR="$2"
+        shift 2
+        ;;
+      --palette-dir=*) OPT_PALETTE_DIR="${1#--palette-dir=}"; shift ;;
+      --config)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--config needs a value"
+        OPT_CONFIG="$2"
+        shift 2
+        ;;
+      --config=*) OPT_CONFIG="${1#--config=}"; shift ;;
+      --format)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--format needs a value"
+        OPT_FORMAT="$2"
+        shift 2
+        ;;
+      --format=*) OPT_FORMAT="${1#--format=}"; shift ;;
+      --no-reload) OPT_NO_RELOAD=1; shift ;;
+      --dry-run) OPT_DRY_RUN=1; shift ;;
+      --force) OPT_FORCE=1; shift ;;
+      --append-missing) OPT_APPEND_MISSING=1; shift ;;
+      --porcelain) OPT_PORCELAIN=1; shift ;;
+      -v | --verbose) OPT_VERBOSE=1; shift ;;
+      -q | --quiet) OPT_QUIET=1; shift ;;
+      -h | --help)
+        usage
+        exit "$EX_OK"
+        ;;
+      -V | --version)
+        printf '%s %s\n' "$PROGNAME" "$STM_VERSION"
+        exit "$EX_OK"
+        ;;
+      --)
+        shift
+        while [ "$#" -gt 0 ]; do
+          positional+=("$1")
+          shift
+        done
+        ;;
+      -*) die "$EX_USAGE" "unknown option: $1" ;;
+      *)
+        positional+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if [ "${#positional[@]}" -eq 0 ]; then
+    usage >&2
+    exit "$EX_USAGE"
+  fi
+
+  if [ -n "$OPT_FORMAT" ]; then
+    case "$OPT_FORMAT" in
+      lua | bash) : ;;
+      *) die "$EX_USAGE" "--format must be lua or bash (got \"$OPT_FORMAT\")" ;;
+    esac
+  fi
+
+  cmd="${positional[0]}"
+  args_left=$((${#positional[@]} - 1))
+
+  resolve_config_file
+  resolve_sketchybar_dir
+
+  case "$cmd" in
+    list)
+      cmd_list
+      ;;
+    apply)
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "apply needs a theme name"
+      cmd_apply "${positional[1]}"
+      ;;
+    current)
+      cmd_current
+      ;;
+    preview)
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "preview needs a theme name"
+      cmd_preview "${positional[1]}"
+      ;;
+    init)
+      cmd_init
+      ;;
+    add)
+      [ "$args_left" -ge 2 ] || die "$EX_USAGE" "add needs a theme name and a palette file"
+      cmd_add "${positional[1]}" "${positional[2]}"
+      ;;
+    help)
+      usage
+      ;;
+    version)
+      printf '%s %s\n' "$PROGNAME" "$STM_VERSION"
+      ;;
+    *)
+      err "unknown command: $cmd"
+      usage >&2
+      exit "$EX_USAGE"
+      ;;
+  esac
+}
+
+main "$@"

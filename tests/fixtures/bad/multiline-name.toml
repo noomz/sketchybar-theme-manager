@@ -1,0 +1,7 @@
+name = "Multi
+Line"
+slug = "multiline-name"
+variant_label = "x"
+
+[colors]
+black = "0xff000000"

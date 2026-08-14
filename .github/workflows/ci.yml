@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: shellcheck
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: brew install shellcheck
+      - name: Lint bash scripts
+        run: shellcheck -s bash bin/stm tests/*.sh
+      - name: Lint the POSIX installer
+        run: shellcheck -s sh install.sh
+      - name: Check the installer parses under /bin/sh
+        run: sh -n install.sh
+
+  test-bash3:
+    name: tests (bash 3.2, system)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm the system bash really is 3.2
+        run: /bin/bash --version | head -n 1
+      - name: Run the suite
+        run: tests/run.sh
+
+  test-bash5:
+    name: tests (bash 5.x, homebrew)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash 5
+        run: brew install bash
+      - name: Run the suite
+        run: STM_BASH="$(brew --prefix)/bin/bash" tests/run.sh
+
+  palettes:
+    name: validate bundled palettes
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every palette must parse and validate
+        run: |
+          set -eu
+          fail=0
+          for f in palettes/*.toml; do
+            slug=$(basename "$f" .toml)
+            if STM_ROOT="$PWD" bin/stm preview --porcelain "$slug" >/dev/null; then
+              echo "ok   $slug"
+            else
+              echo "FAIL $slug"
+              fail=1
+            fi
+          done
+          exit "$fail"
+      - name: Every palette file name must match its slug
+        run: |
+          set -eu
+          fail=0
+          for f in palettes/*.toml; do
+            file_slug=$(basename "$f" .toml)
+            decl_slug=$(awk -F'"' '/^slug[[:space:]]*=/ { print $2; exit }' "$f")
+            if [ "$file_slug" != "$decl_slug" ]; then
+              echo "FAIL $f declares slug \"$decl_slug\""
+              fail=1
+            fi
+          done
+          exit "$fail"

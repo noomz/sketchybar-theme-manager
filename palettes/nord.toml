@@ -1,0 +1,25 @@
+# Nord — https://www.nordtheme.com/docs/colors-and-palettes
+# nord0 #2e3440 · nord1 #3b4252 · nord2 #434c5e · nord3 #4c566a · nord4 #d8dee9
+# nord8 #88c0d0 · nord11 #bf616a · nord12 #d08770 · nord13 #ebcb8b
+# nord14 #a3be8c · nord15 #b48ead
+
+name = "Nord"
+slug = "nord"
+variant_label = "Nord"
+
+[colors]
+black = "0xff2e3440"
+white = "0xffd8dee9"
+red = "0xffbf616a"
+green = "0xffa3be8c"
+blue = "0xff88c0d0"
+yellow = "0xffebcb8b"
+orange = "0xffd08770"
+magenta = "0xffb48ead"
+grey = "0xff4c566a"
+bg1 = "0xff3b4252"
+bg2 = "0xff434c5e"
+bar_bg = "0x002e3440"
+bar_border = "0xff434c5e"
+popup_bg = "0xc03b4252"
+popup_border = "0xff4c566a"

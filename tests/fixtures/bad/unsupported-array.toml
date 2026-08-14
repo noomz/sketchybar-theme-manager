@@ -1,0 +1,7 @@
+name = "Array"
+slug = "unsupported-array"
+variant_label = "Array"
+
+[colors]
+black = ["0xff000000", "0xff111111"]
+white = "0xffffffff"
