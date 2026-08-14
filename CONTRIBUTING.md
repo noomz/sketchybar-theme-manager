@@ -76,6 +76,27 @@ STM_ROOT="$PWD" bin/stm preview my-theme
 - Keep `LC_ALL=C` in force. Glob ranges like `[!a-z0-9._-]` match upper-case
   letters under `en_US.UTF-8`, which silently defeats validation.
 
+## Lua dialects
+
+`stm` emits two shapes of `colors_generated.lua`:
+
+- **flat** — one table of colour literals.
+- **nested** — `bar`/`popup` sub-tables plus a `with_alpha` helper, for configs
+  whose `colors.lua` does `return generated` wholesale and therefore needs the
+  generated table to be the complete shape.
+
+The mapping from canonical flat keys to nested fields lives in
+`STM_NESTED_MAP`. The dialect is detected from sub-tables in the user's own
+`colors.lua` only — never from other `.lua` files, because SketchyBar item
+definitions legitimately contain things like `bar = { color = ... }` and would
+false-positive.
+
+`with_alpha` is emitted from `STM_WITH_ALPHA`, a fixed constant in `bin/stm`.
+**Never make generated Lua depend on palette content.** Palettes are untrusted
+downloads; the moment a palette can contribute code, installing a theme becomes
+running a stranger's Lua. If a config needs a function stm does not emit, that
+belongs in the user's own `colors.lua`, which stm never touches.
+
 ## Tests
 
 New behaviour comes with a test. So does every bug fix — write the test that
@@ -116,6 +137,7 @@ validation rule, add the fixture that trips it.
 - [ ] `stm help` and `README.md` describe any new flag or command
 - [ ] No new dependency
 - [ ] Palette files: name matches slug, all 15 keys, upstream values cited
+- [ ] `stm doctor` still reports full coverage on a representative config
 
 ## Reporting a bug
 

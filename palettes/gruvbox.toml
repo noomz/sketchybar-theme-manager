@@ -26,3 +26,37 @@ bar_bg = "0x00282828"
 bar_border = "0xff504945"
 popup_bg = "0xc03c3836"
 popup_border = "0xff928374"
+
+# --- bash dialect: Catppuccin 26-colour naming ------------------------------
+# Values from AwesomeAdil/dotfiles palettes/gruvbox.sh, the most widely used bash
+# SketchyBar theme switcher. A colors.sh naming its variables this way gets
+# them swapped automatically.
+# Not repeated here (the canonical key above already defines them): red yellow green blue
+rosewater = "0xffd3869b"
+flamingo = "0xfffb4934"
+pink = "0xffd3869b"
+mauve = "0xffd3869b"
+maroon = "0xffcc241d"
+peach = "0xfffe8019"
+teal = "0xff8ec07c"
+sky = "0xff83a598"
+sapphire = "0xff83a598"
+lavender = "0xff83a598"
+text = "0xfffbf1c7"
+subtext1 = "0xffebdbb2"
+subtext0 = "0xffd5c4a1"
+overlay2 = "0xffbdae93"
+overlay1 = "0xffa89984"
+overlay0 = "0xff928374"
+surface2 = "0xff7c6f64"
+surface1 = "0xff504945"
+surface0 = "0xff3c3836"
+base = "0xff282828"
+mantle = "0xff222424"
+crust = "0xff1d2021"
+
+# Semantic keys that carry a literal 0x value in colors.sh. Reference lines
+# such as `export ITEM_BG_COLOR=$SURFACE0` are preserved untouched and need
+# no palette key.
+bar_color = "0xcc3c3836"
+bar_border_color = "0x00000000"

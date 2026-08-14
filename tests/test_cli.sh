@@ -167,7 +167,7 @@ mkdir -p "$w"
 (cd "$w" && "$STM_BASH" "$STM_BIN" --dir "$D" init >"$SANDBOX/init.out" 2>&1)
 assert_file_exists "$w/stm.config.toml"
 assert_file_exists "$w/palettes/tokyo-night.toml"
-assert_eq 7 "$(find "$w/palettes" -name '*.toml' | wc -l | tr -d ' ')" "all 7 palettes copied"
+assert_eq 8 "$(find "$w/palettes" -name '*.toml' | wc -l | tr -d ' ')" "all 8 palettes copied"
 assert_file_contains "$w/stm.config.toml" "sketchybar_dir ="
 assert_file_contains "$w/stm.config.toml" "default_theme ="
 done_it

@@ -28,7 +28,7 @@ IFS=$' \t\n'
 LC_ALL=C
 export LC_ALL
 
-STM_VERSION="0.1.0"
+STM_VERSION="0.1.1"
 PROGNAME="stm"
 
 # Every palette must define these. Order here is documentation only; output is
@@ -322,6 +322,14 @@ END {
 
   if (ncolors == 0) fail_end("no [colors] table found")
 
+  # `transparent` is universally 0x00000000 and several real configs reference
+  # colors.transparent unguarded, so default it rather than making every
+  # palette repeat it. A palette may still override it.
+  if (!("transparent" in colors)) {
+    colors["transparent"] = "0x00000000"
+    order[++ncolors] = "transparent"
+  }
+
   missing = ""
   for (i = 1; i <= nreq; i++) {
     if (!(reqlist[i] in colors)) missing = missing " " reqlist[i]
@@ -408,10 +416,12 @@ OPT_DRY_RUN=0
 OPT_FORCE=0
 OPT_PORCELAIN=0
 OPT_APPEND_MISSING=0
+OPT_LUA_DIALECT=""
 
 RESOLVED_CONFIG=""
 RESOLVED_DIR=""
 RESOLVED_FORMAT=""
+RESOLVED_LUA_DIALECT="flat"
 
 resolve_config_file() {
   local c
@@ -568,9 +578,74 @@ resolve_format() {
   note "format: $RESOLVED_FORMAT"
 }
 
+# detect_lua_dialect <dir> — "nested" if the user's own Lua declares sub-tables
+# for bar/popup (the shape where colors.popup.bg must resolve), else "flat".
+# The dialect is a property of the colours module, so only colors.lua is
+# inspected. Scanning every .lua would false-positive on item definitions like
+# `bar = { color = colors.bar_bg }`, which is a SketchyBar item, not a palette.
+# When there is no colors.lua, flat is the safe default and --lua-dialect
+# nested is available.
+detect_lua_dialect() {
+  local f="$1/colors.lua"
+  if [ -f "$f" ] && grep -qE '^[[:space:]]*(bar|popup)[[:space:]]*=[[:space:]]*\{' "$f"; then
+    printf 'nested\n'
+    return 0
+  fi
+  printf 'flat\n'
+}
+
+resolve_lua_dialect() {
+  local d=""
+  if [ -n "$OPT_LUA_DIALECT" ]; then
+    d="$OPT_LUA_DIALECT"
+  elif [ -n "${STM_LUA_DIALECT:-}" ]; then
+    d="$STM_LUA_DIALECT"
+  elif [ -n "$RESOLVED_CONFIG" ] && d=$(stm_config_get "$RESOLVED_CONFIG" lua_dialect 2>/dev/null); then
+    [ "$d" = "auto" ] && d=""
+  fi
+  if [ -z "$d" ]; then
+    d=$(detect_lua_dialect "$RESOLVED_DIR")
+  fi
+  case "$d" in
+    flat | nested) : ;;
+    *) die "$EX_CONFIG" "unknown lua dialect \"$d\" (want flat or nested)" ;;
+  esac
+  RESOLVED_LUA_DIALECT="$d"
+  note "lua dialect: $RESOLVED_LUA_DIALECT"
+}
+
 # ---------------------------------------------------------------------------
 # Writers
 # ---------------------------------------------------------------------------
+
+# Keys that the nested Lua dialect lifts out of the flat palette into
+# sub-tables: "<flat key>:<table>.<field>".
+STM_NESTED_MAP="bar_bg:bar.bg bar_border:bar.border popup_bg:popup.bg popup_border:popup.border"
+
+# The with_alpha helper emitted by the nested dialect.
+#
+# This is stm's OWN code, a fixed constant. It is never read from a palette:
+# palettes are untrusted data and may only ever contribute validated hex
+# literals. Emitting a function sourced from palette content would turn
+# "install a theme" into "run a stranger's Lua".
+STM_WITH_ALPHA='local with_alpha = function(color, alpha)
+  if alpha > 1.0 or alpha < 0.0 then
+    return color
+  end
+  return (color & 0x00ffffff) | (math.floor(alpha * 255.0) << 24)
+end'
+
+# lua_nested_field <flat-key> — echo "table.field" if the key is nested, else
+# nothing.
+lua_nested_field() {
+  local k="$1" pair
+  for pair in $STM_NESTED_MAP; do
+    case "$pair" in
+      "$k":*) printf '%s\n' "${pair#*:}"; return 0 ;;
+    esac
+  done
+  return 1
+}
 
 # write_lua <records> <target>
 write_lua() {
@@ -591,16 +666,59 @@ write_lua() {
     printf -- '-- theme: %s\n' "$slug"
     printf -- '-- name: %s\n' "$name"
     printf -- '-- variant: %s\n' "$variant"
+    printf -- '-- dialect: %s\n' "$RESOLVED_LUA_DIALECT"
     printf -- '-- generated: %s\n' "$stamp"
     printf -- '\n'
-    printf -- 'return {\n'
-    stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
-      printf -- '  %s = %s,\n' "$k" "$v"
-    done
-    printf -- '}\n'
+
+    if [ "$RESOLVED_LUA_DIALECT" = "nested" ]; then
+      write_lua_nested "$records"
+    else
+      write_lua_flat "$records"
+    fi
   } >"$tmp"
 
   commit_tmp "$tmp" "$target"
+}
+
+# write_lua_flat <records> — one flat table of hex literals.
+write_lua_flat() {
+  local records="$1"
+  printf -- 'return {\n'
+  stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+    printf -- '  %s = %s,\n' "$k" "$v"
+  done
+  printf -- '}\n'
+}
+
+# write_lua_nested <records> — the shape used by configs that `return generated`
+# wholesale: sub-tables for bar/popup plus the with_alpha helper, so
+# colors.popup.bg and colors.with_alpha() resolve.
+write_lua_nested() {
+  local records="$1" k v field tbl
+
+  printf -- '%s\n\n' "$STM_WITH_ALPHA"
+  printf -- 'return {\n'
+
+  # Top-level scalars first, in sorted order, skipping anything nested.
+  stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+    if lua_nested_field "$k" >/dev/null; then continue; fi
+    printf -- '  %s = %s,\n' "$k" "$v"
+  done
+
+  # Then each sub-table, in the order declared by STM_NESTED_MAP.
+  for tbl in bar popup; do
+    printf -- '\n  %s = {\n' "$tbl"
+    stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+      field=$(lua_nested_field "$k") || continue
+      case "$field" in
+        "$tbl".*) printf -- '    %s = %s,\n' "${field#*.}" "$v" ;;
+      esac
+    done
+    printf -- '  },\n'
+  done
+
+  printf -- '\n  with_alpha = with_alpha,\n'
+  printf -- '}\n'
 }
 
 # The awk program that performs the in-place colors.sh value swap.
@@ -871,6 +989,7 @@ cmd_apply() {
 
   [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
   resolve_format
+  [ "$RESOLVED_FORMAT" = "lua" ] && resolve_lua_dialect
   target=$(target_path "$RESOLVED_FORMAT")
   name=$(stm_records_meta "$records" name)
 
@@ -1049,6 +1168,142 @@ EOF
   fi
 }
 
+# config_used_keys <dir> <format> — emit, one per line, the canonical palette
+# key names the user's own config actually consumes.
+#
+# Lua: every `colors.X` / `colors.bar.X` reference in their .lua files, with the
+# sub-table forms folded back to the flat canonical name. Non-colour members
+# (with_alpha, display) are excluded — they are structure, not palette data.
+# Bash: every NAME assigned a 0x literal in colors.sh.
+# shellcheck disable=SC2018,SC2019  # shell var names are ASCII and LC_ALL=C is set
+config_used_keys() {
+  local dir="$1" fmt="$2"
+  if [ "$fmt" = "lua" ]; then
+    grep -rhoE 'colors\.[a-zA-Z_][a-zA-Z0-9_.]*' "$dir" --include='*.lua' 2>/dev/null |
+      sed 's/^colors\.//' |
+      sed 's/^bar\./bar_/; s/^popup\./popup_/' |
+      sed 's/\..*$//' |
+      grep -vxE 'with_alpha|display' |
+      grep -xE '[a-z][a-z0-9_]*' |
+      sort -u
+  else
+    grep -hoE '^[[:space:]]*(export[[:space:]]+)?[A-Z][A-Z0-9_]*=0x' "$dir/colors.sh" 2>/dev/null |
+      sed 's/^[[:space:]]*//; s/^export[[:space:]]*//; s/=0x$//' |
+      tr 'A-Z' 'a-z' |
+      sort -u
+  fi
+}
+
+cmd_doctor() {
+  local slug file records provided used tmpdir rc=0 n_missing=0 n_unused=0 fmt
+
+  tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$tmpdir"
+  provided="$tmpdir/provided"
+  used="$tmpdir/used"
+
+  printf '%s %s\n\n' "$PROGNAME" "$STM_VERSION"
+
+  printf 'Environment\n'
+  if command -v sketchybar >/dev/null 2>&1; then
+    printf '  %-16s %s\n' "sketchybar" "$(command -v sketchybar)"
+  else
+    printf '  %-16s %s\n' "sketchybar" "NOT FOUND on PATH"
+    rc=1
+  fi
+  printf '  %-16s %s\n' "config dir" "$RESOLVED_DIR"
+  if [ ! -d "$RESOLVED_DIR" ]; then
+    printf '  %-16s %s\n' "" "does not exist"
+    printf '\nFAIL\n'
+    return 2
+  fi
+
+  if fmt=$(detect_format "$RESOLVED_DIR" 2>/dev/null); then
+    printf '  %-16s %s\n' "format" "$fmt (detected)"
+  else
+    if [ -n "$OPT_FORMAT" ]; then
+      fmt="$OPT_FORMAT"
+      printf '  %-16s %s\n' "format" "$fmt (forced)"
+    else
+      printf '  %-16s %s\n' "format" "COULD NOT DETECT (pass --format)"
+      printf '\nFAIL\n'
+      return 2
+    fi
+  fi
+  RESOLVED_FORMAT="$fmt"
+
+  if [ "$fmt" = "lua" ]; then
+    resolve_lua_dialect
+    printf '  %-16s %s\n' "lua dialect" "$RESOLVED_LUA_DIALECT"
+  fi
+
+  printf '  %-16s %s\n' "palette dirs" "$(palette_dirs | tr '\n' ' ')"
+
+  slug=$(read_state 2>/dev/null || true)
+  if [ -n "${1:-}" ]; then
+    slug="$1"
+    printf '  %-16s %s (requested)\n' "theme" "$slug"
+  elif [ -n "$slug" ]; then
+    printf '  %-16s %s (active)\n' "theme" "$slug"
+  else
+    printf '  %-16s %s\n' "theme" "none applied yet; checking default"
+    slug="tokyo-night"
+  fi
+
+  if ! file=$(find_palette "$slug"); then
+    printf '\n  palette not found: %s\n' "$slug"
+    printf '\nFAIL\n'
+    return 3
+  fi
+
+  records=$(stm_parse_palette "$file")
+  stm_records_colors "$records" | cut -f1 | sort -u >"$provided"
+  config_used_keys "$RESOLVED_DIR" "$fmt" >"$used"
+
+  printf '\nKey coverage (config vs palette "%s")\n' "$slug"
+
+  if [ ! -s "$used" ]; then
+    printf '  %s\n' "could not find any colour references in $RESOLVED_DIR"
+  else
+    n_missing=$(comm -23 "$used" "$provided" | wc -l | tr -d ' ')
+    n_unused=$(comm -13 "$used" "$provided" | wc -l | tr -d ' ')
+
+    printf '  %-24s %s\n' "used and provided" \
+      "$(comm -12 "$used" "$provided" | tr '\n' ' ')"
+
+    # A key the config uses but the palette lacks means different things per
+    # format. In Lua it resolves to nil and the config breaks at load, so it is
+    # an error. In Bash the variable simply keeps whatever literal it already
+    # had — stm just does not manage it — so it is informational.
+    if [ "$n_missing" -gt 0 ]; then
+      if [ "$fmt" = "lua" ]; then
+        printf '  %-24s %s\n' "USED BUT MISSING" "$(comm -23 "$used" "$provided" | tr '\n' ' ')"
+        printf '  %-24s %s\n' "" "these resolve to nil in Lua and will break the bar"
+        rc=1
+      else
+        printf '  %-24s %s\n' "not managed by stm" "$(comm -23 "$used" "$provided" | tr '\n' ' ')"
+        printf '  %-24s %s\n' "" "these keep their current values; add them to the palette to theme them"
+      fi
+    else
+      printf '  %-24s %s\n' "used but missing" "(none)"
+    fi
+
+    if [ "$n_unused" -gt 0 ]; then
+      printf '  %-24s %s\n' "provided but unused" "$(comm -13 "$used" "$provided" | tr '\n' ' ')"
+    fi
+  fi
+
+  printf '\n'
+  if [ "$rc" -eq 0 ]; then
+    printf 'OK\n'
+  else
+    printf 'PROBLEMS FOUND\n'
+  fi
+  return "$rc"
+}
+
 cmd_add() {
   local slug="$1" src="$2" records declared dest dir
 
@@ -1088,6 +1343,7 @@ COMMANDS
   init [--format lua|bash]      Scaffold ./palettes and ./stm.config.toml
   add <theme> <palette-file>    Install a palette into your palette directory
   preview <theme>               Print a theme's colour table (writes nothing)
+  doctor [theme]                Diagnose the config: format, dialect, key coverage
   help                          Show this help
   version                       Print the version
 
@@ -1096,6 +1352,7 @@ OPTIONS
   --palette-dir <path>  Palette directory to search
   --config <path>       Path to stm.config.toml
   --format lua|bash     Force the output format instead of auto-detecting
+  --lua-dialect <d>     flat | nested | auto (default: auto-detect)
   --no-reload           Do not run \`sketchybar --reload\` after applying
   --dry-run             Show what would change; write nothing
   --force               Allow \`add\` to overwrite an existing palette
@@ -1111,6 +1368,7 @@ ENVIRONMENT
   STM_CONFIG              Path to stm.config.toml
   STM_PALETTE_DIR         Additional palette directory
   STM_FORMAT              lua | bash
+  STM_LUA_DIALECT         flat | nested
   NO_COLOR                Disable colour swatches in \`preview\`
 
 EXIT CODES
@@ -1160,6 +1418,12 @@ main() {
         shift 2
         ;;
       --format=*) OPT_FORMAT="${1#--format=}"; shift ;;
+      --lua-dialect)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--lua-dialect needs a value"
+        OPT_LUA_DIALECT="$2"
+        shift 2
+        ;;
+      --lua-dialect=*) OPT_LUA_DIALECT="${1#--lua-dialect=}"; shift ;;
       --no-reload) OPT_NO_RELOAD=1; shift ;;
       --dry-run) OPT_DRY_RUN=1; shift ;;
       --force) OPT_FORCE=1; shift ;;
@@ -1202,6 +1466,14 @@ main() {
     esac
   fi
 
+  if [ -n "$OPT_LUA_DIALECT" ]; then
+    case "$OPT_LUA_DIALECT" in
+      flat | nested | auto) : ;;
+      *) die "$EX_USAGE" "--lua-dialect must be flat, nested or auto (got \"$OPT_LUA_DIALECT\")" ;;
+    esac
+    [ "$OPT_LUA_DIALECT" = "auto" ] && OPT_LUA_DIALECT=""
+  fi
+
   cmd="${positional[0]}"
   args_left=$((${#positional[@]} - 1))
 
@@ -1229,6 +1501,13 @@ main() {
     add)
       [ "$args_left" -ge 2 ] || die "$EX_USAGE" "add needs a theme name and a palette file"
       cmd_add "${positional[1]}" "${positional[2]}"
+      ;;
+    doctor)
+      if [ "$args_left" -ge 1 ]; then
+        cmd_doctor "${positional[1]}"
+      else
+        cmd_doctor
+      fi
       ;;
     help)
       usage

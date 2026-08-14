@@ -75,6 +75,7 @@ stm current                   # nord
 | `stm init [--format lua\|bash]` | Scaffold `./palettes` and `./stm.config.toml` |
 | `stm add <theme> <palette-file>` | Install a palette into your palette directory |
 | `stm preview <theme>` | Print a theme's colour table — writes nothing |
+| `stm doctor [theme]` | Diagnose the config: format, dialect, key coverage |
 | `stm help` | Show usage |
 | `stm version` | Print the version |
 
@@ -86,6 +87,7 @@ stm current                   # nord
 | `--palette-dir <path>` | Palette directory to search |
 | `--config <path>` | Path to `stm.config.toml` |
 | `--format lua\|bash` | Force the output format instead of auto-detecting |
+| `--lua-dialect <d>` | `flat`, `nested` or `auto` (default: auto-detect) |
 | `--no-reload` | Don't run `sketchybar --reload` after applying |
 | `--dry-run` | Show what would change; write nothing |
 | `--force` | Let `add` overwrite an existing palette |
@@ -122,6 +124,52 @@ return {
 ```
 
 Values are unquoted Lua number literals, which is what SketchyBar wants.
+
+#### Two Lua shapes
+
+Real configs consume colours in one of two shapes, and `stm` detects which one
+your `colors.lua` uses.
+
+**flat** — a single table of colours. This is the default, and what you get if
+your config merges the generated table into your own defaults.
+
+**nested** — `bar` and `popup` become sub-tables and a `with_alpha` helper is
+included:
+
+```lua
+local with_alpha = function(color, alpha)
+  if alpha > 1.0 or alpha < 0.0 then
+    return color
+  end
+  return (color & 0x00ffffff) | (math.floor(alpha * 255.0) << 24)
+end
+
+return {
+  black = 0xff1a1b26,
+  transparent = 0x00000000,
+  -- ...
+  bar = { bg = 0x001a1b26, border = 0xff292e42 },
+  popup = { bg = 0xc01f2335, border = 0xff565f89 },
+  with_alpha = with_alpha,
+}
+```
+
+You need `nested` if your `colors.lua` returns the generated table *wholesale*:
+
+```lua
+local ok, generated = pcall(require, "colors_generated")
+if ok and generated then
+  return generated          -- <- nothing of yours survives, so the generated
+end                         --    table must be the complete shape
+```
+
+In that arrangement a flat table would make `colors.popup.bg` and
+`colors.with_alpha` nil and the bar would fail to load. `stm` detects the shape
+from the sub-tables in your own `colors.lua`; override with `--lua-dialect`.
+
+`with_alpha` is emitted from a fixed, built-in definition inside `stm`. It is
+never read from a palette — palettes carry data only, so installing someone
+else's theme can change your colours and nothing else.
 
 ### Bash configs → in-place swap in `colors.sh`
 
@@ -288,8 +336,41 @@ The file name must match the `slug`.
 `black` · `white` · `red` · `green` · `blue` · `yellow` · `orange` · `magenta` ·
 `grey` · `bg1` · `bg2` · `bar_bg` · `bar_border` · `popup_bg` · `popup_border`
 
-Extra keys beyond these fifteen are allowed and are passed straight through to
-the output, so you can carry your own `accent` or `teal` if your config uses one.
+`transparent` is added automatically as `0x00000000` if a palette does not
+declare it, because several real configs reference `colors.transparent`
+unguarded. A palette may still override it.
+
+Extra keys beyond these are allowed and are passed straight through to the
+output, so you can carry your own `my_accent` if your config uses one.
+
+### The bash Catppuccin dialect
+
+Many shell-based configs name their colours with Catppuccin's 26-colour
+vocabulary (`ROSEWATER`, `MAUVE`, `SURFACE0`, `CRUST`, …) rather than
+`BLACK`/`WHITE`. Every bundled palette therefore also carries those keys, with
+values taken from [AwesomeAdil/dotfiles](https://github.com/AwesomeAdil/dotfiles),
+so a `colors.sh` written that way is themed correctly with no configuration.
+
+Reference lines are left alone. Only literal `0x` values are rewritten, so a
+line like `export ITEM_BG_COLOR=$SURFACE0` keeps pointing at whatever
+`SURFACE0` now holds.
+
+### Checking your config
+
+```console
+$ stm doctor
+...
+Key coverage (config vs palette "tokyo-night")
+  used and provided        bg1 bg2 black blue green grey ...
+  used but missing         (none)
+  provided but unused      bar_bg bar_border
+```
+
+`doctor` reports the detected format and Lua dialect, then compares the colour
+keys your config actually consumes against the ones the palette provides. In a
+Lua config a missing key is an error — it resolves to `nil` and breaks the bar.
+In a shell config it is only informational, since the variable keeps whatever
+value it already had.
 
 **Values** are `0xAARRGGBB` — exactly eight hex digits, alpha first. That is
 SketchyBar's own colour format. `bar_bg` is usually given a `00` alpha for a
@@ -304,7 +385,7 @@ error instead of a silently missing colour.
 
 ## Themes
 
-Seven palettes ship with `stm`. Run `stm preview <theme>` to see them rendered
+Eight palettes ship with `stm`. Run `stm preview <theme>` to see them rendered
 as true-colour swatches in your terminal.
 
 ### Tokyo Night — `tokyo-night`
@@ -365,6 +446,20 @@ as true-colour swatches in your terminal.
 
 Latte is a light theme, so `black` is the light background and `white` is the
 dark text colour. The slot names describe roles, not brightness.
+
+### Catppuccin Frappe — `catppuccin-frappe`
+
+| key | value |
+| --- | --- |
+| black | `0xff303446` |
+| white | `0xffc6d0f5` |
+| red | `0xffe78284` |
+| green | `0xffa6d189` |
+| blue | `0xff8caaee` |
+| yellow | `0xffe5c890` |
+| orange | `0xffef9f76` |
+| magenta | `0xffca9ee6` |
+| grey | `0xff737994` |
 
 ### Nord — `nord`
 

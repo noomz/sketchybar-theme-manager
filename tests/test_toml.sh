@@ -14,7 +14,13 @@ run_stm preview --porcelain tokyo-night
 assert_status 0
 assert_contains "$STM_OUT" "black	0xff1a1b26"
 assert_contains "$STM_OUT" "popup_border	0xff565f89"
-assert_eq 15 "$(printf '%s\n' "$STM_OUT" | wc -l | tr -d ' ')" "should emit 15 colour keys"
+# Palettes carry the 15 canonical keys plus transparent plus the bash dialect
+# set, so assert the contract rather than a brittle exact count.
+n=$(printf '%s\n' "$STM_OUT" | wc -l | tr -d ' ')
+if [ "$n" -lt 16 ]; then
+  _note_fail "expected at least 16 colour keys, got $n"
+fi
+assert_contains "$STM_OUT" "transparent	0x00000000"
 done_it
 
 it "emits colours sorted by key"
@@ -80,11 +86,11 @@ mkdir -p "$extra"
 cp "$REPO_ROOT/palettes/tokyo-night.toml" "$extra/extra-keys.toml"
 sed 's/^slug = .*/slug = "extra-keys"/;s/^name = .*/name = "Extra Keys"/;s/^variant_label = .*/variant_label = "Extra Keys"/' \
   "$REPO_ROOT/palettes/tokyo-night.toml" >"$extra/extra-keys.toml"
-printf 'accent = "0xffb7bdf8"\nteal = "0xff1abc9c"\n' >>"$extra/extra-keys.toml"
+printf 'my_accent = "0xffb7bdf8"\nmy_highlight = "0xff1abc9c"\n' >>"$extra/extra-keys.toml"
 run_stm preview --palette-dir "$extra" --porcelain extra-keys
 assert_status 0
-assert_contains "$STM_OUT" "accent	0xffb7bdf8"
-assert_contains "$STM_OUT" "teal	0xff1abc9c"
+assert_contains "$STM_OUT" "my_accent	0xffb7bdf8"
+assert_contains "$STM_OUT" "my_highlight	0xff1abc9c"
 done_it
 
 it "normalises upper-case hex to lower case"
