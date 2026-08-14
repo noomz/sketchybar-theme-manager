@@ -251,15 +251,16 @@ BEGIN {
   # Table header
   if (line ~ /^[ \t]*\[/) {
     if (line !~ /^[ \t]*\[[ \t]*[A-Za-z0-9_-]+[ \t]*\][ \t]*(#.*)?$/)
-      fail("unsupported table syntax (only a plain [colors] header is allowed)")
+      fail("unsupported table syntax (only plain [colors] / [extras] headers are allowed)")
     sec = line
     sub(/^[ \t]*\[[ \t]*/, "", sec)
     sub(/[ \t]*\].*$/, "", sec)
-    if (sec != "colors")
-      fail("unsupported table [" sec "] (only [colors] is allowed)")
-    if (section == "colors")
-      fail("duplicate [colors] table")
-    section = "colors"
+    if (sec != "colors" && sec != "extras")
+      fail("unsupported table [" sec "] (only [colors] and [extras] are allowed)")
+    if (seen_section[sec])
+      fail("duplicate [" sec "] table")
+    seen_section[sec] = 1
+    section = sec
     next
   }
 
@@ -278,17 +279,16 @@ BEGIN {
   sub(/^[^=]*=[ \t]*"/, "", val)
   sub(/".*$/, "", val)
 
-  if (section == "colors") {
+  if (section == "colors" || section == "extras") {
     if (key !~ /^[a-z][a-z0-9_]*$/)
       fail("invalid colour key \"" key "\" (want lower-case [a-z][a-z0-9_]*)")
     if (length(key) > 32)
       fail("colour key \"" key "\" is too long (max 32)")
-    if (val !~ /^0[xX][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/)
-      fail("invalid colour value for \"" key "\": \"" val "\" (want 0xAARRGGBB, exactly 8 hex digits)")
+    val = normalise_colour(key, val)
     if (key in colors)
-      fail("duplicate colour key \"" key "\"")
-    colors[key] = tolower(val)
-    sub(/^0X/, "0x", colors[key])
+      fail("duplicate colour key \"" key "\" (already defined in [" origin[key] "])")
+    colors[key] = val
+    origin[key] = section
     order[++ncolors] = key
     next
   }
@@ -322,14 +322,9 @@ END {
 
   if (ncolors == 0) fail_end("no [colors] table found")
 
-  # `transparent` is universally 0x00000000 and several real configs reference
-  # colors.transparent unguarded, so default it rather than making every
-  # palette repeat it. A palette may still override it.
-  if (!("transparent" in colors)) {
-    colors["transparent"] = "0x00000000"
-    order[++ncolors] = "transparent"
-  }
 
+  # nreq is 0 when the caller is collecting one link of a `base` chain: the
+  # required keys only have to be present once the whole chain is merged.
   missing = ""
   for (i = 1; i <= nreq; i++) {
     if (!(reqlist[i] in colors)) missing = missing " " reqlist[i]
@@ -342,9 +337,41 @@ END {
     printf("meta\tvariant_label\t%s\n", meta["variant_label"])
   else
     printf("meta\tvariant_label\t%s\n", meta["name"])
+  if ("base" in meta) {
+    if (meta["base"] !~ /^[a-z0-9][a-z0-9._-]*$/)
+      fail_end("invalid base \"" meta["base"] "\" (want a palette slug)")
+    if (meta["base"] == slug)
+      fail_end("palette \"" slug "\" cannot inherit from itself")
+    printf("meta\tbase\t%s\n", meta["base"])
+  }
 
-  for (i = 1; i <= ncolors; i++)
-    printf("color\t%s\t%s\n", order[i], colors[order[i]])
+  for (i = 1; i <= ncolors; i++) {
+    if (origin[order[i]] == "extras")
+      printf("extra\t%s\t%s\n", order[i], colors[order[i]])
+    else
+      printf("color\t%s\t%s\n", order[i], colors[order[i]])
+  }
+}
+
+# normalise_colour — accept 0xAARRGGBB or #RRGGBB, always return lower-case
+# 0xAARRGGBB. Everything downstream therefore still only ever sees a validated
+# 8-hex-digit literal, which is what keeps generated code inert.
+function normalise_colour(k, v) {
+  if (v ~ /^0[xX][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/) {
+    v = tolower(v)
+    sub(/^0x/, "0x", v)
+    return v
+  }
+  if (v ~ /^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/) {
+    v = tolower(v)
+    sub(/^#/, "", v)
+    return "0xff" v
+  }
+  if (v ~ /^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/)
+    fail("invalid colour value for \"" k "\": \"" v "\" (3-digit #rgb is not supported; write #rrggbb)")
+  if (v ~ /^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/)
+    fail("invalid colour value for \"" k "\": \"" v "\" (# means RGB; use 0xAARRGGBB for alpha)")
+  fail("invalid colour value for \"" k "\": \"" v "\" (want 0xAARRGGBB or #RRGGBB)")
 }
 function fail_end(msg) {
   printf("%s: %s: %s\n", prog, FILENAME, msg) > "/dev/stderr"
@@ -358,15 +385,103 @@ function check_label(what, s) {
 }
 '
 
-# stm_parse_palette <file> — prints the record stream, or fails with EX_INVALID.
-stm_parse_palette() {
+# stm_parse_one <file> — parse a single palette file with no required-key check.
+# Used for each link of a `base` chain; the required keys only have to be
+# satisfied once the whole chain has been merged.
+stm_parse_one() {
   local file="$1"
   [ -f "$file" ] || die "$EX_NOTFOUND" "palette file not found: $file"
   [ -r "$file" ] || die "$EX_INVALID" "palette file is not readable: $file"
 
-  if ! awk -v prog="$PROGNAME" -v required="$STM_REQUIRED_KEYS" "$STM_TOML_AWK" "$file"; then
+  if ! awk -v prog="$PROGNAME" -v required="" "$STM_TOML_AWK" "$file"; then
     die "$EX_INVALID" "invalid palette: $file"
   fi
+}
+
+# Maximum length of a `base =` inheritance chain.
+STM_MAX_BASE_DEPTH=8
+
+# stm_parse_palette <file> — the real entry point. Resolves any `base =` chain,
+# merges it child-last, defaults `transparent`, then enforces the required keys
+# on the merged result.
+stm_parse_palette() {
+  local file="$1"
+  local chain="" seen="" depth=0 base slug merged tmpdir out missing k
+  local cur="$file"
+
+  tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$tmpdir"
+  merged="$tmpdir/merged"
+  : >"$merged"
+
+  # Walk the chain child -> base, collecting file paths.
+  while :; do
+    out=$(stm_parse_one "$cur")
+    printf '%s\n' "$out" >"$tmpdir/link.$depth"
+
+    slug=$(printf '%s\n' "$out" | awk -F'\t' '$1=="meta" && $2=="slug" { print $3; exit }')
+    case "$seen" in
+      *"|$slug|"*)
+        die "$EX_INVALID" "circular base chain in $file: $chain$slug"
+        ;;
+    esac
+    seen="$seen|$slug|"
+    chain="$chain$slug -> "
+
+    base=$(printf '%s\n' "$out" | awk -F'\t' '$1=="meta" && $2=="base" { print $3; exit }')
+    [ -n "$base" ] || break
+
+    depth=$((depth + 1))
+    if [ "$depth" -ge "$STM_MAX_BASE_DEPTH" ]; then
+      die "$EX_INVALID" "base chain deeper than $STM_MAX_BASE_DEPTH in $file: $chain"
+    fi
+
+    validate_slug "$base"
+    cur=$(find_palette_file "$base") ||
+      die "$EX_NOTFOUND" "palette \"$slug\" inherits from \"$base\", which was not found"
+  done
+
+  # Merge base-first so the child overrides. link.$depth is the deepest base.
+  local i
+  i="$depth"
+  while [ "$i" -ge 0 ]; do
+    awk -F'\t' '$1=="color" || $1=="extra"' "$tmpdir/link.$i" >>"$merged"
+    i=$((i - 1))
+  done
+
+  # Last value wins per key; a key may be promoted from extra to color (or the
+  # reverse) by a child, so the kind travels with the winning definition.
+  local colours
+  colours=$(awk -F'\t' '
+    { kind[$2] = $1; val[$2] = $3
+      if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
+    END { for (i = 1; i <= n; i++) printf("%s\t%s\t%s\n", kind[order[i]], order[i], val[order[i]]) }
+  ' "$merged")
+
+  # `transparent` is universally 0x00000000 and several real configs reference
+  # colors.transparent unguarded, so default it once, after merging.
+  if ! printf '%s\n' "$colours" | awk -F'\t' '$2=="transparent"' | grep -q .; then
+    colours="$colours
+color	transparent	0x00000000"
+  fi
+
+  missing=""
+  for k in $STM_REQUIRED_KEYS; do
+    if ! printf '%s\n' "$colours" | awk -F'\t' -v k="$k" '$2==k' | grep -q .; then
+      missing="$missing $k"
+    fi
+  done
+  if [ -n "$missing" ]; then
+    die "$EX_INVALID" "$file: missing required colour key(s):$missing"
+  fi
+
+  # Metadata comes from the child (link.0) alone.
+  awk -F'\t' '$1=="meta"' "$tmpdir/link.0"
+  printf '%s\n' "$colours"
+
+  rm -rf "$tmpdir"
 }
 
 # stm_records_meta <records> <key> — pull one meta value out of a record stream.
@@ -375,32 +490,138 @@ stm_records_meta() {
 }
 
 # stm_records_colors <records> — emit "key<TAB>value" colour lines, sorted.
+# All colour keys the writers should emit: [colors] and [extras] alike. Extras
+# are ordinary colours with a different provenance, not a different kind of
+# value, so a config that names one gets it swapped like any other.
 stm_records_colors() {
-  printf '%s\n' "$1" | awk -F'\t' '$1=="color" { printf("%s\t%s\n", $2, $3) }' | sort
+  printf '%s\n' "$1" | awk -F'\t' '$1=="color" || $1=="extra" { printf("%s\t%s\n", $2, $3) }' | sort
+}
+
+# Only the [extras] keys, for `{{extras_*}}` template blocks and doctor.
+stm_records_extras() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="extra" { printf("%s\t%s\n", $2, $3) }' | sort
+}
+
+# theme_note <slug> — the free-text note for a theme from [notes], if any.
+theme_note() {
+  [ -n "$RESOLVED_CONFIG" ] || return 1
+  stm_config_section_get "$RESOLVED_CONFIG" notes "$1" 2>/dev/null
+}
+
+# apply_mapping <records> — fold [mapping] from stm.config.toml into the record
+# stream, so everything downstream sees one flat set of key -> hex pairs.
+#
+#   [mapping]
+#   grey = "gray"            # my config says grey; the canonical key is gray
+#   custom = "#ff0000"       # my config says custom; pin it to a literal
+#
+# The left side is the name as it appears in the *user's* config and templates.
+# It can only ever produce another `key -> validated hex` pair: mapping cannot
+# name a path, a command, or anything else.
+apply_mapping() {
+  local records="$1" key val resolved out
+  [ -n "$RESOLVED_CONFIG" ] || { printf '%s\n' "$records"; return 0; }
+
+  out="$records"
+  while IFS=$'\t' read -r key val; do
+    [ -n "$key" ] || continue
+    case "$key" in
+      *[!a-z0-9_]* | [!a-z]*)
+        die "$EX_CONFIG" "[mapping] invalid key \"$key\" (want lower-case [a-z][a-z0-9_]*)"
+        ;;
+    esac
+
+    case "$val" in
+      "0x"* | "#"*)
+        # A literal. Validate it exactly like a palette value.
+        resolved=$(printf 'x\t%s\n' "$val" | awk -F'\t' '
+          $2 ~ /^0[xX][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/ { print tolower($2); ok = 1 }
+          $2 ~ /^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/ { v = tolower($2); sub(/^#/, "", v); print "0xff" v; ok = 1 }
+          END { if (!ok) exit 1 }')
+        if [ -z "$resolved" ]; then
+          die "$EX_CONFIG" "[mapping] $key = \"$val\" is not a valid colour (want 0xAARRGGBB or #RRGGBB)"
+        fi
+        ;;
+      *)
+        # A canonical key. It must already exist in the palette, or the user has
+        # a typo that would otherwise silently produce nothing.
+        resolved=$(printf '%s\n' "$records" |
+          awk -F'\t' -v k="$val" '($1=="color" || $1=="extra") && $2==k { print $3; exit }')
+        if [ -z "$resolved" ]; then
+          die "$EX_CONFIG" "[mapping] $key = \"$val\": no colour named \"$val\" in this palette"
+        fi
+        ;;
+    esac
+
+    out="$out
+color	$key	$resolved"
+  done <<EOF
+$(stm_config_pairs "$RESOLVED_CONFIG" mapping)
+EOF
+
+  # A mapped key overrides a palette key of the same name: last definition wins.
+  printf '%s\n' "$out" | awk -F'\t' '
+    $1=="meta" { print; next }
+    { kind[$2] = $1; val[$2] = $3
+      if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
+    END { for (i = 1; i <= n; i++) printf("%s\t%s\t%s\n", kind[order[i]], order[i], val[order[i]]) }
+  '
 }
 
 # ---------------------------------------------------------------------------
 # Minimal reader for stm.config.toml (root-level strings only)
 # ---------------------------------------------------------------------------
 
+# The config grammar is the same restricted subset as a palette: `key = "value"`
+# strings, `#` comments, and plain `[section]` headers. It is never sourced and
+# no `$` expansion happens, so a config file cannot execute anything.
+#
+# stm_config_pairs <file> <section> — emit `key<TAB>value` for one section.
+# Pass "" as <section> for the root (pre-header) keys.
+#
+# shellcheck disable=SC2016  # awk source
+STM_CONFIG_AWK='
+{ line = $0; sub(/\r$/, "", line) }
+line ~ /^[ \t]*$/ { next }
+line ~ /^[ \t]*#/ { next }
+line ~ /^[ \t]*\[/ {
+  sec = line
+  sub(/^[ \t]*\[[ \t]*/, "", sec)
+  sub(/[ \t]*\].*$/, "", sec)
+  cur = sec
+  next
+}
+{
+  if (cur != want) next
+  if (line !~ /^[ \t]*[A-Za-z_][A-Za-z0-9_.-]*[ \t]*=[ \t]*"[^"\\]*"[ \t]*(#.*)?$/) next
+  k = line; sub(/^[ \t]*/, "", k); sub(/[ \t]*=.*$/, "", k)
+  v = line; sub(/^[^=]*=[ \t]*"/, "", v); sub(/".*$/, "", v)
+  printf("%s\t%s\n", k, v)
+}
+'
+
+stm_config_pairs() {
+  local file="$1" section="$2"
+  [ -f "$file" ] || return 0
+  awk -v want="$section" "$STM_CONFIG_AWK" "$file"
+}
+
+# stm_config_get <file> <key> — a root-level scalar.
 stm_config_get() {
-  local file="$1" key="$2"
+  local file="$1" key="$2" v
   [ -f "$file" ] || return 1
-  awk -v want="$key" '
-    { line = $0; sub(/\r$/, "", line) }
-    line ~ /^[ \t]*#/ { next }
-    line ~ /^[ \t]*\[/ { insection = 1; next }
-    insection { next }
-    line ~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*"[^"\\]*"[ \t]*(#.*)?$/ {
-      k = line; sub(/^[ \t]*/, "", k); sub(/[ \t]*=.*$/, "", k)
-      if (k != want) next
-      v = line; sub(/^[^=]*=[ \t]*"/, "", v); sub(/".*$/, "", v)
-      print v
-      found = 1
-      exit
-    }
-    END { if (!found) exit 1 }
-  ' "$file"
+  v=$(stm_config_pairs "$file" "" | awk -F'\t' -v k="$key" '$1==k { print $2; exit }')
+  [ -n "$v" ] || return 1
+  printf '%s\n' "$v"
+}
+
+# stm_config_section_get <file> <section> <key>
+stm_config_section_get() {
+  local file="$1" section="$2" key="$3" v
+  [ -f "$file" ] || return 1
+  v=$(stm_config_pairs "$file" "$section" | awk -F'\t' -v k="$key" '$1==k { print $2; exit }')
+  [ -n "$v" ] || return 1
+  printf '%s\n' "$v"
 }
 
 # ---------------------------------------------------------------------------
@@ -469,7 +690,13 @@ resolve_sketchybar_dir() {
 palette_dirs() {
   local d bundled
   if [ -n "$OPT_PALETTE_DIR" ]; then
+    # --palette-dir replaces the *user* search path, but the bundled palettes
+    # stay available: a palette that inherits via `base =` from a shipped theme
+    # must still resolve, and `stm list` should not appear to lose them.
     printf '%s\n' "$(expand_tilde "$OPT_PALETTE_DIR")"
+    if bundled=$(bundled_palette_dir); then
+      printf '%s\n' "$bundled"
+    fi
     return 0
   fi
   [ -n "${STM_PALETTE_DIR:-}" ] && printf '%s\n' "$(expand_tilde "$STM_PALETTE_DIR")"
@@ -483,18 +710,40 @@ palette_dirs() {
 }
 
 # user_palette_dir — the first writable non-bundled directory, for `stm add`.
+# Fed by a heredoc rather than a pipe: breaking out of a `cmd | while` loop
+# closes the pipe under the still-writing producer, and with `set -o pipefail`
+# that SIGPIPE becomes a spurious exit 141.
 user_palette_dir() {
   local bundled d
   bundled=$(bundled_palette_dir 2>/dev/null || true)
-  palette_dirs | while IFS= read -r d; do
+  while IFS= read -r d; do
     [ -n "$d" ] || continue
     [ "$d" = "$bundled" ] && continue
     printf '%s\n' "$d"
-    break
-  done
+    return 0
+  done <<EOF
+$(palette_dirs)
+EOF
+  return 1
 }
 
 # find_palette <slug> — echo the path of the highest-precedence palette file.
+# find_palette_file <slug> — raw lookup with no validation. Callers must have
+# validated the slug already; use find_palette unless you have.
+find_palette_file() {
+  local slug="$1" d
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    if [ -f "$d/$slug.toml" ]; then
+      printf '%s\n' "$d/$slug.toml"
+      return 0
+    fi
+  done <<EOF
+$(palette_dirs)
+EOF
+  return 1
+}
+
 find_palette() {
   local slug="$1" d
   validate_slug "$slug"
@@ -863,12 +1112,46 @@ write_bash() {
   commit_tmp "$tmp" "$target"
 }
 
-# target_path <format> — where the given format writes.
-target_path() {
-  case "$1" in
-    lua) printf '%s\n' "$RESOLVED_DIR/colors_generated.lua" ;;
-    bash) printf '%s\n' "$RESOLVED_DIR/colors.sh" ;;
+# validate_output_name <value> <config-key> — [output] is the only config value
+# that decides a write *path*, so it is held to the same standard as a slug: a
+# bare filename inside the config dir, never a path.
+validate_output_name() {
+  local v="$1" key="$2"
+  case "$v" in
+    "" | "." | "..") die "$EX_CONFIG" "[output] $key is empty or invalid" ;;
+    */*) die "$EX_CONFIG" "[output] $key must be a bare filename, not a path: \"$v\"" ;;
+    .*) die "$EX_CONFIG" "[output] $key may not start with a dot: \"$v\"" ;;
   esac
+  case "$v" in
+    *[!A-Za-z0-9._-]*)
+      die "$EX_CONFIG" "[output] $key has invalid characters: \"$v\" (allowed: A-Z a-z 0-9 . _ -)"
+      ;;
+  esac
+  # Never let stm be pointed at files it must not own.
+  case "$v" in
+    colors.lua | .stm-state | .stm-manifest | stm.config.toml)
+      die "$EX_CONFIG" "[output] $key may not be \"$v\" — stm must not own that file"
+      ;;
+  esac
+  printf '%s\n' "$v"
+}
+
+# target_path <format> — where the given format writes. [output] may rename the
+# destination, but only within the config dir.
+target_path() {
+  local fmt="$1" name=""
+  case "$fmt" in
+    lua) name="colors_generated.lua" ;;
+    bash) name="colors.sh" ;;
+    *) return 1 ;;
+  esac
+  if [ -n "$RESOLVED_CONFIG" ]; then
+    local configured
+    if configured=$(stm_config_section_get "$RESOLVED_CONFIG" output "$fmt"); then
+      name=$(validate_output_name "$configured" "$fmt")
+    fi
+  fi
+  printf '%s\n' "$RESOLVED_DIR/$name"
 }
 
 # ---------------------------------------------------------------------------
@@ -911,7 +1194,7 @@ read_state() {
 # ---------------------------------------------------------------------------
 
 cmd_list() {
-  local d bundled active seen_file listing slug name src marker workdir
+  local d bundled active seen_file listing slug name src marker workdir note
   bundled=$(bundled_palette_dir 2>/dev/null || true)
   active=$(read_state 2>/dev/null || true)
 
@@ -964,12 +1247,15 @@ EOF
     else
       if [ "$slug" = "$active" ]; then marker="*"; else marker=" "; fi
       printf '%s %-24s %-24s (%s)\n' "$marker" "$slug" "$name" "$src"
+      if [ "$OPT_VERBOSE" -eq 1 ] && note=$(theme_note "$slug"); then
+        printf '    %s\n' "$note"
+      fi
     fi
   done
 }
 
 cmd_apply() {
-  local slug="$1" file records target name reloaded
+  local slug="$1" file records target name reloaded note_text
 
   file=$(find_palette "$slug") || {
     err "theme not found: $slug"
@@ -979,6 +1265,7 @@ cmd_apply() {
   }
 
   records=$(stm_parse_palette "$file")
+  records=$(apply_mapping "$records")
 
   # The file name and the declared slug must agree, or `stm current` lies.
   local declared
@@ -1044,6 +1331,9 @@ cmd_apply() {
   fi
 
   info "Applied $name ($slug) -> $target$reloaded"
+  if note_text=$(theme_note "$slug"); then
+    info "  note: $note_text"
+  fi
 }
 
 cmd_current() {
@@ -1068,6 +1358,7 @@ cmd_preview() {
 
   file=$(find_palette "$slug") || die "$EX_NOTFOUND" "theme not found: $slug"
   records=$(stm_parse_palette "$file")
+  records=$(apply_mapping "$records")
 
   if [ "$OPT_PORCELAIN" -eq 1 ]; then
     stm_records_colors "$records"
@@ -1259,6 +1550,7 @@ $tmpdir"
   fi
 
   records=$(stm_parse_palette "$file")
+  records=$(apply_mapping "$records")
   stm_records_colors "$records" | cut -f1 | sort -u >"$provided"
   config_used_keys "$RESOLVED_DIR" "$fmt" >"$used"
 
