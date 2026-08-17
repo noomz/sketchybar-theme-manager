@@ -2268,8 +2268,13 @@ $blk"
     die "$EX_EXISTS" "$dest already exists (use --force to overwrite)"
   fi
 
+  # The source path is echoed into a comment, so any newline in it would end
+  # the comment and inject the rest as TOML. Flatten it first.
+  local src_label
+  src_label=$(printf '%s' "$src" | tr -d '\r\n')
+
   {
-    printf '# Imported by stm %s from %s\n' "$STM_VERSION" "$src"
+    printf '# Imported by stm %s from %s\n' "$STM_VERSION" "$src_label"
     printf 'name = "%s"\n' "$slug"
     printf 'slug = "%s"\n' "$slug"
     printf 'variant_label = "%s"\n' "$slug"

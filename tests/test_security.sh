@@ -216,6 +216,39 @@ assert_status 2
 assert_contains "$STM_ERR" "does not exist" "\$HOME must stay literal"
 done_it
 
+it "a newline in an imported file's path cannot inject TOML"
+# import echoes the source path into a comment. A newline there would end the
+# comment and let the rest of the filename be parsed as palette keys.
+ipal="$SANDBOX/ipal"
+srcdir="$SANDBOX/isrc"
+mkdir -p "$ipal" "$srcdir"
+nl=$(printf 'evil\nslug = "hijacked"\nx')
+printf 'export BLACK=0xff000000\n' >"$srcdir/$nl.sh"
+run_stm --palette-dir "$ipal" import "$srcdir/$nl.sh" --slug victim
+assert_file_exists "$ipal/victim.toml"
+assert_eq 1 "$(grep -c '^slug = ' "$ipal/victim.toml" | tr -d ' ')" \
+  "exactly one slug line may exist"
+assert_file_contains "$ipal/victim.toml" 'slug = "victim"'
+# The payload text may survive inside the flattened comment; what must not
+# happen is it becoming a key. Anchor the check to the start of a line.
+assert_eq 0 "$(grep -c '^slug = "hijacked"' "$ipal/victim.toml" | tr -d ' ')" \
+  "the injected text must not become a top-level key"
+assert_eq 1 "$(grep -c '^# Imported by stm' "$ipal/victim.toml" | tr -d ' ')" \
+  "the source path must stay on one comment line"
+run_stm preview --palette-dir "$ipal" --porcelain victim
+assert_contains "$STM_ERR" "missing required colour key" \
+  "it should fail on missing keys, not on a hijacked slug"
+done_it
+
+it "hostile content inside an imported file is not interpreted"
+printf 'export BLACK=0xff000000\nslug = "hijacked"\n[colors]\nname = "x"\n' \
+  >"$srcdir/hostile.sh"
+run_stm --palette-dir "$ipal" import "$srcdir/hostile.sh" --slug hostile
+assert_file_contains "$ipal/hostile.toml" 'slug = "hostile"'
+assert_file_not_contains "$ipal/hostile.toml" 'hijacked'
+assert_file_absent "$PWN"
+done_it
+
 # --- final sweep ------------------------------------------------------------
 
 it "no payload file was created anywhere during this suite"
