@@ -28,7 +28,7 @@ IFS=$' \t\n'
 LC_ALL=C
 export LC_ALL
 
-STM_VERSION="0.1.1"
+STM_VERSION="0.2.0"
 PROGNAME="stm"
 
 # Every palette must define these. Order here is documentation only; output is
@@ -97,6 +97,8 @@ trap 'cleanup_tmp; exit 143' TERM
 # as `f=$(mktemp_in ...)` would run it in a subshell, and the STM_TMPFILES
 # bookkeeping — and therefore the cleanup trap — would be silently lost.
 STM_TMP=""
+# Set by cmd_apply so the config-sh writer can name its snippet per theme.
+STM_TARGET_SLUG=""
 mktemp_in() {
   local dir="$1" old_umask
   [ -d "$dir" ] || die "$EX_CONFIG" "not a directory: $dir"
@@ -518,6 +520,11 @@ theme_note() {
 # The left side is the name as it appears in the *user's* config and templates.
 # It can only ever produce another `key -> validated hex` pair: mapping cannot
 # name a path, a command, or anything else.
+# STM_MAPPING_STRICT=0 makes an unresolvable entry a skipped warning instead of
+# a fatal error. `doctor` sets it, because its job is to report problems rather
+# than to stop at the first one.
+STM_MAPPING_STRICT=1
+
 apply_mapping() {
   local records="$1" key val resolved out
   [ -n "$RESOLVED_CONFIG" ] || { printf '%s\n' "$records"; return 0; }
@@ -527,6 +534,7 @@ apply_mapping() {
     [ -n "$key" ] || continue
     case "$key" in
       *[!a-z0-9_]* | [!a-z]*)
+        if [ "$STM_MAPPING_STRICT" -eq 0 ]; then continue; fi
         die "$EX_CONFIG" "[mapping] invalid key \"$key\" (want lower-case [a-z][a-z0-9_]*)"
         ;;
     esac
@@ -539,6 +547,7 @@ apply_mapping() {
           $2 ~ /^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/ { v = tolower($2); sub(/^#/, "", v); print "0xff" v; ok = 1 }
           END { if (!ok) exit 1 }')
         if [ -z "$resolved" ]; then
+          if [ "$STM_MAPPING_STRICT" -eq 0 ]; then continue; fi
           die "$EX_CONFIG" "[mapping] $key = \"$val\" is not a valid colour (want 0xAARRGGBB or #RRGGBB)"
         fi
         ;;
@@ -548,6 +557,7 @@ apply_mapping() {
         resolved=$(printf '%s\n' "$records" |
           awk -F'\t' -v k="$val" '($1=="color" || $1=="extra") && $2==k { print $3; exit }')
         if [ -z "$resolved" ]; then
+          if [ "$STM_MAPPING_STRICT" -eq 0 ]; then continue; fi
           die "$EX_CONFIG" "[mapping] $key = \"$val\": no colour named \"$val\" in this palette"
         fi
         ;;
@@ -641,6 +651,8 @@ OPT_LUA_DIALECT=""
 OPT_OUT=""
 OPT_SLUG=""
 OPT_BASE=""
+OPT_NO_MANIFEST=0
+OPT_BACKUP_EACH=0
 
 RESOLVED_CONFIG=""
 RESOLVED_DIR=""
@@ -801,13 +813,20 @@ detect_format() {
   fi
   [ -f "$dir/colors.sh" ] && has_bash=1
 
+  # The config-sh pattern: a sourced config.sh with no colors.sh of its own.
+  # stm generates a theme snippet instead of rewriting anything in place.
+  if [ "$has_bash" -eq 0 ] && [ "$has_lua" -eq 0 ] && [ -f "$dir/config.sh" ]; then
+    printf 'config-sh\n'
+    return 0
+  fi
+
   if [ "$has_lua" -eq 1 ] && [ "$has_bash" -eq 1 ]; then
     die "$EX_CONFIG" "ambiguous config format in $dir (found both Lua and colors.sh); pass --format lua or --format bash"
   fi
   [ "$has_lua" -eq 1 ] && { printf 'lua\n'; return 0; }
   [ "$has_bash" -eq 1 ] && { printf 'bash\n'; return 0; }
 
-  die "$EX_CONFIG" "could not detect a config format in $dir (expected colors.lua, another .lua file, or colors.sh)"
+  die "$EX_CONFIG" "could not detect a config format in $dir (expected colors.lua, another .lua file, colors.sh, or config.sh)"
 }
 
 resolve_format() {
@@ -823,8 +842,8 @@ resolve_format() {
     f=$(detect_format "$RESOLVED_DIR")
   fi
   case "$f" in
-    lua | bash) : ;;
-    *) die "$EX_CONFIG" "unknown format \"$f\" (want lua or bash)" ;;
+    lua | bash | config-sh) : ;;
+    *) die "$EX_CONFIG" "unknown format \"$f\" (want lua, bash or config-sh)" ;;
   esac
   RESOLVED_FORMAT="$f"
   note "format: $RESOLVED_FORMAT"
@@ -1128,6 +1147,32 @@ $blk"
   commit_tmp "$tmp" "$target"
 }
 
+# render_template_check <records> <template> — render to nowhere, purely to see
+# whether every placeholder resolves. Writes no file.
+render_template_check() {
+  local records="$1" tpl="$2" blk rcode=0
+
+  blk=$(mktemp -d "${TMPDIR:-/tmp}/.stm-blk.XXXXXX") || return 1
+  STM_TMPDIRS="$STM_TMPDIRS
+$blk"
+  stm_records_colors "$records" >"$blk/map"
+  stm_records_colors "$records" | awk -F"\t" '{ printf("  %s = %s,\n", $1, $2) }' >"$blk/colors_lua"
+  stm_records_colors "$records" |
+    awk -F"\t" '{ k = toupper($1); printf("export %s=%s\n", k, $2) }' >"$blk/colors_bash"
+  stm_records_extras "$records" | awk -F"\t" '{ printf("  %s = %s,\n", $1, $2) }' >"$blk/extras_lua"
+  stm_records_extras "$records" |
+    awk -F"\t" '{ k = toupper($1); printf("export %s=%s\n", k, $2) }' >"$blk/extras_bash"
+  lua_children_block "$records" >"$blk/children_lua"
+  printf '%s\n' "$STM_WITH_ALPHA" >"$blk/with_alpha"
+
+  awk -v prog="$PROGNAME" -v tplname="$tpl" -v blockdir="$blk" \
+    -v m_name="x" -v m_slug="x" -v m_variant="x" -v m_generated="x" \
+    "$STM_TEMPLATE_AWK" "$blk/map" "$tpl" >/dev/null 2>&1 || rcode=1
+
+  rm -rf "$blk"
+  return "$rcode"
+}
+
 # lua_children_block <records> — the bar/popup sub-tables, for {{children_lua}}.
 lua_children_block() {
   local records="$1" tbl k v field
@@ -1266,11 +1311,40 @@ write_bash() {
 
   all_keys=$(cut -f1 "$mapfile_path" | tr '\n' ' ')
 
-  # One-time backup before the first destructive edit.
+  # The pristine backup: taken once, never overwritten. This is the "undo
+  # everything" copy, so switching themes later must not disturb it.
   backup="$target.stm-backup"
   if [ ! -f "$backup" ]; then
     cp -p "$target" "$backup"
     note "backup written: $backup"
+  fi
+
+  # --backup-each additionally keeps a rolling timestamped copy, so a single
+  # bad apply can be undone without going all the way back to pristine. Only
+  # the newest few are kept; they would otherwise accumulate forever.
+  if [ "$OPT_BACKUP_EACH" -eq 1 ]; then
+    local stamp keep n bak
+    stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    # date resolves to the second, so two applies inside one second would
+    # otherwise overwrite the same backup. Disambiguate with a counter.
+    bak="$target.stm-bak-$stamp"
+    n=1
+    while [ -e "$bak" ] && [ "$n" -lt 100 ]; do
+      bak="$target.stm-bak-$stamp-$n"
+      n=$((n + 1))
+    done
+    cp -p "$target" "$bak"
+    note "backup written: $bak"
+    # The names are timestamped, so a lexical sort is chronological.
+    keep=$(find "$dir" -maxdepth 1 -type f -name "$(basename "$target").stm-bak-*" |
+      sort | wc -l | tr -d ' ')
+    if [ "$keep" -gt 5 ]; then
+      find "$dir" -maxdepth 1 -type f -name "$(basename "$target").stm-bak-*" |
+        sort | head -n $((keep - 5)) |
+        while IFS= read -r old_bak; do
+          [ -n "$old_bak" ] && rm -f "$old_bak"
+        done
+    fi
   fi
 
   mktemp_in "$dir"
@@ -1309,6 +1383,70 @@ validate_output_name() {
   printf '%s\n' "$v"
 }
 
+# write_config_sh <records> <target> — a standalone, sourceable theme snippet.
+# Nothing existing is modified: the user points one `source` line at it.
+write_config_sh() {
+  local records="$1" target="$2" dir tmp name slug stamp k v
+
+  dir=$(dirname "$target")
+  mkdir -p "$dir"
+  name=$(stm_records_meta "$records" name)
+  slug=$(stm_records_meta "$records" slug)
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '# Generated by stm (sketchybar-theme-manager). DO NOT EDIT.\n'
+    printf '# stm-theme: %s\n' "$slug"
+    printf '# stm-name: %s\n' "$name"
+    printf '# generated: %s\n\n' "$stamp"
+    stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+      # shellcheck disable=SC2018,SC2019  # ASCII keys, LC_ALL=C
+      printf 'export %s=%s\n' "$(printf '%s' "$k" | tr 'a-z' 'A-Z')" "$v"
+    done
+  } >"$tmp"
+
+  commit_tmp "$tmp" "$target"
+}
+
+# diff_against_target <records> <target> <format> — print `key old -> new` for
+# every key whose value would change, so --dry-run answers "what will this do"
+# rather than just "what is in the palette".
+diff_against_target() {
+  local records="$1" target="$2" fmt="$3" blk
+  blk=$(mktemp -d "${TMPDIR:-/tmp}/.stm-blk.XXXXXX") || return 0
+  STM_TMPDIRS="$STM_TMPDIRS
+$blk"
+
+  stm_records_colors "$records" >"$blk/new"
+  if [ "$fmt" = "lua" ]; then
+    awk '{ line = $0
+           sub(/^[ \t]*/, "", line)
+           if (line !~ /^[a-z][a-z0-9_]*[ \t]*=[ \t]*0x[0-9a-f]+,?$/) next
+           k = line; sub(/[ \t]*=.*$/, "", k)
+           v = line; sub(/^[^=]*=[ \t]*/, "", v); sub(/,$/, "", v)
+           printf("%s\t%s\n", k, v) }' "$target" | sort >"$blk/old"
+  else
+    awk '{ line = $0
+           sub(/^[ \t]*/, "", line); sub(/^export[ \t]+/, "", line)
+           sub(/[ \t]*#.*$/, "", line)
+           if (line !~ /^[A-Z][A-Z0-9_]*=["'"'"']?0x[0-9a-fA-F]+["'"'"']?$/) next
+           k = line; sub(/=.*$/, "", k)
+           v = line; sub(/^[^=]*=/, "", v); gsub(/["'"'"']/, "", v)
+           printf("%s\t%s\n", tolower(k), tolower(v)) }' "$target" | sort >"$blk/old"
+  fi
+
+  awk -F'\t' '
+    NR == FNR { old[$1] = $2; next }
+    { if (!($1 in old)) printf("    %-22s (new)      -> %s\n", $1, $2)
+      else if (old[$1] != $2) printf("    %-22s %s -> %s\n", $1, old[$1], $2) }
+  ' "$blk/old" "$blk/new"
+
+  rm -rf "$blk"
+}
+
 # target_path <format> — where the given format writes. [output] may rename the
 # destination, but only within the config dir.
 target_path() {
@@ -1316,6 +1454,20 @@ target_path() {
   case "$fmt" in
     lua) name="colors_generated.lua" ;;
     bash) name="colors.sh" ;;
+    config-sh)
+      # A per-theme snippet, not a file stm overwrites in place.
+      local sdir slugname
+      sdir="config-examples"
+      if [ -n "$RESOLVED_CONFIG" ]; then
+        local configured
+        if configured=$(stm_config_section_get "$RESOLVED_CONFIG" output theme_dir); then
+          sdir=$(validate_output_name "$configured" theme_dir)
+        fi
+      fi
+      slugname="${STM_TARGET_SLUG:-theme}"
+      printf '%s\n' "$RESOLVED_DIR/$sdir/$slugname.sh"
+      return 0
+      ;;
     *) return 1 ;;
   esac
   if [ -n "$RESOLVED_CONFIG" ]; then
@@ -1450,6 +1602,7 @@ cmd_apply() {
   [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
   resolve_format
   [ "$RESOLVED_FORMAT" = "lua" ] && resolve_lua_dialect
+  STM_TARGET_SLUG="$slug"
   target=$(target_path "$RESOLVED_FORMAT")
   name=$(stm_records_meta "$records" name)
 
@@ -1460,10 +1613,15 @@ cmd_apply() {
     if [ "$RESOLVED_FORMAT" = "bash" ]; then
       info "  backup: $target.stm-backup"
     fi
-    info "  colours:"
-    stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
-      info "    $k = $v"
-    done
+    if [ -f "$target" ]; then
+      info "  changes:"
+      diff_against_target "$records" "$target" "$RESOLVED_FORMAT"
+    else
+      info "  colours:"
+      stm_records_colors "$records" | while IFS=$'\t' read -r k v; do
+        info "    $k = $v"
+      done
+    fi
     return 0
   fi
 
@@ -1479,6 +1637,12 @@ cmd_apply() {
     target="$real"
   fi
 
+  # config-sh writes a per-theme snippet into its own directory, which will not
+  # exist on the first apply.
+  if [ "$RESOLVED_FORMAT" = "config-sh" ]; then
+    mkdir -p "$(dirname "$target")"
+  fi
+
   # Check up front, so we never take a backup or do any work for a write that
   # is going to be refused anyway.
   assert_writable_target "$target"
@@ -1491,10 +1655,12 @@ cmd_apply() {
     case "$RESOLVED_FORMAT" in
       lua) write_lua "$records" "$target" ;;
       bash) write_bash "$records" "$target" ;;
+      config-sh) write_config_sh "$records" "$target" ;;
     esac
   fi
 
   write_state "$slug"
+  manifest_write "$(basename "$target")"
 
   reloaded=""
   if [ "$OPT_NO_RELOAD" -eq 0 ]; then
@@ -1510,6 +1676,11 @@ cmd_apply() {
   fi
 
   info "Applied $name ($slug) -> $target$reloaded"
+  if [ "$RESOLVED_FORMAT" = "config-sh" ]; then
+    info ""
+    info "Source it from your config.sh:"
+    info "  source \"\$CONFIG_DIR/${target#"$RESOLVED_DIR"/}\""
+  fi
   if note_text=$(theme_note "$slug"); then
     info "  note: $note_text"
   fi
@@ -1649,7 +1820,10 @@ EOF
 config_used_keys() {
   local dir="$1" fmt="$2"
   if [ "$fmt" = "lua" ]; then
-    grep -rhoE 'colors\.[a-zA-Z_][a-zA-Z0-9_.]*' "$dir" --include='*.lua' 2>/dev/null |
+    # Comments are stripped first: prose mentioning "colors.lua" would otherwise
+    # be read as a reference to a colour key named `lua`.
+    find "$dir" -type f -name '*.lua' -exec awk '{ sub(/--.*$/, ""); print }' {} + 2>/dev/null |
+      grep -oE 'colors\.[a-zA-Z_][a-zA-Z0-9_.]*' |
       sed 's/^colors\.//' |
       sed 's/^bar\./bar_/; s/^popup\./popup_/' |
       sed 's/\..*$//' |
@@ -1666,6 +1840,7 @@ config_used_keys() {
 
 cmd_doctor() {
   local slug file records provided used tmpdir rc=0 n_missing=0 n_unused=0 fmt
+  local mk mv
 
   tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
     die "$EX_CONFIG" "could not create a temporary directory"
@@ -1729,9 +1904,49 @@ $tmpdir"
   fi
 
   records=$(stm_parse_palette "$file")
+  STM_MAPPING_STRICT=0
   records=$(apply_mapping "$records")
+  STM_MAPPING_STRICT=1
   stm_records_colors "$records" | cut -f1 | sort -u >"$provided"
   config_used_keys "$RESOLVED_DIR" "$fmt" >"$used"
+
+  # [mapping] entries: every right-hand side must resolve, or apply will fail.
+  if [ -n "$RESOLVED_CONFIG" ] && stm_config_pairs "$RESOLVED_CONFIG" mapping | grep -q .; then
+    printf '\nMapping\n'
+    while IFS=$'\t' read -r mk mv; do
+      [ -n "$mk" ] || continue
+      case "$mv" in
+        "0x"* | "#"*) printf '  %-24s -> %s (literal)\n' "$mk" "$mv" ;;
+        *)
+          if printf '%s\n' "$records" |
+            awk -F'\t' -v k="$mv" '($1=="color" || $1=="extra") && $2==k' | grep -q .; then
+            printf '  %-24s -> %s\n' "$mk" "$mv"
+          else
+            printf '  %-24s -> %s  UNRESOLVED\n' "$mk" "$mv"
+            rc=1
+          fi
+          ;;
+      esac
+    done <<EOF
+$(stm_config_pairs "$RESOLVED_CONFIG" mapping)
+EOF
+  fi
+
+  # Templates: report which one would be used, and that it actually renders.
+  local tdir tfile
+  tdir=$(template_dir)
+  if [ -d "$tdir" ]; then
+    printf '\nTemplates (%s)\n' "$tdir"
+    for tfile in "$tdir"/*.tpl; do
+      [ -f "$tfile" ] || continue
+      if render_template_check "$records" "$tfile"; then
+        printf '  %-24s ok\n' "$(basename "$tfile")"
+      else
+        printf '  %-24s INVALID\n' "$(basename "$tfile")"
+        rc=1
+      fi
+    done
+  fi
 
   printf '\nKey coverage (config vs palette "%s")\n' "$slug"
 
@@ -1771,6 +1986,112 @@ $tmpdir"
     printf 'OK\n'
   else
     printf 'PROBLEMS FOUND\n'
+  fi
+  return "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# Manifest and verify
+#
+# The non-destructiveness promise is that stm touches only the files it owns.
+# A manifest makes that promise checkable rather than merely stated: after an
+# apply, every other regular file in the config dir is checksummed, and
+# `stm verify` reports anything that has since changed, appeared, or vanished.
+# ---------------------------------------------------------------------------
+
+manifest_path() { printf '%s\n' "$RESOLVED_DIR/.stm-manifest"; }
+
+# manifest_lines <dir> <managed-basename> — `sha  ./relpath` for every regular
+# file stm does not own. `find -type f` is false for symlinks, so a link
+# pointing outside the config dir is never followed or recorded.
+manifest_lines() {
+  local dir="$1" managed="$2"
+  (
+    cd "$dir" 2>/dev/null || exit 0
+    find . -type f \
+      ! -path './.git/*' \
+      ! -name '.stm-manifest' \
+      ! -name '.stm-state' \
+      ! -name '*.stm-backup' \
+      ! -name '*.stm-bak-*' \
+      ! -name '.stm-tmp.*' \
+      ! -name "$managed" \
+      -exec shasum -a 256 {} + 2>/dev/null
+  ) | sort -k2
+}
+
+manifest_write() {
+  local managed="$1" tmp
+  [ "$OPT_NO_MANIFEST" -eq 0 ] || return 0
+  command -v shasum >/dev/null 2>&1 || {
+    note "shasum not found; skipping the manifest"
+    return 0
+  }
+  mktemp_in "$RESOLVED_DIR"
+  tmp="$STM_TMP"
+  manifest_lines "$RESOLVED_DIR" "$managed" >"$tmp"
+  commit_tmp "$tmp" "$(manifest_path)"
+  note "manifest written: $(manifest_path)"
+}
+
+cmd_verify() {
+  local mf managed fmt now tmpdir rc=0 n_changed n_added n_removed
+
+  [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
+  mf=$(manifest_path)
+  if [ ! -f "$mf" ]; then
+    err "no manifest at $mf — run \`stm apply\` once to record a baseline"
+    return 2
+  fi
+  command -v shasum >/dev/null 2>&1 || die "$EX_CONFIG" "shasum is required for verify"
+
+  if fmt=$(detect_format "$RESOLVED_DIR" 2>/dev/null); then :; else fmt="${OPT_FORMAT:-lua}"; fi
+  RESOLVED_FORMAT="$fmt"
+  managed=$(basename "$(target_path "$fmt")")
+
+  tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$tmpdir"
+  now="$tmpdir/now"
+  manifest_lines "$RESOLVED_DIR" "$managed" >"$now"
+
+  # Compare by path, then by checksum.
+  awk '{ print $2 }' "$mf" | sort >"$tmpdir/old_paths"
+  awk '{ print $2 }' "$now" | sort >"$tmpdir/new_paths"
+
+  n_removed=$(comm -23 "$tmpdir/old_paths" "$tmpdir/new_paths" | wc -l | tr -d ' ')
+  n_added=$(comm -13 "$tmpdir/old_paths" "$tmpdir/new_paths" | wc -l | tr -d ' ')
+  n_changed=$(awk 'NR==FNR { h[$2] = $1; next } ($2 in h) && h[$2] != $1 { print $2 }' \
+    "$mf" "$now" | wc -l | tr -d ' ')
+
+  info "Verifying $RESOLVED_DIR against $(basename "$mf")"
+  info "  managed by stm (not checked): $managed"
+  info ""
+
+  if [ "$n_changed" -gt 0 ]; then
+    info "CHANGED since the last apply:"
+    awk 'NR==FNR { h[$2] = $1; next } ($2 in h) && h[$2] != $1 { printf("  %s\n", $2) }' \
+      "$mf" "$now"
+    rc=1
+  fi
+  if [ "$n_added" -gt 0 ]; then
+    info "ADDED since the last apply:"
+    comm -13 "$tmpdir/old_paths" "$tmpdir/new_paths" | sed 's/^/  /'
+    rc=1
+  fi
+  if [ "$n_removed" -gt 0 ]; then
+    info "REMOVED since the last apply:"
+    comm -23 "$tmpdir/old_paths" "$tmpdir/new_paths" | sed 's/^/  /'
+    rc=1
+  fi
+
+  if [ "$rc" -eq 0 ]; then
+    info "OK — $(wc -l <"$now" | tr -d ' ') files unchanged; stm touched only what it owns"
+  else
+    info ""
+    info "stm does not write these files. Something else changed them, which is"
+    info "usually you editing your config — re-run \`stm apply\` to re-baseline."
   fi
   return "$rc"
 }
@@ -2045,6 +2366,7 @@ COMMANDS
   add <theme> <palette-file>    Install a palette into your palette directory
   preview <theme>               Print a theme's colour table (writes nothing)
   doctor [theme]                Diagnose the config: format, dialect, key coverage
+  verify                        Check that stm touched only the files it owns
   import [<file>]               Turn an existing colours file into a palette
   export <theme>                Print a theme as canonical palette TOML
   help                          Show this help
@@ -2057,6 +2379,8 @@ OPTIONS
   --format lua|bash     Force the output format instead of auto-detecting
   --lua-dialect <d>     flat | nested | auto (default: auto-detect)
   --no-reload           Do not run \`sketchybar --reload\` after applying
+  --no-manifest         Do not record a checksum baseline on apply
+  --backup-each         Keep a timestamped backup before each destructive write
   --dry-run             Show what would change; write nothing
   --force               Allow \`add\` to overwrite an existing palette
   --append-missing      (bash) Append palette keys absent from colors.sh
@@ -2149,6 +2473,8 @@ main() {
         ;;
       --base=*) OPT_BASE="${1#--base=}"; shift ;;
       --no-reload) OPT_NO_RELOAD=1; shift ;;
+      --no-manifest) OPT_NO_MANIFEST=1; shift ;;
+      --backup-each) OPT_BACKUP_EACH=1; shift ;;
       --dry-run) OPT_DRY_RUN=1; shift ;;
       --force) OPT_FORCE=1; shift ;;
       --append-missing) OPT_APPEND_MISSING=1; shift ;;
@@ -2185,8 +2511,8 @@ main() {
 
   if [ -n "$OPT_FORMAT" ]; then
     case "$OPT_FORMAT" in
-      lua | bash) : ;;
-      *) die "$EX_USAGE" "--format must be lua or bash (got \"$OPT_FORMAT\")" ;;
+      lua | bash | config-sh) : ;;
+      *) die "$EX_USAGE" "--format must be lua, bash or config-sh (got \"$OPT_FORMAT\")" ;;
     esac
   fi
 
@@ -2236,6 +2562,9 @@ main() {
       else
         cmd_import
       fi
+      ;;
+    verify)
+      cmd_verify
       ;;
     doctor)
       if [ "$args_left" -ge 1 ]; then

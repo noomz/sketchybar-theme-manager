@@ -76,6 +76,9 @@ stm current                   # nord
 | `stm add <theme> <palette-file>` | Install a palette into your palette directory |
 | `stm preview <theme>` | Print a theme's colour table — writes nothing |
 | `stm doctor [theme]` | Diagnose the config: format, dialect, key coverage |
+| `stm verify` | Check that stm touched only the files it owns |
+| `stm import [<file>]` | Turn an existing colours file into a palette |
+| `stm export <theme>` | Print a theme as canonical palette TOML |
 | `stm help` | Show usage |
 | `stm version` | Print the version |
 
@@ -86,8 +89,13 @@ stm current                   # nord
 | `--dir <path>` | SketchyBar config dir (overrides `$SKETCHYBAR_CONFIG_DIR`) |
 | `--palette-dir <path>` | Palette directory to search |
 | `--config <path>` | Path to `stm.config.toml` |
-| `--format lua\|bash` | Force the output format instead of auto-detecting |
+| `--format <f>` | Force `lua`, `bash` or `config-sh` instead of auto-detecting |
 | `--lua-dialect <d>` | `flat`, `nested` or `auto` (default: auto-detect) |
+| `--no-manifest` | Don't record a checksum baseline on apply |
+| `--backup-each` | Keep a timestamped backup before each destructive write |
+| `--out <file>` | Write `export` output to a file |
+| `--slug <slug>` | Name for the palette `import` creates |
+| `--base <slug>` | Make the imported palette inherit from `<slug>` |
 | `--no-reload` | Don't run `sketchybar --reload` after applying |
 | `--dry-run` | Show what would change; write nothing |
 | `--force` | Let `add` overwrite an existing palette |
@@ -265,16 +273,158 @@ sbar.bar({ color = colors.bar_bg })
 
 ---
 
+## Bringing your own theme, or your whole dotfiles
+
+`stm` does not require your config to look like anyone else's. Three things,
+all plain files in your own tree, cover the gap:
+
+**A palette** says what the colours are. **`[mapping]`** says what *you* call
+them. **A template** says how they should be written out. You need the first
+one; the other two only when your config's shape differs from the built-in
+writers.
+
+### Start from what you already have
+
+```sh
+stm import                       # reads your colors.lua or colors.sh
+stm doctor                       # what resolves, what doesn't
+stm apply imported
+```
+
+`import` reads your existing colours file and writes a palette from it. Lua
+nesting is flattened (`bar.bg` becomes `bar_bg`), and in a `colors.sh`
+reference lines like `export ITEM_BG_COLOR=$SURFACE0` are resolved so the
+palette carries real values. Anything it cannot read — a function, a
+non-colour — is listed rather than dropped quietly.
+
+If your config names its colours its own way, it may have none of the fifteen
+canonical keys. Inherit them:
+
+```sh
+stm import --slug mine --base tokyo-night
+```
+
+`stm export <theme>` is the reverse, and round-trips exactly — that is how you
+turn a config you like into a palette worth sharing.
+
+### Inheriting
+
+```toml
+name = "Gruvbox Red"
+slug = "gruvbox-red"
+base = "gruvbox"
+
+[colors]
+red = "#ff0000"
+```
+
+Everything not named here comes from `gruvbox`. Chains are allowed; cycles,
+self-inheritance and chains deeper than eight are refused.
+
+### Renaming — `[mapping]`
+
+```toml
+[mapping]
+gray = "grey"              # my config says gray; the canonical key is grey
+brand = "#ff0000"          # my config says brand; pin it to a literal
+```
+
+The left side is the name your config and templates use. The right side is
+either a canonical key or a literal colour. An unresolvable right side is an
+error, not a silent skip.
+
+`[mapping]` is applied *after* a palette is validated, so it can rename keys
+for your config but cannot supply keys a palette is missing. Use `base =` for
+that.
+
+### Templates
+
+When neither built-in writer matches your layout, write the file yourself and
+let `stm` fill in the colours. Drop `stm/templates/lua.tpl` or
+`stm/templates/bash.tpl` into your config dir and it replaces the built-in
+writer entirely.
+
+```lua
+-- {{name}} ({{slug}}), generated {{generated}}
+{{with_alpha}}
+
+return {
+{{colors_lua}}
+{{children_lua}}
+  with_alpha = with_alpha,
+}
+```
+
+| Placeholder | Expands to |
+| --- | --- |
+| `{{<key>}}` | any colour, after `[mapping]` |
+| `{{name}}` `{{slug}}` `{{variant_label}}` `{{generated}}` | metadata |
+| `{{colors_lua}}` / `{{colors_bash}}` | every colour, as Lua fields or `export` lines |
+| `{{extras_lua}}` / `{{extras_bash}}` | the same, `[extras]` only |
+| `{{children_lua}}` | the `bar` / `popup` sub-tables |
+| `{{with_alpha}}` | stm's built-in helper |
+
+Only `{{identifier}}` with a lower-case identifier substitutes. Anything else
+after `{{` is literal text, so a real Lua constructor like `{{1,2},{3,4}}`
+passes through untouched. Write `{{{{` for a literal `{{`. An unrecognised
+identifier is a hard error — a half-substituted config is worse than none.
+
+A template is yours and is trusted: it may contain whatever Lua or shell you
+like. A palette is not trusted, and the only thing it contributes to a render
+is a value already validated as eight hex digits. `stm` never installs a
+template from a palette or fetches one from the network.
+
+### Proving it didn't touch anything else
+
+```console
+$ stm verify
+OK — 69 files unchanged; stm touched only what it owns
+```
+
+Each `apply` records a checksum of every file in your config dir that `stm`
+does not own. `verify` re-checks them and reports anything changed, added or
+removed. That is the non-destructiveness promise made checkable rather than
+merely stated. `--no-manifest` turns it off.
+
+### Config formats
+
+| Detected | Behaviour |
+| --- | --- |
+| `colors.lua` or any `.lua` | writes `colors_generated.lua` |
+| `colors.sh` | rewrites value lines in place |
+| `config.sh` and nothing else | writes `config-examples/<theme>.sh` and prints the `source` line to add |
+
+The third is for configs built around sourcing a snippet. Nothing existing is
+modified at all — you point one `source` line at the generated file.
+
+---
+
 ## Configuration
 
 `stm.config.toml` is optional — the defaults are usually right.
 
 ```toml
 sketchybar_dir = "~/.config/sketchybar"
-format = "auto"          # auto | lua | bash
+format = "auto"          # auto | lua | bash | config-sh
+lua_dialect = "auto"     # auto | flat | nested
 palette_dir = "~/.config/sketchybar/palettes"
 default_theme = "tokyo-night"
+
+[output]
+lua = "colors_generated.lua"     # a bare filename, inside the config dir
+bash = "colors.sh"
+template_dir = "stm/templates"
+
+[mapping]
+gray = "grey"
+
+[notes]
+tokyo-night = "Matches my Ghostty theme"
 ```
+
+`[output]` values are bare filenames and are validated as strictly as a theme
+name: no paths, no leading dot, restricted charset, and `stm` refuses to be
+pointed at your own `colors.lua` or at its own state files.
 
 **Where `stm` looks for it**, first match wins:
 
@@ -372,8 +522,9 @@ Lua config a missing key is an error — it resolves to `nil` and breaks the bar
 In a shell config it is only informational, since the variable keeps whatever
 value it already had.
 
-**Values** are `0xAARRGGBB` — exactly eight hex digits, alpha first. That is
-SketchyBar's own colour format. `bar_bg` is usually given a `00` alpha for a
+**Values** are `0xAARRGGBB` — exactly eight hex digits, alpha first — or
+`#RRGGBB`, which is taken as fully opaque. `#rgb` and `#aarrggbb` are refused
+rather than guessed at. `0xAARRGGBB` is SketchyBar's own colour format. `bar_bg` is usually given a `00` alpha for a
 transparent bar; popups typically use `c0`.
 
 Palettes are parsed by a deliberately small TOML reader: top-level strings, one

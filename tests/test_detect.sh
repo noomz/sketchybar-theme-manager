@@ -80,7 +80,7 @@ d="$SANDBOX/lua2"
 make_lua_config "$d"
 run_stm --dir "$d" --no-reload --format perl apply tokyo-night
 assert_status 64
-assert_contains "$STM_ERR" "--format must be lua or bash"
+assert_contains "$STM_ERR" "--format must be lua, bash or config-sh"
 done_it
 
 it "STM_FORMAT is honoured"

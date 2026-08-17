@@ -97,6 +97,30 @@ downloads; the moment a palette can contribute code, installing a theme becomes
 running a stranger's Lua. If a config needs a function stm does not emit, that
 belongs in the user's own `colors.lua`, which stm never touches.
 
+## Templates and the trust boundary
+
+The rule that shapes most of the design: **a palette is untrusted data, a
+template is trusted code.**
+
+A palette may be downloaded from anywhere, so the only thing it ever
+contributes to generated output is a value already validated as
+`^0x[0-9a-f]{8}$`, plus ASCII labels that land in comments. A template lives in
+the user's own config directory, is written by them, and may contain arbitrary
+Lua or shell. `stm` must never install a template from a palette, and must
+never fetch one.
+
+If you are tempted to let palette content reach generated code — a function, a
+snippet, an "escape hatch" field — don't. Route it through a template instead.
+
+The template substituter treats only `{{identifier}}` as a placeholder.
+`{{1,2},{3,4}}` is ordinary Lua and must survive untouched, so anything after
+`{{` that is not a lower-case identifier is literal text. An unrecognised
+identifier is a hard error: shipping a half-substituted config is worse than
+failing.
+
+Multi-line expansions are passed to awk through files, not `-v`. BWK awk (the
+macOS awk) rejects a newline inside a `-v` value.
+
 ## Tests
 
 New behaviour comes with a test. So does every bug fix — write the test that
@@ -138,6 +162,7 @@ validation rule, add the fixture that trips it.
 - [ ] No new dependency
 - [ ] Palette files: name matches slug, all 15 keys, upstream values cited
 - [ ] `stm doctor` still reports full coverage on a representative config
+- [ ] `stm verify` is clean after an apply on a config with other files in it
 
 ## Reporting a bug
 
