@@ -29,7 +29,7 @@ IFS=$' \t\n'
 LC_ALL=C
 export LC_ALL
 
-STM_VERSION="0.2.0"
+STM_VERSION="0.3.0"
 PROGNAME="stm"
 
 # Every palette must define these. Order here is documentation only; output is

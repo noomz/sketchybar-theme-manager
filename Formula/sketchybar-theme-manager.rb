@@ -34,6 +34,8 @@ class SketchybarThemeManager < Formula
           end
 
       Then run:  stm list && stm apply catppuccin-mocha
+
+      Or adopt an existing bar in one step:  stm adopt && stm apply nord
     EOS
   end
 
