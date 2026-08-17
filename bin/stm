@@ -4,7 +4,8 @@
 #
 # Switches SketchyBar colour themes on macOS. Reads a language-neutral TOML
 # palette and writes either a Lua module (colors_generated.lua) or an in-place
-# value swap into a shell colours file (colors.sh).
+# value swap into a shell colours file (colors.sh). Optional [layout] / [items]
+# tables write a generated overlay; stm never rewrites the user's item files.
 #
 # Compatibility: written for bash 3.2 (the /bin/bash that ships with macOS).
 #   - no associative arrays, no `mapfile`, no `${v^^}`, no `[[ -v ]]`
@@ -253,12 +254,12 @@ BEGIN {
   # Table header
   if (line ~ /^[ \t]*\[/) {
     if (line !~ /^[ \t]*\[[ \t]*[A-Za-z0-9_-]+[ \t]*\][ \t]*(#.*)?$/)
-      fail("unsupported table syntax (only plain [colors] / [extras] headers are allowed)")
+      fail("unsupported table syntax (only plain [colors] / [extras] / [layout] / [items] headers are allowed)")
     sec = line
     sub(/^[ \t]*\[[ \t]*/, "", sec)
     sub(/[ \t]*\].*$/, "", sec)
-    if (sec != "colors" && sec != "extras")
-      fail("unsupported table [" sec "] (only [colors] and [extras] are allowed)")
+    if (sec != "colors" && sec != "extras" && sec != "layout" && sec != "items")
+      fail("unsupported table [" sec "] (only [colors], [extras], [layout] and [items] are allowed)")
     if (seen_section[sec])
       fail("duplicate [" sec "] table")
     seen_section[sec] = 1
@@ -270,7 +271,8 @@ BEGIN {
   #
   # The value may not contain a double quote or a backslash. That single rule
   # kills escape-sequence smuggling (\", \n) before it can reach generated Lua.
-  if (line !~ /^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*"[^"\\]*"[ \t]*(#.*)?$/)
+  # Item names may contain a dot (cpu.percent); colour and layout keys may not.
+  if (line !~ /^[ \t]*[A-Za-z_][A-Za-z0-9_.]*[ \t]*=[ \t]*"[^"\\]*"[ \t]*(#.*)?$/)
     fail("unsupported or malformed line (expected: key = \"value\")")
 
   key = line
@@ -295,7 +297,36 @@ BEGIN {
     next
   }
 
+  if (section == "layout") {
+    if (key !~ /^[a-z][a-z0-9_]*$/)
+      fail("invalid layout key \"" key "\" (want lower-case [a-z][a-z0-9_]*)")
+    if (length(key) > 32)
+      fail("layout key \"" key "\" is too long (max 32)")
+    if (key in layouts)
+      fail("duplicate layout key \"" key "\"")
+    check_layout(key, val)
+    layouts[key] = val
+    layout_order[++nlayout] = key
+    next
+  }
+
+  if (section == "items") {
+    if (key !~ /^[a-z][a-z0-9_.]*$/)
+      fail("invalid item name \"" key "\" (want lower-case [a-z][a-z0-9_.]*)")
+    if (length(key) > 32)
+      fail("item name \"" key "\" is too long (max 32)")
+    if (key in items)
+      fail("duplicate item \"" key "\"")
+    if (val != "left" && val != "right" && val != "center")
+      fail("invalid item slot \"" val "\" for \"" key "\" (want left, right or center)")
+    items[key] = val
+    item_order[++nitems] = key
+    next
+  }
+
   # Root level
+  if (index(key, ".") > 0)
+    fail("unsupported or malformed line (expected: key = \"value\")")
   if (key in meta)
     fail("duplicate key \"" key "\"")
   meta[key] = val
@@ -353,6 +384,13 @@ END {
     else
       printf("color\t%s\t%s\n", order[i], colors[order[i]])
   }
+
+  if (seen_section["items"])
+    printf("meta\thas_items\t1\n")
+  for (i = 1; i <= nlayout; i++)
+    printf("layout\t%s\t%s\n", layout_order[i], layouts[layout_order[i]])
+  for (i = 1; i <= nitems; i++)
+    printf("item\t%s\t%s\n", item_order[i], items[item_order[i]])
 }
 
 # normalise_colour — accept 0xAARRGGBB or #RRGGBB, always return lower-case
@@ -374,6 +412,50 @@ function normalise_colour(k, v) {
   if (v ~ /^#[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/)
     fail("invalid colour value for \"" k "\": \"" v "\" (# means RGB; use 0xAARRGGBB for alpha)")
   fail("invalid colour value for \"" k "\": \"" v "\" (want 0xAARRGGBB or #RRGGBB)")
+}
+function int_in(v, lo, hi,   n) {
+  if (v !~ /^-?[0-9]+$/) return 0
+  n = v + 0
+  if (n < lo || n > hi) return 0
+  return 1
+}
+function uint_in(v, lo, hi,   n) {
+  if (v !~ /^[0-9]+$/) return 0
+  n = v + 0
+  if (n < lo || n > hi) return 0
+  return 1
+}
+# Layout values are data only: enums and small integers. A value that is not
+# on this list is refused rather than passed through to generated Lua.
+function check_layout(k, v) {
+  if (k == "position") {
+    if (v == "top" || v == "bottom") return
+    fail("invalid layout value for \"" k "\": \"" v "\" (want top or bottom)")
+  }
+  if (k == "sticky" || k == "topmost" || k == "shadow" || k == "hidden" || k == "font_smoothing") {
+    if (v == "on" || v == "off") return
+    fail("invalid layout value for \"" k "\": \"" v "\" (want on or off)")
+  }
+  if (k == "display") {
+    if (v == "main" || v == "all") return
+    if (uint_in(v, 1, 99)) return
+    fail("invalid layout value for \"" k "\": \"" v "\" (want main, all or 1-99)")
+  }
+  if (k == "height") {
+    if (uint_in(v, 1, 256)) return
+    fail("invalid layout value for \"" k "\": \"" v "\" (want 1-256)")
+  }
+  if (k == "y_offset") {
+    if (int_in(v, -256, 256)) return
+    fail("invalid layout value for \"" k "\": \"" v "\" (want -256-256)")
+  }
+  if (k == "notch_display_height" || k == "margin" || k == "corner_radius" ||
+      k == "border_width" || k == "blur_radius" || k == "padding_left" ||
+      k == "padding_right" || k == "notch_width" || k == "notch_offset") {
+    if (uint_in(v, 0, 256)) return
+    fail("invalid layout value for \"" k "\": \"" v "\" (want 0-256)")
+  }
+  fail("unsupported layout key \"" k "\"")
 }
 function fail_end(msg) {
   printf("%s: %s: %s\n", prog, FILENAME, msg) > "/dev/stderr"
@@ -449,18 +531,39 @@ $tmpdir"
   local i
   i="$depth"
   while [ "$i" -ge 0 ]; do
-    awk -F'\t' '$1=="color" || $1=="extra"' "$tmpdir/link.$i" >>"$merged"
+    awk -F'\t' '$1=="color" || $1=="extra" || $1=="layout"' "$tmpdir/link.$i" >>"$merged"
     i=$((i - 1))
   done
 
   # Last value wins per key; a key may be promoted from extra to color (or the
   # reverse) by a child, so the kind travels with the winning definition.
-  local colours
+  # Layout keys merge the same way. Items are not in $merged: a child [items]
+  # table replaces the parent's list entirely.
+  local colours layouts items
   colours=$(awk -F'\t' '
-    { kind[$2] = $1; val[$2] = $3
-      if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
+    $1 == "color" || $1 == "extra" {
+      kind[$2] = $1; val[$2] = $3
+      if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 }
+    }
     END { for (i = 1; i <= n; i++) printf("%s\t%s\t%s\n", kind[order[i]], order[i], val[order[i]]) }
   ' "$merged")
+  layouts=$(awk -F'\t' '
+    $1 == "layout" {
+      val[$2] = $3
+      if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 }
+    }
+    END { for (i = 1; i <= n; i++) printf("layout\t%s\t%s\n", order[i], val[order[i]]) }
+  ' "$merged")
+  items=""
+  i=0
+  while [ "$i" -le "$depth" ]; do
+    if awk -F'\t' '$1=="meta" && $2=="has_items" { found=1 } END { exit !found }' \
+      "$tmpdir/link.$i"; then
+      items=$(awk -F'\t' '$1=="item"' "$tmpdir/link.$i")
+      break
+    fi
+    i=$((i + 1))
+  done
 
   # `transparent` is universally 0x00000000 and several real configs reference
   # colors.transparent unguarded, so default it once, after merging.
@@ -479,9 +582,15 @@ color	transparent	0x00000000"
     die "$EX_INVALID" "$file: missing required colour key(s):$missing"
   fi
 
-  # Metadata comes from the child (link.0) alone.
-  awk -F'\t' '$1=="meta"' "$tmpdir/link.0"
+  # Metadata comes from the child (link.0) alone, except has_items which
+  # follows the winning item list.
+  awk -F'\t' '$1=="meta" && $2!="has_items"' "$tmpdir/link.0"
   printf '%s\n' "$colours"
+  [ -n "$layouts" ] && printf '%s\n' "$layouts"
+  if [ -n "$items" ]; then
+    printf 'meta\thas_items\t1\n'
+    printf '%s\n' "$items"
+  fi
 
   rm -rf "$tmpdir"
 }
@@ -502,6 +611,32 @@ stm_records_colors() {
 # Only the [extras] keys, for `{{extras_*}}` template blocks and doctor.
 stm_records_extras() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="extra" { printf("%s\t%s\n", $2, $3) }' | sort
+}
+
+# Layout keys in declaration (merge) order. Not sorted: preview and export
+# should follow the palette.
+stm_records_layout() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="layout" { printf("%s\t%s\n", $2, $3) }'
+}
+
+# Item name<TAB>slot rows, declaration order.
+stm_records_items() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="item" { printf("%s\t%s\n", $2, $3) }'
+}
+
+# True if the resolved records carry any layout or item data.
+stm_records_has_layout() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="layout" || $1=="item" { found=1; exit } END { exit !found }'
+}
+
+# layout_is_int <key> — bar properties that must be emitted as Lua numbers.
+layout_is_int() {
+  case "$1" in
+    height | notch_display_height | margin | y_offset | corner_radius | \
+    border_width | blur_radius | padding_left | padding_right | \
+    notch_width | notch_offset) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # apply_alpha <records> — apply [alpha] overrides from stm.config.toml.
@@ -699,6 +834,11 @@ OPT_SLUG=""
 OPT_BASE=""
 OPT_NO_MANIFEST=0
 OPT_BACKUP_EACH=0
+OPT_NO_BACKUP=0
+OPT_RESET_LAYOUT=0
+OPT_ALL=0
+OPT_NO_WIRE=0
+OPT_NO_LAYOUT=0
 
 RESOLVED_CONFIG=""
 RESOLVED_DIR=""
@@ -912,17 +1052,19 @@ resolve_format() {
 
 # detect_lua_dialect <dir> — "nested" if the user's own Lua declares sub-tables
 # for bar/popup (the shape where colors.popup.bg must resolve), else "flat".
-# The dialect is a property of the colours module, so only colors.lua is
-# inspected. Scanning every .lua would false-positive on item definitions like
-# `bar = { color = colors.bar_bg }`, which is a SketchyBar item, not a palette.
-# When there is no colors.lua, flat is the safe default and --lua-dialect
-# nested is available.
+# The dialect is a property of the colours module, so only colors.lua (and
+# colors_user.lua after `stm adopt`) is inspected. Scanning every .lua would
+# false-positive on item definitions like `bar = { color = colors.bar_bg }`,
+# which is a SketchyBar item, not a palette. When there is no colours module,
+# flat is the safe default and --lua-dialect nested is available.
 detect_lua_dialect() {
-  local f="$1/colors.lua"
-  if [ -f "$f" ] && grep -qE '^[[:space:]]*(bar|popup)[[:space:]]*=[[:space:]]*\{' "$f"; then
-    printf 'nested\n'
-    return 0
-  fi
+  local f
+  for f in "$1/colors.lua" "$1/colors_user.lua"; do
+    if [ -f "$f" ] && grep -qE '^[[:space:]]*(bar|popup)[[:space:]]*=[[:space:]]*\{' "$f"; then
+      printf 'nested\n'
+      return 0
+    fi
+  done
   printf 'flat\n'
 }
 
@@ -1083,7 +1225,8 @@ function fail(msg) {
 }
 function is_block(nm) {
   return (nm == "colors_lua" || nm == "colors_bash" || nm == "extras_lua" ||
-          nm == "extras_bash" || nm == "children_lua" || nm == "with_alpha")
+          nm == "extras_bash" || nm == "children_lua" || nm == "with_alpha" ||
+          nm == "layout_lua" || nm == "items_lua" || nm == "layout_bash")
 }
 # Multi-line expansions are read from files. awk -v cannot carry a newline in
 # its value, so they cannot be passed on the command line.
@@ -1193,6 +1336,10 @@ $blk"
     awk -F"\t" '{ k = toupper($1); printf("export %s=%s\n", k, $2) }' >"$blk/extras_bash"
   lua_children_block "$records" >"$blk/children_lua"
   printf '%s\n' "$STM_WITH_ALPHA" >"$blk/with_alpha"
+  layout_lua_block "$records" >"$blk/layout_lua"
+  items_lua_block "$records" >"$blk/items_lua"
+  layout_bash_block "$records" >"$blk/layout_bash"
+  template_layout_map "$records" >>"$blk/map"
 
   mktemp_in "$dir"
   tmp="$STM_TMP"
@@ -1225,6 +1372,10 @@ $blk"
     awk -F"\t" '{ k = toupper($1); printf("export %s=%s\n", k, $2) }' >"$blk/extras_bash"
   lua_children_block "$records" >"$blk/children_lua"
   printf '%s\n' "$STM_WITH_ALPHA" >"$blk/with_alpha"
+  layout_lua_block "$records" >"$blk/layout_lua"
+  items_lua_block "$records" >"$blk/items_lua"
+  layout_bash_block "$records" >"$blk/layout_bash"
+  template_layout_map "$records" >>"$blk/map"
 
   awk -v prog="$PROGNAME" -v tplname="$tpl" -v blockdir="$blk" \
     -v m_name="x" -v m_slug="x" -v m_variant="x" -v m_generated="x" \
@@ -1232,6 +1383,51 @@ $blk"
 
   rm -rf "$blk"
   return "$rcode"
+}
+
+# template_layout_map <records> — extra map rows so {{bar_position}} and
+# {{position}} resolve. Missing keys stay absent and are a hard error if used.
+template_layout_map() {
+  local records="$1" k v
+  stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    printf '%s\t%s\n' "$k" "$v"
+    printf 'bar_%s\t%s\n' "$k" "$v"
+  done
+}
+
+layout_lua_block() {
+  local records="$1" k v
+  stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    if layout_is_int "$k"; then
+      printf '    %s = %s,\n' "$k" "$v"
+    else
+      printf '    %s = "%s",\n' "$k" "$v"
+    fi
+  done
+}
+
+items_lua_block() {
+  local records="$1" k v
+  stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    printf '    { name = "%s", position = "%s" },\n' "$k" "$v"
+  done
+}
+
+layout_bash_block() {
+  local records="$1" k v uk
+  stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    # shellcheck disable=SC2018,SC2019
+    printf 'export BAR_%s=%s\n' "$(printf '%s' "$k" | tr 'a-z' 'A-Z')" "$v"
+  done
+  stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    uk=$(printf '%s' "$k" | tr 'a-z.' 'A-Z_')
+    printf 'export ITEM_%s=%s\n' "$uk" "$v"
+  done
 }
 
 # lua_children_block <records> — the bar/popup sub-tables, for {{children_lua}}.
@@ -1437,7 +1633,7 @@ validate_output_name() {
   esac
   # Never let stm be pointed at files it must not own.
   case "$v" in
-    colors.lua | .stm-state | .stm-manifest | stm.config.toml)
+    colors.lua | colors_user.lua | .stm-state | .stm-manifest | stm.config.toml | .stm-backups)
       die "$EX_CONFIG" "[output] $key may not be \"$v\" — stm must not own that file"
       ;;
   esac
@@ -1538,6 +1734,156 @@ target_path() {
     fi
   fi
   printf '%s\n' "$RESOLVED_DIR/$name"
+}
+
+# layout_path <format> — sibling generated overlay for [layout] / [items].
+# Bare filename, same [output] rules as colours. Default depends on format.
+layout_path() {
+  local fmt="$1" name=""
+  case "$fmt" in
+    lua) name="layout_generated.lua" ;;
+    bash | config-sh) name="layout.sh" ;;
+    *) return 1 ;;
+  esac
+  if [ -n "$RESOLVED_CONFIG" ]; then
+    local configured
+    if configured=$(stm_config_section_get "$RESOLVED_CONFIG" output layout); then
+      name=$(validate_output_name "$configured" layout)
+    fi
+  fi
+  printf '%s\n' "$RESOLVED_DIR/$name"
+}
+
+# write_layout <records> <format> — write the overlay if the palette carries
+# any layout or item rows. Colour-only palettes leave an existing file alone.
+write_layout() {
+  local records="$1" fmt="$2" target
+  stm_records_has_layout "$records" || return 0
+  target=$(layout_path "$fmt") || return 0
+  if [ -L "$target" ]; then
+    local real
+    real=$(resolve_symlinks "$target")
+    if [ -e "$real" ] && [ ! -f "$real" ]; then
+      die "$EX_CONFIG" "$target is a symlink to a non-regular file ($real); refusing to write"
+    fi
+    target="$real"
+  fi
+  assert_writable_target "$target"
+  case "$fmt" in
+    lua) write_layout_lua "$records" "$target" ;;
+    bash | config-sh) write_layout_sh "$records" "$target" ;;
+  esac
+}
+
+write_layout_lua() {
+  local records="$1" target="$2" dir tmp name slug stamp k v
+
+  dir=$(dirname "$target")
+  name=$(stm_records_meta "$records" name)
+  slug=$(stm_records_meta "$records" slug)
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  {
+    printf -- '-- Generated by stm (sketchybar-theme-manager). DO NOT EDIT.\n'
+    # shellcheck disable=SC2016  # literal backticks inside a Lua comment
+    printf -- '-- Edit your palette .toml and re-run `stm apply` instead.\n'
+    printf -- '-- theme: %s\n' "$slug"
+    printf -- '-- name: %s\n' "$name"
+    printf -- '-- generated: %s\n' "$stamp"
+    printf -- '\n'
+    printf -- 'return {\n'
+    printf -- '  bar = {\n'
+    stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      if layout_is_int "$k"; then
+        printf -- '    %s = %s,\n' "$k" "$v"
+      else
+        printf -- '    %s = "%s",\n' "$k" "$v"
+      fi
+    done
+    printf -- '  },\n'
+    printf -- '  items = {\n'
+    stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      printf -- '    { name = "%s", position = "%s" },\n' "$k" "$v"
+    done
+    printf -- '  },\n'
+    printf -- '  position_of = {\n'
+    stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      printf -- '    %s = "%s",\n' "$k" "$v"
+    done
+    printf -- '  },\n'
+    printf -- '}\n'
+  } >"$tmp"
+
+  commit_tmp "$tmp" "$target"
+}
+
+write_layout_sh() {
+  local records="$1" target="$2" dir tmp name slug stamp k v
+  local left="" center="" right="" uk
+
+  dir=$(dirname "$target")
+  name=$(stm_records_meta "$records" name)
+  slug=$(stm_records_meta "$records" slug)
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '# Generated by stm (sketchybar-theme-manager). DO NOT EDIT.\n'
+    printf '# stm-theme: %s\n' "$slug"
+    printf '# stm-name: %s\n' "$name"
+    printf '# generated: %s\n\n' "$stamp"
+    stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      # shellcheck disable=SC2018,SC2019  # ASCII keys, LC_ALL=C
+      printf 'export BAR_%s=%s\n' "$(printf '%s' "$k" | tr 'a-z' 'A-Z')" "$v"
+    done
+    stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      uk=$(printf '%s' "$k" | tr 'a-z.' 'A-Z_')
+      printf 'export ITEM_%s=%s\n' "$uk" "$v"
+    done
+  } >"$tmp"
+
+  # Order lists are built in the parent so the while-subshell cannot hide them.
+  left=""
+  center=""
+  right=""
+  while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    case "$v" in
+      left) left="$left$k " ;;
+      center) center="$center$k " ;;
+      right) right="$right$k " ;;
+    esac
+  done <<EOF
+$(stm_records_items "$records")
+EOF
+  {
+    printf 'export ITEM_ORDER_LEFT="%s"\n' "${left% }"
+    printf 'export ITEM_ORDER_CENTER="%s"\n' "${center% }"
+    printf 'export ITEM_ORDER_RIGHT="%s"\n' "${right% }"
+  } >>"$tmp"
+
+  commit_tmp "$tmp" "$target"
+}
+
+# reset_layout <format> — delete the generated overlay. Used by --reset-layout.
+reset_layout_file() {
+  local fmt="$1" target
+  target=$(layout_path "$fmt") || return 0
+  if [ -L "$target" ]; then
+    target=$(resolve_symlinks "$target")
+  fi
+  [ -f "$target" ] || return 0
+  rm -f "$target"
+  note "removed layout overlay: $target"
 }
 
 # ---------------------------------------------------------------------------
@@ -1709,6 +2055,10 @@ cmd_apply() {
   # is going to be refused anyway.
   assert_writable_target "$target"
 
+  # Snapshot stm-owned state before the first destructive write. Colour-only
+  # auto snapshots; --all is never implicit.
+  auto_backup_owned
+
   # A user template, when present, replaces the built-in writer for that format.
   if tpl=$(find_template "$RESOLVED_FORMAT"); then
     note "rendering via template: $tpl"
@@ -1719,6 +2069,12 @@ cmd_apply() {
       bash) write_bash "$records" "$target" ;;
       config-sh) write_config_sh "$records" "$target" ;;
     esac
+  fi
+
+  if [ "$OPT_RESET_LAYOUT" -eq 1 ]; then
+    reset_layout_file "$RESOLVED_FORMAT"
+  else
+    write_layout "$records" "$RESOLVED_FORMAT"
   fi
 
   write_state "$slug"
@@ -1801,6 +2157,21 @@ cmd_preview() {
       printf '  %-14s %s\n' "$k" "$v"
     fi
   done
+
+  if stm_records_has_layout "$records"; then
+    printf '\nLayout\n'
+    stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      printf '  %-14s %s\n' "$k" "$v"
+    done
+    if stm_records_items "$records" | grep -q .; then
+      printf '\nItems\n'
+      stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+        [ -n "$k" ] || continue
+        printf '  %-14s %s\n' "$k" "$v"
+      done
+    fi
+  fi
 }
 
 cmd_init() {
@@ -1868,6 +2239,22 @@ own values stay in place as the default:
     end
 
     return defaults
+
+Optional: if a palette carries [layout] / [items], stm also writes
+layout_generated.lua. Wire it the same way — your item scripts stay yours:
+
+    local layout = {}
+    local ok_l, generated_l = pcall(require, "layout_generated")
+    if ok_l and type(generated_l) == "table" then
+      layout = generated_l
+    end
+
+    local function pos(name, default)
+      if layout.position_of and layout.position_of[name] then
+        return layout.position_of[name]
+      end
+      return default
+    end
 EOF
   fi
 }
@@ -1948,6 +2335,11 @@ $tmpdir"
   fi
 
   printf '  %-16s %s\n' "palette dirs" "$(palette_dirs | tr '\n' ' ')"
+  if [ -f "$(layout_path "$fmt" 2>/dev/null)" ]; then
+    printf '  %-16s %s\n' "layout overlay" "$(layout_path "$fmt")"
+  else
+    printf '  %-16s %s\n' "layout overlay" "none"
+  fi
 
   slug=$(read_state 2>/dev/null || true)
   if [ -n "${1:-}" ]; then
@@ -2074,11 +2466,14 @@ manifest_lines() {
     cd "$dir" 2>/dev/null || exit 0
     find . -type f \
       ! -path './.git/*' \
+      ! -path './.stm-backups/*' \
       ! -name '.stm-manifest' \
       ! -name '.stm-state' \
       ! -name '*.stm-backup' \
       ! -name '*.stm-bak-*' \
       ! -name '.stm-tmp.*' \
+      ! -name 'layout_generated.lua' \
+      ! -name 'layout.sh' \
       ! -name "$managed" \
       -exec shasum -a 256 {} + 2>/dev/null
   ) | sort -k2
@@ -2130,7 +2525,7 @@ $tmpdir"
     "$mf" "$now" | wc -l | tr -d ' ')
 
   info "Verifying $RESOLVED_DIR against $(basename "$mf")"
-  info "  managed by stm (not checked): $managed"
+  info "  managed by stm (not checked): $managed layout_generated.lua layout.sh .stm-backups/"
   info ""
 
   if [ "$n_changed" -gt 0 ]; then
@@ -2158,6 +2553,431 @@ $tmpdir"
     info "usually you editing your config — re-run \`stm apply\` to re-baseline."
   fi
   return "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# backup / restore
+#
+# Default scope is stm-owned files (generated overlays + .stm-state).
+# `backup --all` copies the whole config dir so a working bar can be frozen
+# before the first apply. Restore follows the snapshot's recorded scope.
+# ---------------------------------------------------------------------------
+
+backups_dir() { printf '%s\n' "$RESOLVED_DIR/.stm-backups"; }
+
+validate_backup_name() {
+  local s="$1"
+  case "$s" in
+    "" | "." | "..") die "$EX_USAGE" "invalid backup name: \"$s\"" ;;
+    */*) die "$EX_USAGE" "invalid backup name (may not contain \"/\"): \"$s\"" ;;
+    .*) die "$EX_USAGE" "invalid backup name (may not start with a dot): \"$s\"" ;;
+  esac
+  if [ "${#s}" -gt 64 ]; then
+    die "$EX_USAGE" "backup name is too long (max 64): \"$s\""
+  fi
+  case "$s" in
+    *[!A-Za-z0-9._-]*) die "$EX_USAGE" "invalid backup name \"$s\" (allowed: A-Z a-z 0-9 . _ -)" ;;
+  esac
+  case "$s" in
+    [A-Za-z0-9]*) : ;;
+    *) die "$EX_USAGE" "backup name must start with a letter or digit: \"$s\"" ;;
+  esac
+}
+
+is_auto_backup_name() {
+  case "$1" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) return 0 ;;
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-[0-9]*) return 0 ;;
+  esac
+  return 1
+}
+
+backup_meta_get() {
+  local file="$1/manifest.toml" key="$2"
+  [ -f "$file" ] || return 1
+  awk -F' = ' -v k="$key" '
+    $1 == k {
+      v = $2
+      sub(/^[ \t]*"/, "", v)
+      sub(/"[ \t]*$/, "", v)
+      print v
+      exit
+    }
+  ' "$file"
+}
+
+write_backup_manifest() {
+  local dest="$1" scope="$2" slug fmt created
+  slug=$(read_state 2>/dev/null || true)
+  fmt="${RESOLVED_FORMAT:-}"
+  if [ -z "$fmt" ] && [ -d "$RESOLVED_DIR" ]; then
+    fmt=$(detect_format "$RESOLVED_DIR" 2>/dev/null || true)
+  fi
+  created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  {
+    printf 'scope = "%s"\n' "$scope"
+    printf 'slug = "%s"\n' "${slug:-none}"
+    printf 'format = "%s"\n' "${fmt:-unknown}"
+    printf 'created = "%s"\n' "$created"
+  } >"$dest/manifest.toml"
+}
+
+# Relative paths of stm-owned files that currently exist.
+owned_relpaths() {
+  local f rel
+  [ -d "$RESOLVED_DIR" ] || return 0
+  if [ -z "$RESOLVED_FORMAT" ] && [ -d "$RESOLVED_DIR" ]; then
+    RESOLVED_FORMAT=$(detect_format "$RESOLVED_DIR" 2>/dev/null || true)
+  fi
+  for f in \
+    "$(state_file)" \
+    "${RESOLVED_FORMAT:+$(target_path "$RESOLVED_FORMAT")}" \
+    "${RESOLVED_FORMAT:+$(layout_path "$RESOLVED_FORMAT")}" \
+    "$RESOLVED_DIR/colors_generated.lua" \
+    "$RESOLVED_DIR/layout_generated.lua" \
+    "$RESOLVED_DIR/layout.sh" \
+    "$RESOLVED_DIR/colors.sh"; do
+    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
+    rel="${f#"$RESOLVED_DIR"/}"
+    case "$rel" in
+      "" | "$f") continue ;;
+      *..*) continue ;;
+    esac
+    printf '%s\n' "$rel"
+  done | sort -u
+}
+
+snapshot_owned() {
+  local name="$1" dest f rel n=0
+  dest="$(backups_dir)/$name"
+  mkdir -p "$dest"
+  : >"$dest/files.list"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    f="$RESOLVED_DIR/$rel"
+    [ -f "$f" ] || continue
+    mkdir -p "$dest/$(dirname "$rel")"
+    cp -p "$f" "$dest/$rel"
+    printf '%s\n' "$rel" >>"$dest/files.list"
+    n=$((n + 1))
+  done <<EOF
+$(owned_relpaths)
+EOF
+  write_backup_manifest "$dest" "owned"
+  printf '%s\n' "$n"
+}
+
+# True if $2 is inside directory $1. Both sides are resolved to absolute
+# paths so a relative config dir still matches a fully resolved symlink.
+path_inside() {
+  local root="$1" p="$2" root_abs
+  if [ -d "$root" ]; then
+    root_abs=$(cd -- "$root" && pwd) || root_abs="$root"
+  else
+    root_abs="$root"
+  fi
+  case "$p" in
+    "$root_abs" | "$root_abs"/* | "$root" | "$root"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+snapshot_all() {
+  local name="$1" dest src rel real n=0
+  dest="$(backups_dir)/$name"
+  src="$RESOLVED_DIR"
+  mkdir -p "$dest/tree"
+  : >"$dest/files.list"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    rel="${rel#./}"
+    [ -n "$rel" ] || continue
+    case "$rel" in
+      .stm-backups | .stm-backups/* | .git | .git/*) continue ;;
+    esac
+    if [ -L "$src/$rel" ]; then
+      real=$(resolve_symlinks "$src/$rel")
+      if path_inside "$src" "$real"; then
+        mkdir -p "$dest/tree/$(dirname "$rel")"
+        rm -f "$dest/tree/$rel"
+        ln -s "$(readlink "$src/$rel")" "$dest/tree/$rel"
+        printf '%s\n' "$rel" >>"$dest/files.list"
+        n=$((n + 1))
+      else
+        err "warning: skipping symlink that escapes the config dir: $rel"
+      fi
+    elif [ -f "$src/$rel" ]; then
+      mkdir -p "$dest/tree/$(dirname "$rel")"
+      cp -p "$src/$rel" "$dest/tree/$rel"
+      printf '%s\n' "$rel" >>"$dest/files.list"
+      n=$((n + 1))
+    fi
+  done <<EOF
+$(
+    cd "$src" 2>/dev/null || exit 0
+    find . \( -path './.stm-backups' -o -path './.stm-backups/*' \
+      -o -path './.git' -o -path './.git/*' \) -prune -o \
+      \( -type f -o -type l \) -print
+  )
+EOF
+  write_backup_manifest "$dest" "all"
+  printf '%s\n' "$n"
+}
+
+prune_auto_backups() {
+  local dir names n drop
+  dir=$(backups_dir)
+  [ -d "$dir" ] || return 0
+  names=""
+  for d in "$dir"/*; do
+    [ -d "$d" ] || continue
+    if is_auto_backup_name "$(basename "$d")"; then
+      names="$names$(basename "$d")
+"
+    fi
+  done
+  [ -n "$names" ] || return 0
+  names=$(printf '%s' "$names" | sort)
+  n=$(printf '%s\n' "$names" | grep -c . | tr -d ' ')
+  [ -n "$n" ] || return 0
+  if [ "$n" -gt 5 ]; then
+    drop=$((n - 5))
+    printf '%s\n' "$names" | head -n "$drop" | while IFS= read -r old; do
+      [ -n "$old" ] || continue
+      [ -n "$dir" ] || continue
+      case "$old" in
+        "" | . | .. | /*) continue ;;
+      esac
+      rm -rf "${dir:?}/$old"
+      note "pruned auto backup: $old"
+    done
+  fi
+}
+
+auto_backup_owned() {
+  local name n dest
+  [ "$OPT_NO_BACKUP" -eq 1 ] && return 0
+  [ "$OPT_DRY_RUN" -eq 1 ] && return 0
+  [ -d "$RESOLVED_DIR" ] || return 0
+  name=$(date -u +%Y%m%dT%H%M%SZ)
+  dest="$(backups_dir)/$name"
+  n=1
+  while [ -e "$dest" ] && [ "$n" -lt 100 ]; do
+    dest="$(backups_dir)/${name}-$n"
+    n=$((n + 1))
+  done
+  name=$(basename "$dest")
+  snapshot_owned "$name" >/dev/null
+  prune_auto_backups
+  note "auto backup: $name"
+}
+
+latest_auto_backup() {
+  local dir d latest=""
+  dir=$(backups_dir)
+  [ -d "$dir" ] || return 1
+  for d in "$dir"/*; do
+    [ -d "$d" ] || continue
+    is_auto_backup_name "$(basename "$d")" || continue
+    latest=$(basename "$d")
+  done
+  [ -n "$latest" ] || return 1
+  printf '%s\n' "$latest"
+}
+
+restore_owned() {
+  local snap="$1" rel f
+  [ -f "$snap/files.list" ] || die "$EX_INVALID" "snapshot is missing files.list: $snap"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    case "$rel" in
+      "" | *..* | /* | .stm-backups | .stm-backups/*) continue ;;
+    esac
+    f="$snap/$rel"
+    [ -f "$f" ] || continue
+    mkdir -p "$RESOLVED_DIR/$(dirname "$rel")"
+    assert_writable_target "$RESOLVED_DIR/$rel"
+    cp -p "$f" "$RESOLVED_DIR/$rel"
+  done <"$snap/files.list"
+
+  # Exact set: drop currently-owned files the snapshot did not list.
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if ! grep -qxF -- "$rel" "$snap/files.list" 2>/dev/null; then
+      rm -f "$RESOLVED_DIR/$rel"
+      note "removed $rel (not in snapshot)"
+    fi
+  done <<EOF
+$(owned_relpaths)
+EOF
+}
+
+restore_all() {
+  local snap="$1" tree rel real
+  tree="$snap/tree"
+  [ -d "$tree" ] || die "$EX_INVALID" "snapshot has no tree/ (not an --all backup): $snap"
+
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    rel="${rel#./}"
+    case "$rel" in
+      "" | *..* | /* | .stm-backups | .stm-backups/* | .git | .git/*) continue ;;
+    esac
+    mkdir -p "$RESOLVED_DIR/$(dirname "$rel")"
+    if [ -L "$tree/$rel" ]; then
+      real=$(resolve_symlinks "$tree/$rel")
+      path_inside "$tree" "$real" || continue
+      rm -f "$RESOLVED_DIR/$rel"
+      ln -s "$(readlink "$tree/$rel")" "$RESOLVED_DIR/$rel"
+    elif [ -f "$tree/$rel" ]; then
+      assert_writable_target "$RESOLVED_DIR/$rel"
+      cp -p "$tree/$rel" "$RESOLVED_DIR/$rel"
+    fi
+  done <<EOF
+$(
+    cd "$tree" 2>/dev/null || exit 0
+    find . \( -type f -o -type l \) -print
+  )
+EOF
+
+  # Remove live files that the snapshot does not have (except the catalogue).
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    rel="${rel#./}"
+    case "$rel" in
+      "" | .stm-backups | .stm-backups/* | .git | .git/*) continue ;;
+    esac
+    if [ ! -e "$tree/$rel" ] && [ ! -L "$tree/$rel" ]; then
+      rm -f "$RESOLVED_DIR/$rel"
+      note "removed $rel (not in snapshot)"
+    fi
+  done <<EOF
+$(
+    cd "$RESOLVED_DIR" 2>/dev/null || exit 0
+    find . \( -path './.stm-backups' -o -path './.stm-backups/*' \
+      -o -path './.git' -o -path './.git/*' \) -prune -o \
+      \( -type f -o -type l \) -print
+  )
+EOF
+}
+
+maybe_reload() {
+  if [ "$OPT_NO_RELOAD" -eq 0 ]; then
+    if command -v sketchybar >/dev/null 2>&1; then
+      if sketchybar --reload >/dev/null 2>&1; then
+        return 0
+      fi
+      err "warning: \`sketchybar --reload\` failed; the files were still written"
+    else
+      err "warning: sketchybar is not on PATH; skipped reload"
+    fi
+  fi
+}
+
+fresh_backup_name() {
+  local name="$1" dest n=1
+  dest="$(backups_dir)/$name"
+  while [ -e "$dest" ] && [ "$n" -lt 100 ]; do
+    dest="$(backups_dir)/${name}-$n"
+    n=$((n + 1))
+  done
+  basename "$dest"
+}
+
+cmd_backup() {
+  local name="${1:-}" dest n scope="owned"
+
+  [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
+
+  if [ -n "$name" ]; then
+    validate_backup_name "$name"
+    dest="$(backups_dir)/$name"
+    if [ -e "$dest" ] && [ "$OPT_FORCE" -eq 0 ]; then
+      die "$EX_EXISTS" "backup \"$name\" already exists (pass --force to replace)"
+    fi
+    [ -e "$dest" ] && rm -rf "$dest"
+  else
+    name=$(fresh_backup_name "$(date -u +%Y%m%dT%H%M%SZ)")
+  fi
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    if [ "$OPT_ALL" -eq 1 ]; then
+      info "would backup --all $RESOLVED_DIR -> .stm-backups/$name"
+    else
+      info "would backup owned files -> .stm-backups/$name"
+      owned_relpaths | sed 's/^/  /'
+    fi
+    return 0
+  fi
+
+  if [ "$OPT_ALL" -eq 1 ]; then
+    scope="all"
+    n=$(snapshot_all "$name")
+  else
+    n=$(snapshot_owned "$name")
+  fi
+
+  info "Backed up $n file(s) ($scope) -> $(backups_dir)/$name"
+}
+
+cmd_restore() {
+  local name="${1:-}" snap scope n
+
+  [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
+
+  if [ -z "$name" ]; then
+    name=$(latest_auto_backup) || die "$EX_NOTFOUND" "no auto backup to restore (pass a name or run apply once)"
+  else
+    validate_backup_name "$name"
+  fi
+
+  snap="$(backups_dir)/$name"
+  [ -d "$snap" ] || die "$EX_NOTFOUND" "backup not found: $name"
+  scope=$(backup_meta_get "$snap" scope || true)
+  [ -n "$scope" ] || scope="owned"
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would restore $name (scope=$scope) into $RESOLVED_DIR"
+    if [ "$scope" = "all" ] && [ -d "$snap/tree" ]; then
+      (cd "$snap/tree" && find . \( -type f -o -type l \) -print | sed 's|^\./||; s/^/  /')
+    elif [ -f "$snap/files.list" ]; then
+      sed 's/^/  /' "$snap/files.list"
+    fi
+    return 0
+  fi
+
+  if [ "$scope" = "all" ]; then
+    n=$(find "$snap/tree" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
+    info "this will replace $n file(s) in $RESOLVED_DIR"
+    restore_all "$snap"
+  else
+    restore_owned "$snap"
+  fi
+
+  maybe_reload
+  info "Restored $name ($scope) -> $RESOLVED_DIR"
+}
+
+cmd_backups() {
+  local dir d name created scope slug
+  dir=$(backups_dir)
+  if [ ! -d "$dir" ]; then
+    [ "$OPT_PORCELAIN" -eq 1 ] || info "no backups"
+    return 0
+  fi
+  for d in "$dir"/*; do
+    [ -d "$d" ] || continue
+    name=$(basename "$d")
+    created=$(backup_meta_get "$d" created || true)
+    scope=$(backup_meta_get "$d" scope || true)
+    slug=$(backup_meta_get "$d" slug || true)
+    if [ "$OPT_PORCELAIN" -eq 1 ]; then
+      printf '%s\t%s\t%s\t%s\n' "$name" "${created:-}" "${scope:-}" "${slug:-}"
+    else
+      printf '%-24s  %s  %s  %s\n' "$name" "${created:-}" "${scope:-owned}" "${slug:-}"
+    fi
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -2271,6 +3091,16 @@ cmd_export() {
       stm_records_extras "$records" |
         while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
     fi
+    if stm_records_layout "$records" | grep -q .; then
+      printf '\n[layout]\n'
+      stm_records_layout "$records" |
+        while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
+    fi
+    if stm_records_items "$records" | grep -q .; then
+      printf '\n[items]\n'
+      stm_records_items "$records" |
+        while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
+    fi
   )
 
   if [ -n "$OPT_OUT" ]; then
@@ -2281,8 +3111,58 @@ cmd_export() {
   fi
 }
 
+# import_read_pairs <src> <fmt> <uniq_out> <skips_out>
+# Extract key<TAB>0xAARRGGBB pairs. Later definitions win. Skipped (non-hex)
+# lines go to skips_out as `skip<TAB>key<TAB>value`.
+import_read_pairs() {
+  local src="$1" fmt="$2" uniq_out="$3" skips_out="$4"
+  local raw
+  raw="${uniq_out}.raw"
+  if [ "$fmt" = "lua" ]; then
+    awk "$STM_IMPORT_LUA_AWK" "$src" >"$raw" 2>"$skips_out"
+  else
+    awk "$STM_IMPORT_BASH_AWK" "$src" >"$raw" 2>"$skips_out"
+  fi
+  # Later definitions win, matching how both formats actually behave.
+  sort -u -k1,1 "$raw" >"$uniq_out" 2>/dev/null ||
+    awk -F'\t' '{ v[$1] = $2 } END { for (k in v) printf("%s\t%s\n", k, v[k]) }' \
+      "$raw" | sort >"$uniq_out"
+  rm -f "$raw"
+}
+
+# import_missing_required <uniq_file> — echo missing canonical keys, or empty.
+import_missing_required() {
+  local uniq="$1" missing="" k
+  for k in $STM_REQUIRED_KEYS; do
+    if ! awk -F'\t' -v k="$k" '$1==k' "$uniq" | grep -q .; then
+      missing="$missing $k"
+    fi
+  done
+  printf '%s\n' "$missing"
+}
+
+# write_imported_palette <dest> <src_label> <slug> <base> <uniq_file>
+# Atomic-enough: write the whole file in one redirection. The source path is
+# echoed into a comment, so any newline in it would inject TOML; flatten it.
+write_imported_palette() {
+  local dest="$1" src_label="$2" slug="$3" base="$4" uniq="$5"
+  src_label=$(printf '%s' "$src_label" | tr -d '\r\n')
+  {
+    printf '# Imported by stm %s from %s\n' "$STM_VERSION" "$src_label"
+    printf 'name = "%s"\n' "$slug"
+    printf 'slug = "%s"\n' "$slug"
+    printf 'variant_label = "%s"\n' "$slug"
+    [ -n "$base" ] && printf 'base = "%s"\n' "$base"
+    printf '\n[colors]\n'
+    while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      printf '%s = "%s"\n' "$k" "$v"
+    done <"$uniq"
+  } >"$dest"
+}
+
 cmd_import() {
-  local src="${1:-}" slug fmt dest dir n missing k v
+  local src="${1:-}" slug fmt dest dir n missing
   local blk
 
   if [ -n "$src" ]; then
@@ -2310,16 +3190,7 @@ cmd_import() {
   STM_TMPDIRS="$STM_TMPDIRS
 $blk"
 
-  if [ "$fmt" = "lua" ]; then
-    awk "$STM_IMPORT_LUA_AWK" "$src" >"$blk/pairs" 2>"$blk/skips"
-  else
-    awk "$STM_IMPORT_BASH_AWK" "$src" >"$blk/pairs" 2>"$blk/skips"
-  fi
-
-  # Later definitions win, matching how both formats actually behave.
-  sort -u -k1,1 "$blk/pairs" >"$blk/uniq" 2>/dev/null ||
-    awk -F'\t' '{ v[$1] = $2 } END { for (k in v) printf("%s\t%s\n", k, v[k]) }' \
-      "$blk/pairs" | sort >"$blk/uniq"
+  import_read_pairs "$src" "$fmt" "$blk/uniq" "$blk/skips"
 
   n=$(wc -l <"$blk/uniq" | tr -d ' ')
   [ "$n" -gt 0 ] || die "$EX_INVALID" "found no colour definitions in $src"
@@ -2332,22 +3203,7 @@ $blk"
     die "$EX_EXISTS" "$dest already exists (use --force to overwrite)"
   fi
 
-  # The source path is echoed into a comment, so any newline in it would end
-  # the comment and inject the rest as TOML. Flatten it first.
-  local src_label
-  src_label=$(printf '%s' "$src" | tr -d '\r\n')
-
-  {
-    printf '# Imported by stm %s from %s\n' "$STM_VERSION" "$src_label"
-    printf 'name = "%s"\n' "$slug"
-    printf 'slug = "%s"\n' "$slug"
-    printf 'variant_label = "%s"\n' "$slug"
-    [ -n "$OPT_BASE" ] && printf 'base = "%s"\n' "$OPT_BASE"
-    printf '\n[colors]\n'
-    while IFS=$'\t' read -r k v; do
-      printf '%s = "%s"\n' "$k" "$v"
-    done <"$blk/uniq"
-  } >"$dest"
+  write_imported_palette "$dest" "$src" "$slug" "$OPT_BASE" "$blk/uniq"
 
   info "imported $n colours from $src -> $dest"
 
@@ -2359,11 +3215,7 @@ $blk"
       stm_parse_palette "$dest" >/dev/null || true
     fi
   else
-    for k in $STM_REQUIRED_KEYS; do
-      if ! awk -F'\t' -v k="$k" '$1==k' "$blk/uniq" | grep -q .; then
-        missing="$missing $k"
-      fi
-    done
+    missing=$(import_missing_required "$blk/uniq")
   fi
 
   if [ -s "$blk/skips" ]; then
@@ -2420,6 +3272,564 @@ cmd_add() {
   info "added $slug -> $dest"
 }
 
+# ---------------------------------------------------------------------------
+# adopt — snapshot + import + scrape + wire + apply
+# ---------------------------------------------------------------------------
+
+# Trusted wrapper written once by `stm adopt`. Never derived from palette
+# content. stm will not rewrite this file again after the one-time wrap.
+STM_ADOPT_WRAPPER='-- Generated once by stm adopt. Your original module is colors_user.lua.
+-- stm will not rewrite this file again. Edit colors_user.lua for defaults.
+
+local defaults = require("colors_user")
+if type(defaults) ~= "table" then
+  return defaults
+end
+
+local ok, generated = pcall(require, "colors_generated")
+if ok and type(generated) == "table" then
+  for k, v in pairs(generated) do
+    defaults[k] = v
+  end
+end
+
+return defaults'
+
+# Conservative scrape of bar chrome and item slots. Data only: never eval,
+# never source. Emits `layout<TAB>key<TAB>value` and `item<TAB>name<TAB>slot`.
+# First declaration wins. color / border_color and unknown keys are skipped.
+# macOS awk: no gensub, no {n} intervals.
+# shellcheck disable=SC2016  # awk source
+STM_SCRAPE_AWK='
+function valid_layout(k, v,   n) {
+  if (k == "color" || k == "border_color") return 0
+  if (k == "position") return (v == "top" || v == "bottom")
+  if (k == "sticky" || k == "topmost" || k == "shadow" || k == "hidden" || k == "font_smoothing")
+    return (v == "on" || v == "off")
+  if (k == "display") {
+    if (v == "main" || v == "all") return 1
+    if (v ~ /^[1-9]$/ || v ~ /^[1-9][0-9]$/) {
+      n = v + 0
+      return (n >= 1 && n <= 99)
+    }
+    return 0
+  }
+  if (k == "height") {
+    if (v !~ /^[0-9]+$/) return 0
+    n = v + 0
+    return (n >= 1 && n <= 256)
+  }
+  if (k == "y_offset") {
+    if (v !~ /^-?[0-9]+$/) return 0
+    n = v + 0
+    return (n >= -256 && n <= 256)
+  }
+  if (k == "notch_display_height" || k == "margin" || k == "corner_radius" ||
+      k == "border_width" || k == "blur_radius" || k == "padding_left" ||
+      k == "padding_right" || k == "notch_width" || k == "notch_offset") {
+    if (v !~ /^[0-9]+$/) return 0
+    n = v + 0
+    return (n >= 0 && n <= 256)
+  }
+  return 0
+}
+function unquote(v) {
+  gsub(/^["\047]|["\047]$/, "", v)
+  return v
+}
+function emit_layout(k, v) {
+  if (k in seen_l) return
+  if (!valid_layout(k, v)) return
+  seen_l[k] = 1
+  printf("layout\t%s\t%s\n", k, v)
+}
+function emit_item(n, s) {
+  if (n in seen_i) return
+  if (n !~ /^[a-z][a-z0-9_.]*$/) return
+  if (length(n) > 32) return
+  if (s != "left" && s != "right" && s != "center") return
+  seen_i[n] = 1
+  printf("item\t%s\t%s\n", n, s)
+}
+{
+  line = $0
+  sub(/\r$/, "", line)
+
+  if (line ~ /--bar([ \t]|$)/ || in_bar) {
+    in_bar = 1
+    n = split(line, parts, /[ \t]+/)
+    for (i = 1; i <= n; i++) {
+      if (parts[i] ~ /^[a-z_][a-z0-9_]*=/) {
+        k = parts[i]; sub(/=.*$/, "", k)
+        v = parts[i]; sub(/^[^=]*=/, "", v)
+        v = unquote(v)
+        if (v ~ /[$`();]/) continue
+        emit_layout(k, v)
+      }
+    }
+    if (line ~ /\\[ \t]*$/) in_bar = 1
+    else in_bar = 0
+  }
+
+  if (line ~ /--add[ \t]+item[ \t]+/) {
+    rest = line
+    sub(/.*--add[ \t]+item[ \t]+/, "", rest)
+    n = split(rest, parts, /[ \t]+/)
+    if (n >= 2) emit_item(parts[1], parts[2])
+  }
+
+  if (line ~ /sbar\.bar[ \t]*[\({]/ || line ~ /[^A-Za-z0-9_]bar:set[ \t]*\(/ || line ~ /^[ \t]*bar:set[ \t]*\(/) {
+    in_lua_bar = 1
+    lua_bar_left = 20
+  }
+
+  if (in_lua_bar) {
+    work = line
+    sub(/--.*$/, "", work)
+    while (match(work, /[a-z_][a-z0-9_]*[ \t]*=[ \t]*/)) {
+      k = substr(work, RSTART, RLENGTH)
+      sub(/[ \t]*=[ \t]*$/, "", k)
+      work = substr(work, RSTART + RLENGTH)
+      if (match(work, /^"[^"]*"/) || match(work, /^\047[^\047]*\047/) || match(work, /^-?[0-9]+/)) {
+        v = substr(work, RSTART, RLENGTH)
+        v = unquote(v)
+        emit_layout(k, v)
+        work = substr(work, RSTART + RLENGTH)
+      } else {
+        break
+      }
+    }
+    lua_bar_left--
+    if (line ~ /\}/ || lua_bar_left <= 0) in_lua_bar = 0
+  }
+
+  work = line
+  sub(/--.*$/, "", work)
+  if (match(work, /sbar\.add[ \t]*\(/)) {
+    rest = substr(work, RSTART + RLENGTH)
+    if (match(rest, /^[ \t]*"[^"]*"/) || match(rest, /^[ \t]*\047[^\047]*\047/)) {
+      typ = rest
+      typ = substr(typ, RSTART, RLENGTH)
+      gsub(/^[ \t]+/, "", typ)
+      typ = unquote(typ)
+      if (typ == "item") {
+        rest = substr(rest, RSTART + RLENGTH)
+        sub(/^[ \t]*,[ \t]*/, "", rest)
+        if (match(rest, /^"[^"]*"/) || match(rest, /^\047[^\047]*\047/)) {
+          name = unquote(substr(rest, RSTART, RLENGTH))
+          rest = substr(rest, RSTART + RLENGTH)
+          if (match(rest, /position[ \t]*=[ \t]*/)) {
+            rest = substr(rest, RSTART + RLENGTH)
+            if (match(rest, /^"[^"]*"/) || match(rest, /^\047[^\047]*\047/)) {
+              emit_item(name, unquote(substr(rest, RSTART, RLENGTH)))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+'
+
+# scrape_layout <dir> <out_file> — scan *.lua, *.sh, sketchybarrc. Does not
+# follow .git/ or .stm-backups/. Does not eval or source.
+scrape_layout() {
+  local dir="$1" out="$2" raw rel f
+  raw="${out}.raw"
+  : >"$raw"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    f="$dir/${rel#./}"
+    [ -f "$f" ] || continue
+    awk "$STM_SCRAPE_AWK" "$f"
+  done >>"$raw" <<EOF
+$(
+    cd "$dir" 2>/dev/null || exit 0
+    find . \( -path './.git' -o -path './.git/*' \
+      -o -path './.stm-backups' -o -path './.stm-backups/*' \) -prune -o \
+      \( -name '*.lua' -o -name '*.sh' -o -name 'sketchybarrc' \) \
+      \( -type f -o -type l \) -print
+  )
+EOF
+  # First declaration wins across files as well as inside a file.
+  awk -F'\t' '
+    $1 == "layout" || $1 == "item" {
+      k = $1 SUBSEP $2
+      if (k in seen) next
+      seen[k] = 1
+      print
+    }
+  ' "$raw" >"$out"
+  rm -f "$raw"
+}
+
+append_palette_sections() {
+  local dest="$1" scrape="$2"
+  if grep -q '^layout	' "$scrape" 2>/dev/null; then
+    printf '\n[layout]\n' >>"$dest"
+    awk -F'\t' '$1=="layout" { printf("%s = \"%s\"\n", $2, $3) }' "$scrape" >>"$dest"
+  fi
+  if grep -q '^item	' "$scrape" 2>/dev/null; then
+    printf '\n[items]\n' >>"$dest"
+    awk -F'\t' '$1=="item" { printf("%s = \"%s\"\n", $2, $3) }' "$scrape" >>"$dest"
+  fi
+}
+
+lua_file_is_wired() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  grep -qE 'pcall[[:space:]]*\([[:space:]]*require[[:space:]]*,[[:space:]]*"colors_generated"[[:space:]]*\)|require[[:space:]]*\([[:space:]]*"colors_generated"[[:space:]]*\)' "$f"
+}
+
+print_adopt_wrapper() {
+  printf '%s\n' "$STM_ADOPT_WRAPPER"
+}
+
+print_pos_snippet() {
+  cat <<'EOF'
+
+Optional: if a palette carries [layout] / [items], stm also writes
+layout_generated.lua (or layout.sh). Item scripts are not edited. Wire
+positions yourself when you want them themeable:
+
+    local layout = {}
+    local ok_l, generated_l = pcall(require, "layout_generated")
+    if ok_l and type(generated_l) == "table" then
+      layout = generated_l
+    end
+
+    local function pos(name, default)
+      if layout.position_of and layout.position_of[name] then
+        return layout.position_of[name]
+      end
+      return default
+    end
+EOF
+}
+
+# wire_lua_colors — one-time rename colors.lua -> colors_user.lua and write
+# the trusted overlay wrapper. Sets ADOPT_WIRE to wired | already-wired | skipped.
+wire_lua_colors() {
+  local link="$RESOLVED_DIR/colors.lua" real user dir tmp
+
+  ADOPT_WIRE="skipped"
+  ADOPT_WIRE_REASON=""
+
+  if [ "$OPT_NO_WIRE" -eq 1 ]; then
+    ADOPT_WIRE_REASON="--no-wire"
+    return 0
+  fi
+  if [ "$RESOLVED_FORMAT" = "bash" ]; then
+    ADOPT_WIRE_REASON="bash: colors.sh is the apply target"
+    return 0
+  fi
+  if [ "$RESOLVED_FORMAT" = "config-sh" ]; then
+    ADOPT_WIRE_REASON="config-sh: not rewriting config.sh"
+    return 0
+  fi
+
+  if [ ! -e "$link" ] && [ ! -L "$link" ]; then
+    ADOPT_WIRE_REASON="no colors.lua"
+    return 0
+  fi
+
+  if [ -L "$link" ]; then
+    real=$(resolve_symlinks "$link")
+  else
+    real="$link"
+  fi
+
+  if [ ! -f "$real" ]; then
+    ADOPT_WIRE_REASON="colors.lua is not a regular file"
+    return 0
+  fi
+  if [ ! -r "$real" ]; then
+    ADOPT_WIRE_REASON="colors.lua is unreadable"
+    return 0
+  fi
+
+  if lua_file_is_wired "$real"; then
+    ADOPT_WIRE="already-wired"
+    return 0
+  fi
+
+  dir=$(dirname "$real")
+  user="$dir/colors_user.lua"
+  if [ -e "$user" ] && [ "$OPT_FORCE" -eq 0 ]; then
+    ADOPT_WIRE_REASON="colors_user.lua already exists (pass --force to replace)"
+    return 0
+  fi
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    ADOPT_WIRE="wired"
+    return 0
+  fi
+
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  print_adopt_wrapper >"$tmp"
+
+  # Rename first so a failed write cannot leave a half-wrapper over the original.
+  if ! mv -f "$real" "$user"; then
+    ADOPT_WIRE_REASON="could not rename colors.lua to colors_user.lua"
+    return 0
+  fi
+  if ! commit_tmp "$tmp" "$real"; then
+    # Best-effort undo of the rename if the wrapper could not be committed.
+    mv -f "$user" "$real" 2>/dev/null || true
+    ADOPT_WIRE_REASON="could not write wrapper"
+    return 0
+  fi
+
+  ADOPT_WIRE="wired"
+}
+
+find_adopt_colours_src() {
+  case "$RESOLVED_FORMAT" in
+    lua)
+      if [ -f "$RESOLVED_DIR/colors.lua" ]; then
+        printf '%s\n' "$RESOLVED_DIR/colors.lua"
+        return 0
+      fi
+      ;;
+    bash | config-sh)
+      if [ -f "$RESOLVED_DIR/colors.sh" ]; then
+        printf '%s\n' "$RESOLVED_DIR/colors.sh"
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+adopt_default_base() {
+  local t
+  if [ -n "$RESOLVED_CONFIG" ] && t=$(stm_config_get "$RESOLVED_CONFIG" default_theme 2>/dev/null); then
+    if [ -n "$t" ] && [ "$t" != "auto" ]; then
+      printf '%s\n' "$t"
+      return 0
+    fi
+  fi
+  printf 'tokyo-night\n'
+}
+
+cmd_adopt() {
+  local slug="${1:-mine}"
+  local snap_name="" dest dest_snap src n missing base="" pal_dir
+  local blk scrape_file n_layout=0 n_items=0 layout_keys=""
+  local did_import=0 did_apply=0 cfg saved_nobackup
+  local src_fmt
+
+  validate_slug "$slug"
+
+  [ -d "$RESOLVED_DIR" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
+  resolve_format
+  [ "$RESOLVED_FORMAT" = "lua" ] && resolve_lua_dialect
+
+  pal_dir=$(user_palette_dir) ||
+    die "$EX_CONFIG" "could not determine a writable palette directory; pass --palette-dir"
+  dest="$pal_dir/$slug.toml"
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would adopt $slug"
+    info "  dir:     $RESOLVED_DIR"
+    info "  format:  $RESOLVED_FORMAT"
+    if [ "$OPT_NO_BACKUP" -eq 1 ]; then
+      info "  snapshot: skipped (--no-backup)"
+    else
+      if [ "$OPT_FORCE" -eq 1 ]; then
+        snap_name="pre-adopt"
+      else
+        snap_name=$(fresh_backup_name "pre-adopt")
+      fi
+      info "  snapshot: --all -> .stm-backups/$snap_name"
+    fi
+    if src=$(find_adopt_colours_src); then
+      info "  import:  $src -> $dest"
+    else
+      info "  import:  skipped (no colours file)"
+    fi
+    if [ "$OPT_NO_LAYOUT" -eq 1 ]; then
+      info "  layout:  skipped (--no-layout)"
+    else
+      info "  layout:  scrape $RESOLVED_DIR (data only; item files untouched)"
+    fi
+    if [ "$OPT_NO_WIRE" -eq 1 ]; then
+      info "  wire:    skipped (--no-wire)"
+    elif [ "$RESOLVED_FORMAT" = "lua" ]; then
+      info "  wire:    wrap colors.lua -> colors_user.lua + overlay wrapper"
+    else
+      info "  wire:    skipped ($RESOLVED_FORMAT)"
+    fi
+    if [ -e "$RESOLVED_DIR/stm.config.toml" ]; then
+      info "  config:  keep existing stm.config.toml"
+    else
+      info "  config:  write $RESOLVED_DIR/stm.config.toml"
+    fi
+    info "  apply:   $slug --no-backup"
+    return 0
+  fi
+
+  # 2. Snapshot first so any later hard failure is undoable.
+  if [ "$OPT_NO_BACKUP" -eq 1 ]; then
+    info "snapshot skipped (--no-backup; undo will not be available)"
+  else
+    if [ "$OPT_FORCE" -eq 1 ]; then
+      snap_name="pre-adopt"
+      dest_snap="$(backups_dir)/${snap_name:?}"
+      if [ -e "$dest_snap" ]; then
+        rm -rf "$dest_snap"
+      fi
+    else
+      snap_name=$(fresh_backup_name "pre-adopt")
+    fi
+    n=$(snapshot_all "$snap_name")
+    info "Backed up $n file(s) (all) -> $(backups_dir)/$snap_name"
+  fi
+
+  blk=$(mktemp -d "${TMPDIR:-/tmp}/.stm-blk.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$blk"
+
+  # 3. Import colours. Missing canonical keys get an automatic base; that is
+  # not a reason to abort the rest of adopt.
+  if src=$(find_adopt_colours_src); then
+    case "$src" in
+      *.lua) src_fmt=lua ;;
+      *) src_fmt=bash ;;
+    esac
+    if [ ! -r "$src" ]; then
+      info "import skipped: $src is unreadable"
+    else
+      import_read_pairs "$src" "$src_fmt" "$blk/uniq" "$blk/skips"
+      n=$(wc -l <"$blk/uniq" | tr -d ' ')
+      if [ "$n" -eq 0 ]; then
+        info "import skipped: found no colour definitions in $src"
+      else
+        if [ -e "$dest" ] && [ "$OPT_FORCE" -eq 0 ]; then
+          die "$EX_EXISTS" "$dest already exists (use --force to overwrite)"
+        fi
+        mkdir -p "$pal_dir"
+        missing=$(import_missing_required "$blk/uniq")
+        base="$OPT_BASE"
+        if [ -n "$missing" ] && [ -z "$OPT_BASE" ]; then
+          base=$(adopt_default_base)
+          info "missing required key(s):$missing"
+          info "inheriting base = \"$base\" (pass --base to choose a different parent)"
+        fi
+        write_imported_palette "$dest" "$src" "$slug" "$base" "$blk/uniq"
+        did_import=1
+        info "imported $n colours from $src -> $dest"
+        if [ -s "$blk/skips" ]; then
+          info ""
+          info "Could not import these (not an 0xAARRGGBB value):"
+          awk -F'\t' '{ printf("  %-24s %s\n", $2, $3) }' "$blk/skips"
+        fi
+      fi
+    fi
+  else
+    info "import skipped: no colours file found in $RESOLVED_DIR"
+  fi
+
+  # 4. Conservative layout scrape into the same palette.
+  scrape_file="$blk/scrape"
+  : >"$scrape_file"
+  if [ "$OPT_NO_LAYOUT" -eq 1 ]; then
+    info "layout scrape skipped (--no-layout)"
+  else
+    scrape_layout "$RESOLVED_DIR" "$scrape_file"
+    n_layout=$(awk -F'\t' '$1=="layout" { n++ } END { print n+0 }' "$scrape_file")
+    n_items=$(awk -F'\t' '$1=="item" { n++ } END { print n+0 }' "$scrape_file")
+    layout_keys=$(awk -F'\t' '$1=="layout" { printf("%s ", $2) }' "$scrape_file")
+    if [ "$did_import" -eq 1 ] && [ -f "$dest" ] && { [ "$n_layout" -gt 0 ] || [ "$n_items" -gt 0 ]; }; then
+      cp "$dest" "$blk/palette-noscrape.toml"
+      append_palette_sections "$dest" "$scrape_file"
+      if ! stm_parse_palette "$dest" >/dev/null 2>&1; then
+        mv -f "$blk/palette-noscrape.toml" "$dest"
+        info "layout scrape dropped (palette would not validate); colours kept"
+        n_layout=0
+        n_items=0
+        layout_keys=""
+        : >"$scrape_file"
+      fi
+    fi
+    if [ "$n_layout" -eq 0 ] && [ "$n_items" -eq 0 ]; then
+      info "layout: none scraped"
+    else
+      info "layout: ${layout_keys:-}($n_layout keys), $n_items item(s)"
+    fi
+  fi
+
+  # 5. Wire Lua so a later apply is visible.
+  ADOPT_WIRE="skipped"
+  ADOPT_WIRE_REASON=""
+  wire_lua_colors
+  case "$ADOPT_WIRE" in
+    wired) info "wire: wrapped colors.lua -> colors_user.lua" ;;
+    already-wired) info "wire: already wired (left colors.lua alone)" ;;
+    *)
+      info "wire: skipped${ADOPT_WIRE_REASON:+ ($ADOPT_WIRE_REASON)}"
+      if [ "$RESOLVED_FORMAT" = "lua" ] && [ "$OPT_NO_WIRE" -eq 0 ]; then
+        info ""
+        info "Paste this as colors.lua if you want to wire by hand:"
+        info ""
+        print_adopt_wrapper
+      fi
+      ;;
+  esac
+
+  # 6. Config file — never clobber.
+  cfg="$RESOLVED_DIR/stm.config.toml"
+  if [ -e "$cfg" ]; then
+    info "config: kept existing $cfg"
+  else
+    {
+      printf '# written by stm adopt\n'
+      printf 'sketchybar_dir = "%s"\n' "$RESOLVED_DIR"
+      printf 'format = "%s"\n' "$RESOLVED_FORMAT"
+      printf 'palette_dir = "%s"\n' "$pal_dir"
+      printf 'default_theme = "%s"\n' "$slug"
+    } >"$cfg"
+    info "wrote $cfg"
+  fi
+
+  # 7. Apply with --no-backup; the --all snapshot is the undo.
+  if [ "$did_import" -eq 1 ] && [ -f "$dest" ]; then
+    saved_nobackup="$OPT_NO_BACKUP"
+    OPT_NO_BACKUP=1
+    cmd_apply "$slug"
+    OPT_NO_BACKUP="$saved_nobackup"
+    did_apply=1
+  else
+    info "apply skipped (no adopted palette to apply)"
+  fi
+
+  # 8. Report
+  info ""
+  info "Adopted $slug"
+  info "  snapshot:  ${snap_name:-skipped}"
+  info "  palette:   ${dest}"
+  info "  wire:      ${ADOPT_WIRE}${ADOPT_WIRE_REASON:+ ($ADOPT_WIRE_REASON)}"
+  if [ "$OPT_NO_LAYOUT" -eq 1 ]; then
+    info "  layout:    skipped"
+  elif [ "$n_layout" -eq 0 ] && [ "$n_items" -eq 0 ]; then
+    info "  layout:    none scraped"
+  else
+    info "  layout:    ${layout_keys:-}($n_layout keys), $n_items item(s)"
+  fi
+  if [ -n "$snap_name" ]; then
+    info "  restore:   stm restore $snap_name"
+  fi
+  if [ "$did_apply" -eq 1 ] && [ "$RESOLVED_FORMAT" = "lua" ]; then
+    if [ "$n_items" -gt 0 ] || [ "$n_layout" -gt 0 ]; then
+      print_pos_snippet
+    fi
+  fi
+  info ""
+  cmd_doctor "$slug" || true
+}
+
 usage() {
   cat <<EOF
 $PROGNAME $STM_VERSION — SketchyBar Theme Manager
@@ -2438,6 +3848,10 @@ COMMANDS
   verify                        Check that stm touched only the files it owns
   import [<file>]               Turn an existing colours file into a palette
   export <theme>                Print a theme as canonical palette TOML
+  adopt [slug]                  Make an existing bar stm-compatible (default slug: mine)
+  backup [name]                 Snapshot stm-owned files (or --all for the whole dir)
+  restore [name]                Restore a snapshot (latest auto if name omitted)
+  backups                       List snapshots
   help                          Show this help
   version                       Print the version
 
@@ -2450,8 +3864,13 @@ OPTIONS
   --no-reload           Do not run \`sketchybar --reload\` after applying
   --no-manifest         Do not record a checksum baseline on apply
   --backup-each         Keep a timestamped backup before each destructive write
+  --no-backup           Do not take an auto snapshot on apply (or adopt)
+  --no-wire             (adopt) Skip the Lua colors.lua wrap
+  --no-layout           (adopt) Skip the conservative layout scrape
+  --reset-layout        Delete the generated layout overlay on apply
+  --all                 (backup) Snapshot the whole config dir, not just stm files
   --dry-run             Show what would change; write nothing
-  --force               Allow \`add\` to overwrite an existing palette
+  --force               Allow add/import/adopt to overwrite
   --append-missing      (bash) Append palette keys absent from colors.sh
   --porcelain           Machine-readable output for \`list\` and \`preview\`
   --out <file>          Write \`export\` output to a file instead of stdout
@@ -2544,6 +3963,11 @@ main() {
       --no-reload) OPT_NO_RELOAD=1; shift ;;
       --no-manifest) OPT_NO_MANIFEST=1; shift ;;
       --backup-each) OPT_BACKUP_EACH=1; shift ;;
+      --no-backup) OPT_NO_BACKUP=1; shift ;;
+      --no-wire) OPT_NO_WIRE=1; shift ;;
+      --no-layout) OPT_NO_LAYOUT=1; shift ;;
+      --reset-layout) OPT_RESET_LAYOUT=1; shift ;;
+      --all) OPT_ALL=1; shift ;;
       --dry-run) OPT_DRY_RUN=1; shift ;;
       --force) OPT_FORCE=1; shift ;;
       --append-missing) OPT_APPEND_MISSING=1; shift ;;
@@ -2632,8 +4056,32 @@ main() {
         cmd_import
       fi
       ;;
+    adopt)
+      if [ "$args_left" -ge 1 ]; then
+        cmd_adopt "${positional[1]}"
+      else
+        cmd_adopt
+      fi
+      ;;
     verify)
       cmd_verify
+      ;;
+    backup)
+      if [ "$args_left" -ge 1 ]; then
+        cmd_backup "${positional[1]}"
+      else
+        cmd_backup
+      fi
+      ;;
+    restore)
+      if [ "$args_left" -ge 1 ]; then
+        cmd_restore "${positional[1]}"
+      else
+        cmd_restore
+      fi
+      ;;
+    backups)
+      cmd_backups
       ;;
     doctor)
       if [ "$args_left" -ge 1 ]; then

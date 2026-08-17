@@ -272,6 +272,14 @@ make_lua_config() {
   cp "$FIXTURES_DIR/lua-config/init.lua" "$dir/init.lua"
 }
 
+# make_plain_lua_config <dir> — SbarLua colors.lua with no colors_generated hook.
+make_plain_lua_config() {
+  local dir="$1"
+  mkdir -p "$dir"
+  cp "$FIXTURES_DIR/lua-plain/colors.lua" "$dir/colors.lua"
+  cp "$FIXTURES_DIR/lua-plain/init.lua" "$dir/init.lua"
+}
+
 # make_bash_config <dir>
 make_bash_config() {
   local dir="$1"

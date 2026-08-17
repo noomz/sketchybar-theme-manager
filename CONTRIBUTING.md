@@ -95,7 +95,27 @@ false-positive.
 **Never make generated Lua depend on palette content.** Palettes are untrusted
 downloads; the moment a palette can contribute code, installing a theme becomes
 running a stranger's Lua. If a config needs a function stm does not emit, that
-belongs in the user's own `colors.lua`, which stm never touches.
+belongs in the user's own `colors.lua` / `colors_user.lua`. `apply` never
+touches those files.
+
+## Adopt and the Lua wrap
+
+`stm adopt` is the **only** command allowed to rename `colors.lua`, and it
+does so at most once:
+
+1. If `colors.lua` already `require`s `colors_generated`, it is already wired
+   — leave it alone.
+2. Otherwise rename the real file to `colors_user.lua` (follow a symlink; keep
+   the symlink pointing at `colors.lua`) and write stm's own overlay wrapper
+   as the new `colors.lua`.
+
+The wrapper is a **trusted constant** in `bin/stm` (`STM_ADOPT_WRAPPER`), not
+palette content. After that one write, `colors.lua` is user-owned again: stm
+never rewrites the wrapper. `colors_user.lua` is the user's original module.
+`verify` still checksums both.
+
+A `sketchybarrc` / shell bar stays shell. adopt does not rewrite rc → SbarLua.
+Layout scrape is data only; item files are never edited.
 
 ## Templates and the trust boundary
 
@@ -104,13 +124,21 @@ template is trusted code.**
 
 A palette may be downloaded from anywhere, so the only thing it ever
 contributes to generated output is a value already validated as
-`^0x[0-9a-f]{8}$`, plus ASCII labels that land in comments. A template lives in
-the user's own config directory, is written by them, and may contain arbitrary
-Lua or shell. `stm` must never install a template from a palette, and must
-never fetch one.
+`^0x[0-9a-f]{8}$`, an allowlisted layout enum or small integer, an item slot
+(`left` / `right` / `center`), plus ASCII labels that land in comments. A
+template lives in the user's own config directory, is written by them, and may
+contain arbitrary Lua or shell. `stm` must never install a template from a
+palette, and must never fetch one.
 
 If you are tempted to let palette content reach generated code — a function, a
 snippet, an "escape hatch" field — don't. Route it through a template instead.
+
+Optional `[layout]` and `[items]` tables are the same kind of data: enums and
+small integers for bar chrome, and `left` / `right` / `center` for item slots.
+They must never contain Lua, shell, or paths. `stm` writes a generated overlay
+(`layout_generated.lua` / `layout.sh`); it never rewrites the user's item files.
+`adopt` may scrape `--bar` / `--add item` / `sbar.bar` / `sbar.add` into those
+tables using the same allowlist; it still never edits item scripts.
 
 The template substituter treats only `{{identifier}}` as a placeholder.
 `{{1,2},{3,4}}` is ordinary Lua and must survive untouched, so anything after

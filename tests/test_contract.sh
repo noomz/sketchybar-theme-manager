@@ -172,7 +172,7 @@ assert_status 1
 assert_contains "$STM_ERR" "duplicate colour key"
 done_it
 
-it "rejects a table that is neither [colors] nor [extras]"
+it "rejects a table that is not colors, extras, layout or items"
 printf 'name = "Odd"\nslug = "oddsec"\nvariant_label = "Odd"\n\n[palette]\nblack = "#000000"\n' >"$P/oddsec.toml"
 run_stm preview --palette-dir "$P" --porcelain oddsec
 assert_status 1
@@ -215,6 +215,14 @@ run_stm --config "$cfg" --no-reload apply nord
 assert_status 2
 assert_contains "$STM_ERR" "stm must not own that file"
 assert_files_equal "$FIXTURES_DIR/lua-config/colors.lua" "$D/colors.lua"
+done_it
+
+it "[output] may not target colors_user.lua either"
+cfg="$SANDBOX/ownuser.toml"
+write_config "$cfg" '' '[output]' 'lua = "colors_user.lua"'
+run_stm --config "$cfg" --no-reload apply nord
+assert_status 2
+assert_contains "$STM_ERR" "stm must not own that file"
 done_it
 
 # --- [mapping] ---------------------------------------------------------------
