@@ -504,6 +504,52 @@ stm_records_extras() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="extra" { printf("%s\t%s\n", $2, $3) }' | sort
 }
 
+# apply_alpha <records> — apply [alpha] overrides from stm.config.toml.
+#
+#   [alpha]
+#   bar_bg = "60"        # keep my bar 38% opaque whatever the theme says
+#   popup_bg = "e0"
+#
+# Transparency is a property of how *you* like your bar to look, not of the
+# theme's colour scheme. Without this, every palette dictates both, and a theme
+# built around a fully transparent bar makes an opaque one invisible when
+# applied to a config that wanted otherwise. The theme supplies the hue; this
+# supplies the alpha byte.
+apply_alpha() {
+  local records="$1" key val out
+  [ -n "$RESOLVED_CONFIG" ] || { printf '%s\n' "$records"; return 0; }
+  stm_config_pairs "$RESOLVED_CONFIG" alpha | grep -q . || {
+    printf '%s\n' "$records"
+    return 0
+  }
+
+  out="$records"
+  while IFS=$'\t' read -r key val; do
+    [ -n "$key" ] || continue
+    case "$key" in
+      *[!a-z0-9_]* | [!a-z]*)
+        die "$EX_CONFIG" "[alpha] invalid key \"$key\" (want lower-case [a-z][a-z0-9_]*)"
+        ;;
+    esac
+    case "$val" in
+      [0-9a-fA-F][0-9a-fA-F]) : ;;
+      *) die "$EX_CONFIG" "[alpha] $key = \"$val\" must be exactly two hex digits (00-ff)" ;;
+    esac
+    out=$(printf '%s\n' "$out" | awk -F'\t' -v k="$key" -v a="$val" '
+      BEGIN { a = tolower(a) }
+      ($1 == "color" || $1 == "extra") && $2 == k {
+        printf("%s\t%s\t0x%s%s\n", $1, $2, a, substr($3, 5))
+        next
+      }
+      { print }
+    ')
+  done <<EOF
+$(stm_config_pairs "$RESOLVED_CONFIG" alpha)
+EOF
+
+  printf '%s\n' "$out"
+}
+
 # theme_note <slug> — the free-text note for a theme from [notes], if any.
 theme_note() {
   [ -n "$RESOLVED_CONFIG" ] || return 1
@@ -673,8 +719,23 @@ resolve_config_file() {
     RESOLVED_CONFIG="$c"
     return 0
   fi
+  # The SketchyBar config dir is the most natural home for stm.config.toml —
+  # it sits next to the config it describes and travels with the dotfiles repo.
+  # It is resolved here from the flag, the environment, or the default only:
+  # reading `sketchybar_dir` out of the config would need the config we are
+  # still looking for.
+  local sbdir
+  if [ -n "$OPT_DIR" ]; then
+    sbdir=$(expand_tilde "$OPT_DIR")
+  elif [ -n "${SKETCHYBAR_CONFIG_DIR:-}" ]; then
+    sbdir=$(expand_tilde "$SKETCHYBAR_CONFIG_DIR")
+  else
+    sbdir="${XDG_CONFIG_HOME:-$HOME/.config}/sketchybar"
+  fi
+
   for c in \
     "./stm.config.toml" \
+    "$sbdir/stm.config.toml" \
     "${XDG_CONFIG_HOME:-$HOME/.config}/stm/stm.config.toml"; do
     if [ -f "$c" ]; then
       RESOLVED_CONFIG="$c"
@@ -1591,6 +1652,7 @@ cmd_apply() {
 
   records=$(stm_parse_palette "$file")
   records=$(apply_mapping "$records")
+  records=$(apply_alpha "$records")
 
   # The file name and the declared slug must agree, or `stm current` lies.
   local declared
@@ -1709,6 +1771,7 @@ cmd_preview() {
   file=$(find_palette "$slug") || die "$EX_NOTFOUND" "theme not found: $slug"
   records=$(stm_parse_palette "$file")
   records=$(apply_mapping "$records")
+  records=$(apply_alpha "$records")
 
   if [ "$OPT_PORCELAIN" -eq 1 ]; then
     stm_records_colors "$records"
@@ -1906,6 +1969,7 @@ $tmpdir"
   records=$(stm_parse_palette "$file")
   STM_MAPPING_STRICT=0
   records=$(apply_mapping "$records")
+  records=$(apply_alpha "$records")
   STM_MAPPING_STRICT=1
   stm_records_colors "$records" | cut -f1 | sort -u >"$provided"
   config_used_keys "$RESOLVED_DIR" "$fmt" >"$used"

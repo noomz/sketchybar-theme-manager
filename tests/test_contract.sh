@@ -285,6 +285,91 @@ assert_file_contains "$b/colors.sh" "export ACCENT=0xff00ff00" \
   "a mapped key should swap the matching shell variable"
 done_it
 
+# --- [alpha] -----------------------------------------------------------------
+
+it "[alpha] keeps the alpha byte while the theme supplies the hue"
+b="$SANDBOX/alpha"
+make_bash_config "$b"
+cfg="$SANDBOX/alpha.toml"
+{
+  printf 'sketchybar_dir = "%s"\n' "$b"
+  printf 'format = "bash"\n\n[alpha]\nbar_bg = "60"\npopup_bg = "ee"\n'
+} >"$cfg"
+run_stm --config "$cfg" --no-reload -q apply gruvbox
+assert_status 0
+assert_file_contains "$b/colors.sh" "export BAR_BG=0x60282828" "alpha kept, gruvbox hue"
+assert_file_contains "$b/colors.sh" "export POPUP_BG=0xee3c3836"
+done_it
+
+it "[alpha] survives a theme switch"
+run_stm --config "$cfg" --no-reload -q apply catppuccin-latte
+assert_status 0
+assert_file_contains "$b/colors.sh" "export BAR_BG=0x60eff1f5"
+assert_file_contains "$b/colors.sh" "export POPUP_BG=0xeee6e9ef"
+done_it
+
+it "[alpha] leaves unlisted keys alone"
+assert_file_contains "$b/colors.sh" "export BLACK=0xffeff1f5" "black keeps the palette's own alpha"
+done_it
+
+it "[alpha] rejects a malformed value"
+for v in zz 600 6 "" ffff; do
+  bad="$SANDBOX/alphabad.toml"
+  {
+    printf 'sketchybar_dir = "%s"\n' "$b"
+    printf 'format = "bash"\n\n[alpha]\nbar_bg = "%s"\n' "$v"
+  } >"$bad"
+  run_stm --config "$bad" --no-reload apply nord
+  assert_status 2 "[alpha] bar_bg = \"$v\" should be refused"
+  assert_contains "$STM_ERR" "two hex digits"
+done
+done_it
+
+it "[alpha] rejects an invalid key"
+bad="$SANDBOX/alphakey.toml"
+{
+  printf 'sketchybar_dir = "%s"\n' "$b"
+  printf 'format = "bash"\n\n[alpha]\nBar_BG = "60"\n'
+} >"$bad"
+run_stm --config "$bad" --no-reload apply nord
+assert_status 2
+assert_contains "$STM_ERR" "invalid key"
+done_it
+
+# --- config discovery --------------------------------------------------------
+
+it "stm.config.toml is found next to the sketchybar config"
+# The natural home for it is beside the config it describes, so it travels with
+# the user's dotfiles. Only cwd and ~/.config/stm were searched before.
+d="$SANDBOX/discover"
+make_bash_config "$d"
+{
+  printf 'sketchybar_dir = "%s"\n' "$d"
+  printf 'format = "bash"\n\n[alpha]\nbar_bg = "42"\n'
+} >"$d/stm.config.toml"
+run_stm --dir "$d" --no-reload -q apply nord
+assert_status 0
+assert_file_contains "$d/colors.sh" "export BAR_BG=0x422e3440" \
+  "the adjacent stm.config.toml should have been picked up"
+done_it
+
+it "SKETCHYBAR_CONFIG_DIR also locates the adjacent config"
+SKETCHYBAR_CONFIG_DIR="$d" run_stm --no-reload -q apply gruvbox
+assert_status 0
+assert_file_contains "$d/colors.sh" "export BAR_BG=0x42282828"
+done_it
+
+it "an explicit --config still wins over the adjacent one"
+other="$SANDBOX/other.toml"
+{
+  printf 'sketchybar_dir = "%s"\n' "$d"
+  printf 'format = "bash"\n\n[alpha]\nbar_bg = "99"\n'
+} >"$other"
+run_stm --config "$other" --no-reload -q apply nord
+assert_status 0
+assert_file_contains "$d/colors.sh" "export BAR_BG=0x992e3440"
+done_it
+
 # --- [notes] -----------------------------------------------------------------
 
 it "[notes] surfaces a per-theme note on apply --verbose"

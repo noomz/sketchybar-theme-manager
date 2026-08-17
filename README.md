@@ -321,6 +321,25 @@ red = "#ff0000"
 Everything not named here comes from `gruvbox`. Chains are allowed; cycles,
 self-inheritance and chains deeper than eight are refused.
 
+### Transparency — `[alpha]`
+
+How see-through your bar is depends on your wallpaper and your taste, not on
+which theme you picked. But a palette has to put *some* alpha byte on
+`bar_bg`, and the bundled ones use `00` — a fully transparent bar. Applied to a
+config that wanted a visible one, that makes the bar disappear.
+
+`[alpha]` separates the two. The theme supplies the hue, you keep the alpha:
+
+```toml
+[alpha]
+bar_bg = "60"        # ~38% opaque
+bar_border = "60"
+popup_bg = "ee"
+```
+
+Values are exactly two hex digits. Keys you don't list keep whatever the
+palette says.
+
 ### Renaming — `[mapping]`
 
 ```toml
@@ -418,6 +437,9 @@ template_dir = "stm/templates"
 [mapping]
 gray = "grey"
 
+[alpha]
+bar_bg = "60"            # keep my bar 38% opaque whatever the theme says
+
 [notes]
 tokyo-night = "Matches my Ghostty theme"
 ```
@@ -431,7 +453,9 @@ pointed at your own `colors.lua` or at its own state files.
 1. `--config <path>`
 2. `$STM_CONFIG`
 3. `./stm.config.toml`
-4. `$XDG_CONFIG_HOME/stm/stm.config.toml` (or `~/.config/stm/stm.config.toml`)
+4. `<sketchybar_dir>/stm.config.toml` — next to the config it describes, so it
+   travels with your dotfiles
+5. `$XDG_CONFIG_HOME/stm/stm.config.toml` (or `~/.config/stm/stm.config.toml`)
 
 **How the SketchyBar directory is resolved**, first match wins:
 
