@@ -52,7 +52,7 @@ mantle = "0xff292c3c"
 crust = "0xff232634"
 
 # Semantic keys that carry a literal 0x value in colors.sh. Reference lines
-# such as `export ITEM_BG_COLOR=$SURFACE0` are preserved untouched and need
+# such as 'export ITEM_BG_COLOR=$SURFACE0' are preserved untouched and need
 # no palette key.
 bar_color = "0xcc414559"
 bar_border_color = "0x00000000"

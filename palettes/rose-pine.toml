@@ -3,8 +3,8 @@
 # text #e0def4 · muted #6e6a86 · love #eb6f92 · gold #f6c177 · rose #ebbcba
 # pine #31748f · foam #9ccfd8 · iris #c4a7e7
 #
-# Rose Pine has no dedicated green; `foam` (its cyan-green) fills that slot and
-# `pine` fills blue. `rose` fills orange.
+# Rose Pine has no dedicated green; foam (its cyan-green) fills that slot and
+# pine fills blue. rose fills orange.
 
 name = "Rose Pine"
 slug = "rose-pine"
@@ -56,7 +56,7 @@ mantle = "0xff14131e"
 crust = "0xff100e16"
 
 # Semantic keys that carry a literal 0x value in colors.sh. Reference lines
-# such as `export ITEM_BG_COLOR=$SURFACE0` are preserved untouched and need
+# such as 'export ITEM_BG_COLOR=$SURFACE0' are preserved untouched and need
 # no palette key.
 bar_color = "0xcc26233a"
 bar_border_color = "0x00000000"

@@ -2,7 +2,7 @@
 # base #eff1f5 · mantle #e6e9ef · surface0 #ccd0da · surface1 #bcc0cc
 # text #4c4f69 · overlay0 #9ca0b0
 #
-# Latte is a light theme, so `black` is the light BASE background and `white`
+# Latte is a light theme, so black is the light BASE background and white
 # is the dark TEXT colour. bg1/bg2 step toward grey, not toward white.
 
 name = "Catppuccin Latte"
@@ -55,7 +55,7 @@ mantle = "0xffe6e9ef"
 crust = "0xffdce0e8"
 
 # Semantic keys that carry a literal 0x value in colors.sh. Reference lines
-# such as `export ITEM_BG_COLOR=$SURFACE0` are preserved untouched and need
+# such as 'export ITEM_BG_COLOR=$SURFACE0' are preserved untouched and need
 # no palette key.
 bar_color = "0xccccd0da"
 bar_border_color = "0x00000000"
