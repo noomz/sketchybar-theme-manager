@@ -996,6 +996,213 @@ validate_slug() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# lint — bytes + allowlist + slug + capability + generate-and-grep
+#
+# Palettes are untrusted. lint is the only writer of the "is this a palette,
+# and can it reach a shell?" verdict. It writes nothing to the user's bar.
+# ---------------------------------------------------------------------------
+
+STM_LINT_MAX_BYTES=65536
+
+# lint_bytes_gate <file> — size, NUL, shebang, printable text. Fail-closed.
+lint_bytes_gate() {
+  local file="$1" sz stripped
+  sz=$(wc -c <"$file" | tr -d ' ')
+  if [ "$sz" -gt "$STM_LINT_MAX_BYTES" ]; then
+    die "$EX_INVALID" "$file: too large ($sz bytes; max $STM_LINT_MAX_BYTES)"
+  fi
+  stripped=$(tr -d '\000' <"$file" | wc -c | tr -d ' ')
+  if [ "$stripped" -ne "$sz" ]; then
+    die "$EX_INVALID" "$file: contains a NUL byte"
+  fi
+  if grep -qF '#!' "$file"; then
+    die "$EX_INVALID" "$file: shebang is not allowed"
+  fi
+  # Printable ASCII + tab/LF/CR + high bytes (UTF-8 comments). Reject other
+  # C0 controls and DEL. Palettes cite upstream with an em-dash.
+  stripped=$(tr -d '\11\12\15\40-\176\200-\377' <"$file" | wc -c | tr -d ' ')
+  if [ "$stripped" -ne 0 ]; then
+    die "$EX_INVALID" "$file: does not look like text"
+  fi
+}
+
+# lint_slug_rules <file> <declared> — validate the declared slug; a *.toml
+# basename must match it (the name install would give the file).
+lint_slug_rules() {
+  local file="$1" declared="$2" base want
+  validate_slug "$declared"
+  base=$(basename "$file")
+  case "$base" in
+    *.toml)
+      want="${base%.toml}"
+      if [ "$declared" != "$want" ]; then
+        die "$EX_INVALID" "palette $file declares slug \"$declared\" but is filed as \"$want\""
+      fi
+      ;;
+  esac
+}
+
+# lint_capability_scan <file> — raw-byte "no shell access" check. Comments
+# count: the parser strips them, which is why this scan exists.
+# shellcheck disable=SC2016  # awk source; $ and ` are the tokens we search for
+lint_capability_scan() {
+  local file="$1"
+  if ! awk -v prog="$PROGNAME" '
+    function hit(tok) {
+      printf("%s: %s: line %d: capability refused (%s)\n", prog, FILENAME, FNR, tok) > "/dev/stderr"
+      exit 1
+    }
+    {
+      if (index($0, "`") > 0) hit("`")
+      if (index($0, "$(") > 0) hit("$(")
+      if (index($0, "os.execute") > 0) hit("os.execute")
+      if (index($0, "io.popen") > 0) hit("io.popen")
+      if (index($0, "loadstring") > 0) hit("loadstring")
+      if (index($0, "dofile") > 0) hit("dofile")
+      if (index($0, "require(") > 0) hit("require(")
+      if (index($0, "\\x") > 0) hit("\\x")
+      if (index($0, "function") > 0) hit("function")
+      if (index($0, "source ") > 0) hit("source ")
+      if (index($0, "eval") > 0) hit("eval")
+    }
+  ' "$file"; then
+    die "$EX_INVALID" "palette failed the capability scan: $file"
+  fi
+}
+
+# lint_check_lua_hex <file> — assignment lines must be `  key = 0xAARRGGBB,`.
+# Comments, table wrappers, and stm's own with_alpha helper are allowed.
+# shellcheck disable=SC2016  # awk source
+lint_check_lua_hex() {
+  local file="$1"
+  awk '
+    /^--/ { next }
+    /^[ \t]*$/ { next }
+    /^local with_alpha/ { in_fn = 1; next }
+    in_fn {
+      if ($0 == "end") in_fn = 0
+      next
+    }
+    /^return \{$/ { next }
+    /^\}$/ { next }
+    /^  [a-z]+ = \{$/ { next }
+    /^  \},$/ { next }
+    /^  with_alpha = with_alpha,$/ { next }
+    /^  [a-z][a-z0-9_]* = 0x[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f],$/ { next }
+    /^    [a-z][a-z0-9_]* = 0x[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f],$/ { next }
+    {
+      printf("generated Lua is not hex-only: %s\n", $0) > "/dev/stderr"
+      bad = 1
+      exit 1
+    }
+    END { if (bad) exit 1 }
+  ' "$file"
+}
+
+# lint_check_shell_assigns <file> — assignment lines introduce no [;&|`] or $().
+lint_check_shell_assigns() {
+  local file="$1"
+  if grep -E '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$file" |
+    grep -qE '[;&|`]|\$\('; then
+    return 1
+  fi
+  return 0
+}
+
+# lint_check_layout_lua <file> — overlay assignments must stay data-only.
+# shellcheck disable=SC2016  # awk source
+lint_check_layout_lua() {
+  local file="$1"
+  awk '
+    /^--/ { next }
+    /=/ {
+      if ($0 ~ /[;&|`]/ || index($0, "$(") > 0) {
+        printf("generated layout Lua has a metacharacter: %s\n", $0) > "/dev/stderr"
+        exit 1
+      }
+    }
+  ' "$file"
+}
+
+# lint_generate_and_grep <records> — run writers into a private temp dir
+# (never the user's bar) and refuse anything that is not hex / data-only.
+lint_generate_and_grep() {
+  local records="$1" dir saved_dialect saved_append
+
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$dir"
+
+  saved_dialect="$RESOLVED_LUA_DIALECT"
+  saved_append="$OPT_APPEND_MISSING"
+
+  RESOLVED_LUA_DIALECT="flat"
+  write_lua "$records" "$dir/colors_generated.lua"
+  if ! lint_check_lua_hex "$dir/colors_generated.lua"; then
+    rm -rf "$dir"
+    die "$EX_INVALID" "generated Lua is not hex-only"
+  fi
+
+  RESOLVED_LUA_DIALECT="nested"
+  write_lua "$records" "$dir/colors_generated_nested.lua"
+  if ! lint_check_lua_hex "$dir/colors_generated_nested.lua"; then
+    rm -rf "$dir"
+    die "$EX_INVALID" "generated nested Lua is not hex-only"
+  fi
+
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'export BLACK=0xff000000\n'
+    printf 'export WHITE=0xffffffff\n'
+    printf 'export RED=0xffff0000\n'
+    printf 'export GREEN=0xff00ff00\n'
+    printf 'export BLUE=0xff0000ff\n'
+    printf 'export YELLOW=0xffffff00\n'
+    printf 'export ORANGE=0xffff8800\n'
+    printf 'export MAGENTA=0xffff00ff\n'
+    printf 'export GREY=0xff888888\n'
+    printf 'export BG1=0xff111111\n'
+    printf 'export BG2=0xff222222\n'
+    printf 'export BAR_BG=0x00000000\n'
+    printf 'export BAR_BORDER=0xff333333\n'
+    printf 'export POPUP_BG=0xc0111111\n'
+    printf 'export POPUP_BORDER=0xff888888\n'
+    printf 'export TRANSPARENT=0x00000000\n'
+  } >"$dir/colors.sh"
+
+  OPT_APPEND_MISSING=1
+  write_bash "$records" "$dir/colors.sh"
+  if ! lint_check_shell_assigns "$dir/colors.sh"; then
+    rm -rf "$dir"
+    die "$EX_INVALID" "generated shell assignment contains a metacharacter"
+  fi
+
+  write_config_sh "$records" "$dir/theme.sh"
+  if ! lint_check_shell_assigns "$dir/theme.sh"; then
+    rm -rf "$dir"
+    die "$EX_INVALID" "generated config-sh assignment contains a metacharacter"
+  fi
+
+  if stm_records_has_layout "$records"; then
+    write_layout_lua "$records" "$dir/layout_generated.lua"
+    write_layout_sh "$records" "$dir/layout.sh"
+    if ! lint_check_layout_lua "$dir/layout_generated.lua"; then
+      rm -rf "$dir"
+      die "$EX_INVALID" "generated layout Lua contains a metacharacter"
+    fi
+    if ! lint_check_shell_assigns "$dir/layout.sh"; then
+      rm -rf "$dir"
+      die "$EX_INVALID" "generated layout shell assignment contains a metacharacter"
+    fi
+  fi
+
+  RESOLVED_LUA_DIALECT="$saved_dialect"
+  OPT_APPEND_MISSING="$saved_append"
+  rm -rf "$dir"
+}
+
 # detect_format — inspect the sketchybar dir and decide lua vs bash.
 detect_format() {
   local dir="$1" has_lua=0 has_bash=0 f
@@ -2171,6 +2378,44 @@ cmd_preview() {
         printf '  %-14s %s\n' "$k" "$v"
       done
     fi
+  fi
+}
+
+# cmd_lint <file-or-slug> — fail-closed verdict; writes nothing to the user bar.
+cmd_lint() {
+  local spec="$1" file="" records declared
+
+  [ -n "$spec" ] || die "$EX_USAGE" "lint needs a palette file or theme name"
+
+  # Existing file, a path, or a .toml name → file. Otherwise a slug.
+  case "$spec" in
+    */* | *.toml)
+      [ -f "$spec" ] || die "$EX_NOTFOUND" "palette file not found: $spec"
+      file="$spec"
+      ;;
+    *)
+      if [ -f "$spec" ]; then
+        file="$spec"
+      else
+        validate_slug "$spec"
+        file=$(find_palette "$spec") || die "$EX_NOTFOUND" "theme not found: $spec"
+      fi
+      ;;
+  esac
+
+  [ -r "$file" ] || die "$EX_INVALID" "palette file is not readable: $file"
+
+  lint_bytes_gate "$file"
+  records=$(stm_parse_palette "$file")
+  declared=$(stm_records_meta "$records" slug)
+  lint_slug_rules "$file" "$declared"
+  lint_capability_scan "$file"
+  lint_generate_and_grep "$records"
+
+  if [ "$OPT_PORCELAIN" -eq 1 ]; then
+    printf 'ok\t%s\n' "$declared"
+  else
+    info "ok $declared"
   fi
 }
 
@@ -3844,6 +4089,7 @@ COMMANDS
   init [--format lua|bash]      Scaffold ./palettes and ./stm.config.toml
   add <theme> <palette-file>    Install a palette into your palette directory
   preview <theme>               Print a theme's colour table (writes nothing)
+  lint [<file>|<slug>]          Validate a palette (writes nothing)
   doctor [theme]                Diagnose the config: format, dialect, key coverage
   verify                        Check that stm touched only the files it owns
   import [<file>]               Turn an existing colours file into a palette
@@ -3872,7 +4118,7 @@ OPTIONS
   --dry-run             Show what would change; write nothing
   --force               Allow add/import/adopt to overwrite
   --append-missing      (bash) Append palette keys absent from colors.sh
-  --porcelain           Machine-readable output for \`list\` and \`preview\`
+  --porcelain           Machine-readable output for \`list\`, \`preview\` and \`lint\`
   --out <file>          Write \`export\` output to a file instead of stdout
   --slug <slug>         Name for the palette \`import\` creates
   --base <slug>         Make the imported palette inherit from <slug>
@@ -4037,6 +4283,10 @@ main() {
     preview)
       [ "$args_left" -ge 1 ] || die "$EX_USAGE" "preview needs a theme name"
       cmd_preview "${positional[1]}"
+      ;;
+    lint)
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "lint needs a palette file or theme name"
+      cmd_lint "${positional[1]}"
       ;;
     init)
       cmd_init
