@@ -66,6 +66,18 @@ assert_status 0
 assert_contains "$STM_OUT" "https://raw.githubusercontent.com/alice/themes/main/palettes/nord.toml"
 done_it
 
+it "a codeberg /src/tag/ URL fetches /raw/tag/ not /raw/branch/"
+run_stm --dir "$D" --dry-run install https://codeberg.org/alice/themes/src/tag/v1.2.0/palettes/nord.toml
+assert_status 0
+assert_contains "$STM_OUT" "https://codeberg.org/alice/themes/raw/tag/v1.2.0/palettes/nord.toml"
+assert_not_contains "$STM_OUT" "/raw/branch/v1.2.0/"
+done_it
+
+it "an unknown codeberg kind is a usage error"
+run_stm --dir "$D" install https://codeberg.org/alice/themes/src/foo/v1/palettes/nord.toml
+assert_status 64
+done_it
+
 it "a path with no extension tries path.toml"
 run_stm --dir "$D" --dry-run install alice/themes/nord
 assert_status 0
@@ -227,6 +239,67 @@ rows=$(grep -c '^dracula	' "$LEDGER" || true)
 assert_eq "1" "$rows" "force reinstall replaces the ledger row"
 assert_contains "$(cat "$LEDGER")" "v9"
 unset STM_FETCH_FILE
+done_it
+
+it "a GitLab HTTPS blob without .toml 404s then ledgers palettes/<name>.toml"
+copy_nord "$SANDBOX/via-fallback-gl.toml" via-fallback-gl
+cat >"$SANDBOX/bin/gl-fallback-fetch" <<'STUB'
+#!/bin/sh
+printf '%s\t%s\n' "$1" "$2" >> "${STM_FETCH_LOG:-/dev/null}"
+case "$1" in
+  */palettes/via-fallback-gl.toml)
+    cp "$STM_FETCH_FILE" "$2"
+    exit 0
+    ;;
+esac
+exit 22
+STUB
+chmod 755 "$SANDBOX/bin/gl-fallback-fetch"
+export STM_FETCH="$SANDBOX/bin/gl-fallback-fetch"
+export STM_FETCH_FILE="$SANDBOX/via-fallback-gl.toml"
+run_stm --dir "$D" install https://gitlab.com/alice/themes/-/blob/main/via-fallback-gl
+assert_status 0
+assert_file_exists "$USER_PAL/via-fallback-gl.toml"
+gl_ledger=$(cat "$LEDGER")
+assert_contains "$gl_ledger" "https://gitlab.com/alice/themes/-/raw/main/palettes/via-fallback-gl.toml"
+assert_not_contains "$gl_ledger" "https://gitlab.com/alice/themes/-/raw/main/via-fallback-gl.toml"
+export STM_FETCH="$SANDBOX/bin/stm-fetch"
+unset STM_FETCH_FILE
+done_it
+
+it "a 302 to an unlisted host is refused and never fetched"
+reset_fetch_log
+cat >"$SANDBOX/bin/redir-fetch" <<'STUB'
+#!/bin/sh
+printf '%s\t%s\n' "$1" "$2" >> "${STM_FETCH_LOG:-/dev/null}"
+case "$1" in
+  https://127.0.0.1/* | https://evil.example/*)
+    printf 'pwned\n' >"$2"
+    exit 0
+    ;;
+esac
+printf '%s\n' 'https://127.0.0.1/stolen.toml' >"$2"
+exit 23
+STUB
+chmod 755 "$SANDBOX/bin/redir-fetch"
+export STM_FETCH="$SANDBOX/bin/redir-fetch"
+run_stm --dir "$D" install alice/themes/palettes/nord.toml
+assert_ne 0 "$STM_STATUS"
+[ "$STM_STATUS" -eq 64 ] || [ "$STM_STATUS" -eq 5 ] ||
+  _note_fail "redirect to 127.0.0.1 should be 64 or 5, got $STM_STATUS"
+assert_not_contains "$(fetch_log)" "https://127.0.0.1/"
+assert_file_absent "$USER_PAL/nord.toml"
+export STM_FETCH="$SANDBOX/bin/stm-fetch"
+done_it
+
+it "production curl does not follow redirects blindly"
+curl_line=$(grep -n 'curl ' "$STM_BIN" | grep -v '^#' || true)
+assert_contains "$curl_line" "--max-redirs 0"
+case "$curl_line" in
+  *' -fsSL '*|*'curl -fsSL'*)
+    _note_fail "curl must not pass -L (got: $curl_line)"
+    ;;
+esac
 done_it
 
 it "a 404 on path.toml falls back to palettes/path.toml and ledgers the fallback URL"

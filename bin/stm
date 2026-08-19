@@ -1417,6 +1417,9 @@ stm_parse_https_spec() {
               stm_normalise_toml_path "$path"
               STM_SPEC_REF="$ref"
               STM_SPEC_URL=$(stm_build_git_url gitlab.com "$owner" "$repo" "$ref" "$STM_SPEC_PATH")
+              if [ -n "$STM_SPEC_URL_FALLBACK" ]; then
+                STM_SPEC_URL_FALLBACK=$(stm_build_git_url gitlab.com "$owner" "$repo" "$ref" "$STM_SPEC_URL_FALLBACK")
+              fi
               ;;
             *)
               die "$EX_USAGE" "gitlab URL must be a blob or raw path"
@@ -1442,10 +1445,22 @@ stm_parse_https_spec() {
           stm_validate_ref "$ref"
           stm_normalise_toml_path "$path"
           STM_SPEC_REF="$ref"
-          if [ "$refkind" = "commit" ]; then
-            STM_SPEC_URL="https://codeberg.org/${owner}/${repo}/raw/commit/${ref}/${STM_SPEC_PATH}"
-          else
-            STM_SPEC_URL=$(stm_build_git_url codeberg.org "$owner" "$repo" "$ref" "$STM_SPEC_PATH")
+          case "$refkind" in
+            commit)
+              STM_SPEC_URL="https://codeberg.org/${owner}/${repo}/raw/commit/${ref}/${STM_SPEC_PATH}"
+              ;;
+            tag)
+              STM_SPEC_URL="https://codeberg.org/${owner}/${repo}/raw/tag/${ref}/${STM_SPEC_PATH}"
+              ;;
+            branch)
+              STM_SPEC_URL=$(stm_build_git_url codeberg.org "$owner" "$repo" "$ref" "$STM_SPEC_PATH")
+              ;;
+            *)
+              die "$EX_USAGE" "codeberg URL kind must be branch, tag, or commit"
+              ;;
+          esac
+          if [ -n "$STM_SPEC_URL_FALLBACK" ]; then
+            STM_SPEC_URL_FALLBACK="${STM_SPEC_URL%"$STM_SPEC_PATH"}${STM_SPEC_URL_FALLBACK}"
           fi
           ;;
         *)
@@ -1456,10 +1471,26 @@ stm_parse_https_spec() {
     raw.githubusercontent.com)
       stm_normalise_toml_path "$path"
       STM_SPEC_URL="https://raw.githubusercontent.com/${STM_SPEC_PATH}"
+      stm_promote_fallback_url
       ;;
     *)
       stm_normalise_toml_path "$path"
       STM_SPEC_URL="https://${host}/${STM_SPEC_PATH}"
+      stm_promote_fallback_url
+      ;;
+  esac
+}
+
+# If STM_SPEC_URL_FALLBACK is still a relative palettes/… path, hang it off
+# the same prefix as the primary HTTPS URL.
+stm_promote_fallback_url() {
+  [ -n "$STM_SPEC_URL_FALLBACK" ] || return 0
+  case "$STM_SPEC_URL_FALLBACK" in
+    https://*) return 0 ;;
+  esac
+  case "$STM_SPEC_URL" in
+    */"$STM_SPEC_PATH")
+      STM_SPEC_URL_FALLBACK="${STM_SPEC_URL%"$STM_SPEC_PATH"}${STM_SPEC_URL_FALLBACK}"
       ;;
   esac
 }
@@ -1580,10 +1611,27 @@ stm_parse_install_spec() {
   esac
 }
 
-# stm_try_fetch <url> <dest> — 0 ok, 22 not found, other = transport error.
-# Does not die.
+# stm_validate_fetch_url <url> — HTTPS, no userinfo, host allowlisted.
+# Dies EX_USAGE on refuse (same as spec parse).
+stm_validate_fetch_url() {
+  local url="$1" rest host
+  case "$url" in
+    https://*) : ;;
+    *) die "$EX_USAGE" "fetch URL is not https: $url" ;;
+  esac
+  case "$url" in
+    https://*@*) die "$EX_USAGE" "fetch URL must not contain userinfo" ;;
+  esac
+  rest="${url#https://}"
+  host="${rest%%/*}"
+  host="${host%%:*}"
+  stm_validate_fetch_host "$host"
+}
+
+# stm_try_fetch <url> <dest> — 0 ok, 22 not found, 23 redirect (Location in dest),
+# other = transport error. Does not die. Does not follow redirects.
 stm_try_fetch() {
-  local url="$1" dest="$2" st
+  local url="$1" dest="$2" st hdr code loc
   case "$url" in
     https://*) : ;;
     *) return 1 ;;
@@ -1596,25 +1644,65 @@ stm_try_fetch() {
     "$STM_FETCH" "$url" "$dest"
     st=$?
     set -e
-  else
-    set +e
-    curl -fsSL --proto '=https' --proto-redir '=https' \
-      --max-time 30 --max-filesize "$STM_LINT_MAX_BYTES" \
-      -o "$dest" "$url"
-    st=$?
-    set -e
+    return "$st"
+  fi
+  hdr="${dest}.hdr"
+  set +e
+  curl -fsS --proto '=https' --proto-redir '=https' --max-redirs 0 \
+    --max-time 30 --max-filesize "$STM_LINT_MAX_BYTES" \
+    -D "$hdr" -o "$dest" "$url"
+  st=$?
+  set -e
+  code=0
+  if [ -f "$hdr" ]; then
+    code=$(awk 'BEGIN { c = 0 } /^HTTP\// { c = $2 } END { print c + 0 }' "$hdr")
+    if [ "$code" -ge 300 ] && [ "$code" -lt 400 ]; then
+      loc=$(awk '
+        {
+          line = $0
+          sub(/\r$/, "", line)
+          if (tolower(line) ~ /^location:[ \t]*/) {
+            sub(/^[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:[ \t]*/, "", line)
+            print line
+            exit
+          }
+        }' "$hdr")
+      rm -f "$hdr"
+      printf '%s\n' "$loc" >"$dest"
+      return 23
+    fi
+    rm -f "$hdr"
+  fi
+  if [ "$st" -eq 22 ] || [ "$code" -eq 404 ]; then
+    return 22
   fi
   return "$st"
 }
 
 stm_fetch_https() {
-  local url="$1" dest="$2" st=0 fallback="${3:-}"
-  stm_try_fetch "$url" "$dest" || st=$?
-  if [ "$st" -eq 22 ] && [ -n "$fallback" ]; then
+  local url="$1" dest="$2" st=0 fallback="${3:-}" hops=0 loc
+  while :; do
+    stm_validate_fetch_url "$url"
     st=0
-    stm_try_fetch "$fallback" "$dest" || st=$?
-    [ "$st" -eq 0 ] && url="$fallback"
-  fi
+    stm_try_fetch "$url" "$dest" || st=$?
+    if [ "$st" -eq 23 ]; then
+      loc=$(tr -d '\r' <"$dest" | sed -n '1p')
+      hops=$((hops + 1))
+      if [ "$hops" -ge 4 ]; then
+        die "$EX_NETWORK" "too many redirects: $url"
+      fi
+      url="$loc"
+      continue
+    fi
+    if [ "$st" -eq 22 ] && [ -n "$fallback" ]; then
+      st=0
+      stm_validate_fetch_url "$fallback"
+      stm_try_fetch "$fallback" "$dest" || st=$?
+      [ "$st" -eq 0 ] && url="$fallback"
+      fallback=""
+    fi
+    break
+  done
   if [ "$st" -eq 22 ]; then
     die "$EX_NOTFOUND" "palette not found at $url"
   fi
