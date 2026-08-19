@@ -77,6 +77,7 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `stm init [--format lua\|bash]` | Scaffold `./palettes` and `./stm.config.toml` |
 | `stm add <theme> <palette-file>` | Install a palette into your palette directory |
 | `stm preview <theme>` | Print a theme's colour table — writes nothing |
+| `stm lint [<file>|<slug>]` | Validate a palette — writes nothing |
 | `stm doctor [theme]` | Diagnose the config: format, dialect, key coverage |
 | `stm verify` | Check that stm touched only the files it owns |
 | `stm import [<file>]` | Turn an existing colours file into a palette |
@@ -111,7 +112,7 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `--dry-run` | Show what would change; write nothing |
 | `--force` | Let `add` / `import` / `adopt` overwrite |
 | `--append-missing` | (bash) Append palette keys that `colors.sh` doesn't have |
-| `--porcelain` | Machine-readable output for `list` and `preview` |
+| `--porcelain` | Machine-readable output for `list`, `preview` and `lint` |
 | `-v, --verbose` | Extra detail on stderr |
 | `-q, --quiet` | Suppress non-error output |
 | `-h, --help` | Show usage |
@@ -805,12 +806,22 @@ in your terminal, which is the closer thing to a preview anyway.
 
 ## Adding your own theme
 
-Write a `.toml` with the fifteen required keys, then:
+Write a `.toml` with the fifteen required keys, then lint it before installing:
 
 ```sh
+stm lint ./mine.toml          # a file
+stm lint nord                 # a slug (bundled or already installed)
+stm lint                      # usage error (64)
+
 stm add my-theme ./my-theme.toml
 stm apply my-theme
 ```
+
+`stm lint` writes nothing. Exit `0` if the palette is clean, `1` if it is
+refused, `3` if a slug is not found, `64` if you omit the argument.
+`--porcelain` prints `ok<TAB>slug` for CI. The check is fail-closed: bytes
+(size ≤ 64 KiB, no NUL, no `#!`) → allowlist parse → slug rules → capability
+scan → generate-and-grep of the Lua and bash writers in a private temp dir.
 
 Or just drop the file into your palette directory. A user palette with the same
 slug as a bundled one shadows it, so you can override `nord` with your own
