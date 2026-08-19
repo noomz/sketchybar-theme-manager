@@ -28,6 +28,9 @@ Version lives in `STM_VERSION` near the top of `bin/stm`.
 STM_ROOT="$PWD" bin/stm list
 STM_ROOT="$PWD" bin/stm preview tokyo-night
 STM_ROOT="$PWD" bin/stm doctor
+STM_ROOT="$PWD" bin/stm lint palettes/nord.toml
+# install <spec> / uninstall|remove <slug>; --allow-host <host>; fetch failures exit 5
+STM_ROOT="$PWD" bin/stm install --dry-run alice/themes/palettes/nord.toml
 
 # Tests — always run both bash versions before finishing work:
 tests/run.sh                                        # /bin/bash (3.2 on macOS, the floor)
@@ -62,7 +65,7 @@ STM_ROOT="$PWD" bin/stm lint --porcelain <slug>
 - The only things a palette may contribute to generated code: `^0x[0-9a-f]{8}$` colour literals, allowlisted layout enums (`top`/`bottom`, `on`/`off`, `left`/`right`/`center`), small integers, and ASCII labels in comments.
 - **Never make generated output depend on palette content.** If you're tempted to let a palette carry a function, snippet, or "escape hatch" field — stop. That converts "install a theme" into "run a stranger's Lua/shell". Route such needs through the user's own template instead.
 - `STM_WITH_ALPHA` and `STM_ADOPT_WRAPPER` are fixed trusted constants in `bin/stm`. Keep them constant.
-- `stm` never installs a template from a palette. A palette may arrive over the network (`stm install`). It is still untrusted data: parsed by awk, never `eval`'d, never `source`d. The only commands that may make an outbound request are `install`, `search`, `login`, `logout`, `publish`, and `update`. Everything else (`apply`, `preview`, `list`, `doctor`, `verify`, `adopt`, `backup`, `restore`, `import`, `export`, `add`, `lint`) is offline. Tests stub `STM_FETCH` and must not talk to the internet. `stm lint` is the install/publish gate.
+- `stm` never installs a template from a palette. A palette may arrive over the network (`stm install`). It is still untrusted data: parsed by awk, never `eval`'d, never `source`d. The only commands that may make an outbound request are `install`, `search`, `login`, `logout`, `publish`, and `update`. `--allow-host <host>` may widen the HTTPS host allowlist for `install` only (still HTTPS-only). Everything else is offline: `apply`, `preview`, `list`, `doctor`, `verify`, `adopt`, `backup`, `restore`, `import`, `export`, `add`, `lint`, `uninstall`, `remove`. Tests stub `STM_FETCH` and must not talk to the internet. `stm lint` is the install/publish gate.
 - A palette that fails allowlist validation is a hard error. Import and adopt scrape may *skip* a line (non-hex colour, unknown layout key, function position) and say so — that skip is the design. Never skip a *colour* the writer is about to emit, and never emit a half-substituted template.
 
 ## Behaviour invariants (tests pin these)
