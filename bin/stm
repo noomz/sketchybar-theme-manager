@@ -1622,6 +1622,8 @@ stm_fetch_https() {
     die "$EX_NETWORK" "fetch failed (exit $st): $url"
   fi
   [ -f "$dest" ] || die "$EX_NETWORK" "fetch wrote nothing: $url"
+  # Persist the URL that actually landed so the ledger is not the 404.
+  STM_SPEC_URL="$url"
 }
 
 # ---------------------------------------------------------------------------

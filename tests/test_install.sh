@@ -229,6 +229,32 @@ assert_contains "$(cat "$LEDGER")" "v9"
 unset STM_FETCH_FILE
 done_it
 
+it "a 404 on path.toml falls back to palettes/path.toml and ledgers the fallback URL"
+copy_nord "$SANDBOX/via-fallback.toml" via-fallback
+cat >"$SANDBOX/bin/fallback-fetch" <<'STUB'
+#!/bin/sh
+printf '%s\t%s\n' "$1" "$2" >> "${STM_FETCH_LOG:-/dev/null}"
+case "$1" in
+  */palettes/via-fallback.toml)
+    cp "$STM_FETCH_FILE" "$2"
+    exit 0
+    ;;
+esac
+exit 22
+STUB
+chmod 755 "$SANDBOX/bin/fallback-fetch"
+export STM_FETCH="$SANDBOX/bin/fallback-fetch"
+export STM_FETCH_FILE="$SANDBOX/via-fallback.toml"
+run_stm --dir "$D" install alice/themes/via-fallback
+assert_status 0
+assert_file_exists "$USER_PAL/via-fallback.toml"
+ledger=$(cat "$LEDGER")
+assert_contains "$ledger" "https://raw.githubusercontent.com/alice/themes/HEAD/palettes/via-fallback.toml"
+assert_not_contains "$ledger" "https://raw.githubusercontent.com/alice/themes/HEAD/via-fallback.toml"
+export STM_FETCH="$SANDBOX/bin/stm-fetch"
+unset STM_FETCH_FILE
+done_it
+
 it "every fixtures/bad palette via stub URL writes nothing"
 copy_nord "$SANDBOX/keep-me.toml" keep-me
 mkdir -p "$USER_PAL"

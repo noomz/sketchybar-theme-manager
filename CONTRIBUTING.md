@@ -66,11 +66,16 @@ STM_ROOT="$PWD" bin/stm preview my-theme
   install, it doesn't go in.
 - **Never `eval` or `source` palette or config content.** Palettes are untrusted
   input. A palette may arrive over the network (`stm install`). It is still
-  untrusted data: parsed by awk, never `eval`'d, never `source`d. The only
-  commands that may make an outbound request are `install`, `search`, `login`,
-  `logout`, `publish`, and `update`. Everything else is offline. Tests stub
-  `STM_FETCH` and must not talk to the internet. `stm lint` is the
-  install/publish gate.
+  untrusted data: parsed by awk, never `eval`'d, never `source`d. Public
+  commands include `lint`, `install`, `uninstall`, and `remove` (`remove` is
+  an alias). `--allow-host <host>` may widen the HTTPS host allowlist for
+  `install` only (still HTTPS-only). Fetch / host failures exit `5`
+  (`EX_NETWORK`). The only commands that may make an outbound request are
+  `install`, `search`, `login`, `logout`, `publish`, and `update`. Everything
+  else (`apply`, `preview`, `list`, `doctor`, `verify`, `adopt`, `backup`,
+  `restore`, `import`, `export`, `add`, `lint`, `uninstall`, `remove`) is
+  offline. Tests stub `STM_FETCH` and must not talk to the internet. `stm lint`
+  is the install/publish gate.
 - **Writes are atomic.** Write to a temp file in the destination directory, then
   `mv` it into place. Never edit a user file in a way that can leave it half
   written.
