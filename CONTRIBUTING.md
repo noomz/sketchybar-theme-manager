@@ -65,8 +65,12 @@ STM_ROOT="$PWD" bin/stm preview my-theme
 - **Zero dependencies.** If a change needs a tool that isn't on a stock macOS
   install, it doesn't go in.
 - **Never `eval` or `source` palette or config content.** Palettes are untrusted
-  input downloaded from the internet. Parsing happens in awk, and every key and
-  value is validated against an allowlist before it reaches generated output.
+  input. A palette may arrive over the network (`stm install`). It is still
+  untrusted data: parsed by awk, never `eval`'d, never `source`d. The only
+  commands that may make an outbound request are `install`, `search`, `login`,
+  `logout`, `publish`, and `update`. Everything else is offline. Tests stub
+  `STM_FETCH` and must not talk to the internet. `stm lint` is the
+  install/publish gate.
 - **Writes are atomic.** Write to a temp file in the destination directory, then
   `mv` it into place. Never edit a user file in a way that can leave it half
   written.

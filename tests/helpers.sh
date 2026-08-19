@@ -74,6 +74,48 @@ STUB
   chmod 755 "$SANDBOX/bin/sketchybar"
   export STM_TEST_RELOAD_LOG="$SANDBOX/reload.log"
   : >"$STM_TEST_RELOAD_LOG"
+
+  # Default fetch stub: never opens the network. Serves fixtures / bundled
+  # palettes by URL basename. STM_FETCH_EXIT / STM_FETCH_FILE override it.
+  export STM_FETCH_LOG="$SANDBOX/fetch.log"
+  : >"$STM_FETCH_LOG"
+  cat >"$SANDBOX/bin/stm-fetch" <<'STUB'
+#!/bin/sh
+url=$1
+dest=$2
+printf '%s\t%s\n' "$url" "$dest" >> "${STM_FETCH_LOG:-/dev/null}"
+if [ -n "${STM_FETCH_EXIT:-}" ]; then
+  exit "$STM_FETCH_EXIT"
+fi
+if [ -n "${STM_FETCH_FILE:-}" ]; then
+  if [ ! -f "$STM_FETCH_FILE" ]; then
+    exit 22
+  fi
+  cp "$STM_FETCH_FILE" "$dest"
+  exit 0
+fi
+base=$url
+base=${base%%\?*}
+base=${base%%#*}
+base=${base##*/}
+src=""
+if [ -n "${STM_TEST_FIXTURES:-}" ] && [ -f "$STM_TEST_FIXTURES/bad/$base" ]; then
+  src="$STM_TEST_FIXTURES/bad/$base"
+elif [ -n "${STM_TEST_FIXTURES:-}" ] && [ -f "$STM_TEST_FIXTURES/$base" ]; then
+  src="$STM_TEST_FIXTURES/$base"
+elif [ -n "${STM_TEST_REPO:-}" ] && [ -f "$STM_TEST_REPO/palettes/$base" ]; then
+  src="$STM_TEST_REPO/palettes/$base"
+else
+  exit 22
+fi
+cp "$src" "$dest"
+exit 0
+STUB
+  chmod 755 "$SANDBOX/bin/stm-fetch"
+  export STM_FETCH="$SANDBOX/bin/stm-fetch"
+  export STM_TEST_FIXTURES="$FIXTURES_DIR"
+  export STM_TEST_REPO="$REPO_ROOT"
+  unset STM_FETCH_EXIT STM_FETCH_FILE 2>/dev/null || true
   export PATH="$SANDBOX/bin:$PATH"
 }
 

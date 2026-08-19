@@ -42,6 +42,7 @@ EX_INVALID=1   # palette failed validation
 EX_CONFIG=2    # config dir or format could not be resolved
 EX_NOTFOUND=3  # theme not found
 EX_EXISTS=4    # refusing to overwrite without --force
+EX_NETWORK=5   # fetch / host / network failure
 EX_USAGE=64    # bad command line
 
 # ---------------------------------------------------------------------------
@@ -839,6 +840,7 @@ OPT_RESET_LAYOUT=0
 OPT_ALL=0
 OPT_NO_WIRE=0
 OPT_NO_LAYOUT=0
+OPT_ALLOW_HOST=""
 
 RESOLVED_CONFIG=""
 RESOLVED_DIR=""
@@ -1201,6 +1203,487 @@ $dir"
   RESOLVED_LUA_DIALECT="$saved_dialect"
   OPT_APPEND_MISSING="$saved_append"
   rm -rf "$dir"
+}
+
+# stm_lint_file <file> — the public lint pipeline on an already-resolved path.
+# Writes nothing. Dies EX_INVALID on refuse. Sets STM_LINT_SLUG to the declared slug.
+STM_LINT_SLUG=""
+stm_lint_file() {
+  local file="$1" records declared
+  [ -r "$file" ] || die "$EX_INVALID" "palette file is not readable: $file"
+  lint_bytes_gate "$file"
+  records=$(stm_parse_palette "$file")
+  declared=$(stm_records_meta "$records" slug)
+  lint_slug_rules "$file" "$declared"
+  lint_capability_scan "$file"
+  lint_generate_and_grep "$records"
+  STM_LINT_SLUG="$declared"
+}
+
+# ---------------------------------------------------------------------------
+# install spec + HTTPS fetch
+#
+# A spec locates one .toml. Never git clone. STM_FETCH, when set, is a stub
+# invoked as `STM_FETCH <url> <dest>` so tests never open the network.
+# ---------------------------------------------------------------------------
+
+STM_SPEC_MAX=1024
+STM_SPEC_URL=""
+STM_SPEC_URL_FALLBACK=""
+STM_SPEC_REF=""
+STM_SPEC_HOST=""
+STM_SPEC_PATH=""
+
+stm_lc() {
+  # ASCII only. LC_ALL=C is forced at the top of this file.
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+stm_validate_fetch_host() {
+  local h
+  h=$(stm_lc "$1")
+  case "$h" in
+    "" | localhost | *.localhost)
+      die "$EX_USAGE" "install host is not allowed: $1"
+      ;;
+  esac
+  case "$h" in
+    *:*)
+      die "$EX_USAGE" "install host must not be an IP or contain a port: $1"
+      ;;
+  esac
+  case "$h" in
+    *[!a-z0-9.-]* | -* | *- | .* | *. | *..*)
+      die "$EX_USAGE" "invalid install host: $1"
+      ;;
+  esac
+  case "$h" in
+    *[!0-9.]*) : ;;
+    *) die "$EX_USAGE" "install host must not be a numeric IP: $1" ;;
+  esac
+  case "$h" in
+    github.com | raw.githubusercontent.com | gitlab.com | codeberg.org) return 0 ;;
+  esac
+  if [ -n "$OPT_ALLOW_HOST" ] && [ "$h" = "$(stm_lc "$OPT_ALLOW_HOST")" ]; then
+    return 0
+  fi
+  die "$EX_USAGE" "host not allowed: $1 (pass --allow-host)"
+}
+
+stm_validate_git_name() {
+  local n="$1" what="$2"
+  [ -n "$n" ] || die "$EX_USAGE" "install spec is missing $what"
+  [ "${#n}" -le 100 ] || die "$EX_USAGE" "install spec $what is too long"
+  case "$n" in
+    *[!A-Za-z0-9._-]*) die "$EX_USAGE" "invalid $what in install spec: $n" ;;
+    -*|.*) die "$EX_USAGE" "invalid $what in install spec: $n" ;;
+  esac
+}
+
+stm_validate_ref() {
+  local r="$1"
+  [ -n "$r" ] || die "$EX_USAGE" "install spec is missing a ref"
+  [ "${#r}" -le 128 ] || die "$EX_USAGE" "install spec ref is too long"
+  case "$r" in
+    *[!A-Za-z0-9._-]*) die "$EX_USAGE" "invalid ref in install spec: $r" ;;
+  esac
+}
+
+# Sets STM_SPEC_PATH and STM_SPEC_URL_FALLBACK (relative path, may be empty).
+stm_normalise_toml_path() {
+  local path="$1" base
+  STM_SPEC_URL_FALLBACK=""
+  [ -n "$path" ] || die "$EX_USAGE" "install spec needs a path to a .toml file"
+  case "$path" in
+    /*) die "$EX_USAGE" "install path may not be absolute" ;;
+  esac
+  base="${path##*/}"
+  case "$base" in
+    *.*)
+      case "$base" in
+        *.toml)
+          STM_SPEC_PATH="$path"
+          ;;
+        *)
+          die "$EX_USAGE" "install path must be a .toml file: $path"
+          ;;
+      esac
+      ;;
+    *)
+      STM_SPEC_PATH="${path}.toml"
+      case "$path" in
+        palettes/*) : ;;
+        *) STM_SPEC_URL_FALLBACK="palettes/${path}.toml" ;;
+      esac
+      ;;
+  esac
+}
+
+stm_spec_reject_meta() {
+  local spec="$1" ats
+  [ -n "$spec" ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
+  [ "${#spec}" -le "$STM_SPEC_MAX" ] || die "$EX_USAGE" "install spec is too long"
+  case "$spec" in
+    *[[:space:]]*) die "$EX_USAGE" "install spec must not contain whitespace" ;;
+  esac
+  case "$spec" in
+    *[\`\$\;\|\&\<\>\(\)\{\}\!\\\'\"\*\?\~\[\]\#]*)
+      die "$EX_USAGE" "install spec contains a metacharacter"
+      ;;
+  esac
+  case "$spec" in
+    *..*) die "$EX_USAGE" "install spec may not contain .." ;;
+    /*) die "$EX_USAGE" "install spec may not be an absolute path" ;;
+  esac
+  ats=$(printf '%s' "$spec" | tr -cd '@')
+  if [ "${#ats}" -gt 1 ]; then
+    die "$EX_USAGE" "install spec has more than one @"
+  fi
+}
+
+stm_build_git_url() {
+  local host="$1" owner="$2" repo="$3" ref="$4" path="$5"
+  case "$host" in
+    github.com)
+      printf 'https://raw.githubusercontent.com/%s/%s/%s/%s\n' "$owner" "$repo" "$ref" "$path"
+      ;;
+    gitlab.com)
+      printf 'https://gitlab.com/%s/%s/-/raw/%s/%s\n' "$owner" "$repo" "$ref" "$path"
+      ;;
+    codeberg.org)
+      printf 'https://codeberg.org/%s/%s/raw/branch/%s/%s\n' "$owner" "$repo" "$ref" "$path"
+      ;;
+    *)
+      printf 'https://%s/%s/%s/%s\n' "$host" "$owner" "$repo" "$path"
+      ;;
+  esac
+}
+
+stm_parse_https_spec() {
+  local spec="$1" rest host path owner repo kind ref refkind
+  rest="${spec#https://}"
+  case "$rest" in
+    *@*) die "$EX_USAGE" "install spec must not contain userinfo" ;;
+  esac
+  host="${rest%%/*}"
+  if [ "$host" = "$rest" ]; then
+    die "$EX_USAGE" "install spec has no path"
+  fi
+  path="${rest#*/}"
+  path="${path%%\?*}"
+  path="${path%%#*}"
+  stm_validate_fetch_host "$host"
+  host=$(stm_lc "$host")
+  STM_SPEC_HOST="$host"
+  STM_SPEC_REF="HEAD"
+  STM_SPEC_URL_FALLBACK=""
+
+  case "$host" in
+    github.com)
+      owner="${path%%/*}"; path="${path#*/}"
+      repo="${path%%/*}"; path="${path#*/}"
+      kind="${path%%/*}"; path="${path#*/}"
+      stm_validate_git_name "$owner" "owner"
+      stm_validate_git_name "$repo" "repo"
+      case "$kind" in
+        blob | raw)
+          ref="${path%%/*}"; path="${path#*/}"
+          stm_validate_ref "$ref"
+          stm_normalise_toml_path "$path"
+          STM_SPEC_REF="$ref"
+          STM_SPEC_URL=$(stm_build_git_url github.com "$owner" "$repo" "$ref" "$STM_SPEC_PATH")
+          if [ -n "$STM_SPEC_URL_FALLBACK" ]; then
+            STM_SPEC_URL_FALLBACK=$(stm_build_git_url github.com "$owner" "$repo" "$ref" "$STM_SPEC_URL_FALLBACK")
+          fi
+          ;;
+        *)
+          die "$EX_USAGE" "github URL must be a blob or raw path"
+          ;;
+      esac
+      ;;
+    gitlab.com)
+      owner="${path%%/*}"; path="${path#*/}"
+      repo="${path%%/*}"; path="${path#*/}"
+      stm_validate_git_name "$owner" "owner"
+      stm_validate_git_name "$repo" "repo"
+      case "$path" in
+        -/*)
+          path="${path#-/*}"
+          kind="${path%%/*}"; path="${path#*/}"
+          case "$kind" in
+            blob | raw)
+              ref="${path%%/*}"; path="${path#*/}"
+              stm_validate_ref "$ref"
+              stm_normalise_toml_path "$path"
+              STM_SPEC_REF="$ref"
+              STM_SPEC_URL=$(stm_build_git_url gitlab.com "$owner" "$repo" "$ref" "$STM_SPEC_PATH")
+              ;;
+            *)
+              die "$EX_USAGE" "gitlab URL must be a blob or raw path"
+              ;;
+          esac
+          ;;
+        *)
+          die "$EX_USAGE" "gitlab URL must contain /-/blob/ or /-/raw/"
+          ;;
+      esac
+      ;;
+    codeberg.org)
+      owner="${path%%/*}"; path="${path#*/}"
+      repo="${path%%/*}"; path="${path#*/}"
+      stm_validate_git_name "$owner" "owner"
+      stm_validate_git_name "$repo" "repo"
+      kind="${path%%/*}"; path="${path#*/}"
+      case "$kind" in
+        src | raw)
+          # src/branch/REF/PATH or raw/branch/REF/PATH (or commit/SHA/PATH)
+          refkind="${path%%/*}"; path="${path#*/}"
+          ref="${path%%/*}"; path="${path#*/}"
+          stm_validate_ref "$ref"
+          stm_normalise_toml_path "$path"
+          STM_SPEC_REF="$ref"
+          if [ "$refkind" = "commit" ]; then
+            STM_SPEC_URL="https://codeberg.org/${owner}/${repo}/raw/commit/${ref}/${STM_SPEC_PATH}"
+          else
+            STM_SPEC_URL=$(stm_build_git_url codeberg.org "$owner" "$repo" "$ref" "$STM_SPEC_PATH")
+          fi
+          ;;
+        *)
+          die "$EX_USAGE" "codeberg URL must be a src or raw path"
+          ;;
+      esac
+      ;;
+    raw.githubusercontent.com)
+      stm_normalise_toml_path "$path"
+      STM_SPEC_URL="https://raw.githubusercontent.com/${STM_SPEC_PATH}"
+      ;;
+    *)
+      stm_normalise_toml_path "$path"
+      STM_SPEC_URL="https://${host}/${STM_SPEC_PATH}"
+      ;;
+  esac
+}
+
+stm_parse_locator_spec() {
+  local spec="$1" host rest first first_lc owner repo ref path ats allow
+  host="github.com"
+  rest="$spec"
+  first="${spec%%/*}"
+  first_lc=$(stm_lc "$first")
+  allow=""
+  [ -n "$OPT_ALLOW_HOST" ] && allow=$(stm_lc "$OPT_ALLOW_HOST")
+
+  case "$first_lc" in
+    localhost | *.localhost)
+      stm_validate_fetch_host "$first_lc"
+      ;;
+    *.*)
+      stm_validate_fetch_host "$first_lc"
+      host="$first_lc"
+      rest="${spec#*/}"
+      ;;
+    *)
+      if [ -n "$allow" ] && [ "$first_lc" = "$allow" ]; then
+        stm_validate_fetch_host "$first_lc"
+        host="$first_lc"
+        rest="${spec#*/}"
+      fi
+      ;;
+  esac
+
+  STM_SPEC_HOST="$host"
+  STM_SPEC_URL_FALLBACK=""
+
+  if [ "$host" = "raw.githubusercontent.com" ]; then
+    stm_normalise_toml_path "$rest"
+    STM_SPEC_REF="HEAD"
+    STM_SPEC_URL="https://raw.githubusercontent.com/${STM_SPEC_PATH}"
+    return 0
+  fi
+
+  case "$host" in
+    github.com | gitlab.com | codeberg.org) : ;;
+    *)
+      stm_normalise_toml_path "$rest"
+      STM_SPEC_REF="HEAD"
+      STM_SPEC_URL="https://${host}/${STM_SPEC_PATH}"
+      return 0
+      ;;
+  esac
+
+  ats=$(printf '%s' "$rest" | tr -cd '@')
+  owner="${rest%%/*}"
+  [ "$owner" != "$rest" ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
+  rest="${rest#*/}"
+  stm_validate_git_name "$owner" "owner"
+
+  if [ "${#ats}" -eq 1 ]; then
+    repo="${rest%%/*}"
+    [ "$repo" != "$rest" ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
+    path="${rest#*/}"
+    case "$repo" in
+      *@*)
+        ref="${repo#*@}"
+        repo="${repo%%@*}"
+        ;;
+      *)
+        die "$EX_USAGE" "invalid @ in install spec"
+        ;;
+    esac
+  else
+    repo="${rest%%/*}"
+    [ "$repo" != "$rest" ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
+    path="${rest#*/}"
+    ref="HEAD"
+  fi
+  stm_validate_git_name "$repo" "repo"
+  case "$repo" in
+    *.git) die "$EX_USAGE" "install spec must not use a .git suffix" ;;
+  esac
+  stm_validate_ref "$ref"
+  stm_normalise_toml_path "$path"
+  STM_SPEC_REF="$ref"
+  STM_SPEC_URL=$(stm_build_git_url "$host" "$owner" "$repo" "$ref" "$STM_SPEC_PATH")
+  if [ -n "$STM_SPEC_URL_FALLBACK" ]; then
+    STM_SPEC_URL_FALLBACK=$(stm_build_git_url "$host" "$owner" "$repo" "$ref" "$STM_SPEC_URL_FALLBACK")
+  fi
+}
+
+# stm_parse_install_spec <spec> — sets STM_SPEC_URL / REF / HOST / PATH.
+# Rejects before any URL is built for traversal, schemes, metacharacters, IPs.
+stm_parse_install_spec() {
+  local spec="$1"
+  STM_SPEC_URL=""
+  STM_SPEC_URL_FALLBACK=""
+  STM_SPEC_REF=""
+  STM_SPEC_HOST=""
+  STM_SPEC_PATH=""
+  stm_spec_reject_meta "$spec"
+  case "$spec" in
+    [a-zA-Z][a-zA-Z0-9+.-]*:*)
+      case "$spec" in
+        https://*) stm_parse_https_spec "$spec" ;;
+        *) die "$EX_USAGE" "only https is allowed" ;;
+      esac
+      ;;
+    */*)
+      stm_parse_locator_spec "$spec"
+      ;;
+    *)
+      die "$EX_USAGE" "install needs owner/repo/path.toml (a slug needs the portal)"
+      ;;
+  esac
+  [ -n "$STM_SPEC_URL" ] || die "$EX_USAGE" "could not resolve install spec"
+  case "$STM_SPEC_URL" in
+    https://*) : ;;
+    *) die "$EX_USAGE" "resolved URL is not https" ;;
+  esac
+}
+
+# stm_try_fetch <url> <dest> — 0 ok, 22 not found, other = transport error.
+# Does not die.
+stm_try_fetch() {
+  local url="$1" dest="$2" st
+  case "$url" in
+    https://*) : ;;
+    *) return 1 ;;
+  esac
+  case "$url" in
+    https://*@*) return 1 ;;
+  esac
+  if [ -n "${STM_FETCH:-}" ]; then
+    set +e
+    "$STM_FETCH" "$url" "$dest"
+    st=$?
+    set -e
+  else
+    set +e
+    curl -fsSL --proto '=https' --proto-redir '=https' \
+      --max-time 30 --max-filesize "$STM_LINT_MAX_BYTES" \
+      -o "$dest" "$url"
+    st=$?
+    set -e
+  fi
+  return "$st"
+}
+
+stm_fetch_https() {
+  local url="$1" dest="$2" st=0 fallback="${3:-}"
+  stm_try_fetch "$url" "$dest" || st=$?
+  if [ "$st" -eq 22 ] && [ -n "$fallback" ]; then
+    st=0
+    stm_try_fetch "$fallback" "$dest" || st=$?
+    [ "$st" -eq 0 ] && url="$fallback"
+  fi
+  if [ "$st" -eq 22 ]; then
+    die "$EX_NOTFOUND" "palette not found at $url"
+  fi
+  if [ "$st" -ne 0 ]; then
+    die "$EX_NETWORK" "fetch failed (exit $st): $url"
+  fi
+  [ -f "$dest" ] || die "$EX_NETWORK" "fetch wrote nothing: $url"
+}
+
+# ---------------------------------------------------------------------------
+# provenance ledger — $XDG_CONFIG_HOME/stm/installed
+# Format (one row per slug; slug-validated fields only):
+#   slug<TAB>source-url<TAB>sha256<TAB>ref<TAB>iso8601
+# Not a theme file. uninstall drops the matching row.
+# ---------------------------------------------------------------------------
+
+stm_ledger_file() {
+  local root
+  root="${XDG_CONFIG_HOME:-$HOME/.config}"
+  printf '%s\n' "$root/stm/installed"
+}
+
+stm_sha256() {
+  local f="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$f" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$f" | awk '{print $1}'
+  else
+    openssl dgst -sha256 "$f" | awk '{print $NF}'
+  fi
+}
+
+stm_iso8601() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+stm_ledger_put() {
+  local slug="$1" url="$2" hash="$3" ref="$4" ts="$5"
+  local file dir tmp
+  validate_slug "$slug"
+  file=$(stm_ledger_file)
+  dir=$(dirname "$file")
+  mkdir -p "$dir"
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  if [ -f "$file" ]; then
+    awk -F '\t' -v s="$slug" '$1 != s { print }' "$file" >"$tmp"
+  else
+    : >"$tmp"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\n' "$slug" "$url" "$hash" "$ref" "$ts" >>"$tmp"
+  commit_tmp "$tmp" "$file"
+}
+
+stm_ledger_drop() {
+  local slug="$1" file tmp dir
+  file=$(stm_ledger_file)
+  [ -f "$file" ] || return 0
+  dir=$(dirname "$file")
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  awk -F '\t' -v s="$slug" '$1 != s { print }' "$file" >"$tmp"
+  if [ ! -s "$tmp" ]; then
+    rm -f "$tmp" "$file"
+    STM_TMP=""
+    return 0
+  fi
+  commit_tmp "$tmp" "$file"
 }
 
 # detect_format — inspect the sketchybar dir and decide lua vs bash.
@@ -2383,7 +2866,7 @@ cmd_preview() {
 
 # cmd_lint <file-or-slug> — fail-closed verdict; writes nothing to the user bar.
 cmd_lint() {
-  local spec="$1" file="" records declared
+  local spec="$1" file=""
 
   [ -n "$spec" ] || die "$EX_USAGE" "lint needs a palette file or theme name"
 
@@ -2403,19 +2886,12 @@ cmd_lint() {
       ;;
   esac
 
-  [ -r "$file" ] || die "$EX_INVALID" "palette file is not readable: $file"
-
-  lint_bytes_gate "$file"
-  records=$(stm_parse_palette "$file")
-  declared=$(stm_records_meta "$records" slug)
-  lint_slug_rules "$file" "$declared"
-  lint_capability_scan "$file"
-  lint_generate_and_grep "$records"
+  stm_lint_file "$file"
 
   if [ "$OPT_PORCELAIN" -eq 1 ]; then
-    printf 'ok\t%s\n' "$declared"
+    printf 'ok\t%s\n' "$STM_LINT_SLUG"
   else
-    info "ok $declared"
+    info "ok $STM_LINT_SLUG"
   fi
 }
 
@@ -3513,8 +3989,103 @@ cmd_add() {
     die "$EX_EXISTS" "$dest already exists (use --force to overwrite)"
   fi
 
-  cp "$src" "$dest"
+  mktemp_in "$dir"
+  cp "$src" "$STM_TMP"
+  commit_tmp "$STM_TMP" "$dest"
   info "added $slug -> $dest"
+}
+
+# cmd_install <spec> — fetch one HTTPS .toml, lint, atomic write + ledger.
+# Does not apply. Does not sketchybar --reload. add stays local-file only.
+cmd_install() {
+  local spec="$1" dir dest tmp work slug hash ts
+
+  [ -n "$spec" ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
+  stm_parse_install_spec "$spec"
+
+  dir=$(user_palette_dir) ||
+    die "$EX_CONFIG" "could not determine a writable palette directory; pass --palette-dir"
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+      die "$EX_CONFIG" "could not create a temporary directory"
+    STM_TMPDIRS="$STM_TMPDIRS
+$work"
+    tmp="$work/payload"
+    stm_fetch_https "$STM_SPEC_URL" "$tmp" "$STM_SPEC_URL_FALLBACK"
+    stm_lint_file "$tmp"
+    dest="$dir/$STM_LINT_SLUG.toml"
+    info "spec $spec"
+    info "host $STM_SPEC_HOST"
+    info "url $STM_SPEC_URL"
+    info "dest $dest"
+    info "would install $STM_LINT_SLUG -> $dest"
+    rm -rf "$work"
+    return 0
+  fi
+
+  mkdir -p "$dir"
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  stm_fetch_https "$STM_SPEC_URL" "$tmp" "$STM_SPEC_URL_FALLBACK"
+  stm_lint_file "$tmp"
+  slug="$STM_LINT_SLUG"
+  dest="$dir/$slug.toml"
+
+  if [ -e "$dest" ] && [ "$OPT_FORCE" -eq 0 ]; then
+    die "$EX_EXISTS" "$dest already exists (use --force to overwrite)"
+  fi
+
+  hash=$(stm_sha256 "$tmp")
+  ts=$(stm_iso8601)
+  commit_tmp "$tmp" "$dest"
+  stm_ledger_put "$slug" "$STM_SPEC_URL" "$hash" "$STM_SPEC_REF" "$ts"
+  info "installed $slug -> $dest"
+  note "source $STM_SPEC_URL"
+  info "run: stm apply $slug"
+}
+
+# cmd_uninstall <slug> — remove a user-installed palette and its ledger row.
+# Never deletes a bundled file. remove is an alias.
+cmd_uninstall() {
+  local slug="$1" dir dest bundled_dir bundled cur
+
+  [ -n "$slug" ] || die "$EX_USAGE" "uninstall needs a theme name"
+  validate_slug "$slug"
+
+  dir=$(user_palette_dir) ||
+    die "$EX_CONFIG" "could not determine a writable palette directory; pass --palette-dir"
+  dest="$dir/$slug.toml"
+  bundled_dir=$(bundled_palette_dir 2>/dev/null || true)
+  bundled=""
+  [ -n "$bundled_dir" ] && bundled="$bundled_dir/$slug.toml"
+
+  if [ -L "$dest" ]; then
+    die "$EX_CONFIG" "refusing to remove a symlink: $dest"
+  fi
+  if [ -e "$dest" ] && [ ! -f "$dest" ]; then
+    die "$EX_CONFIG" "refusing to remove $dest: not a regular file"
+  fi
+
+  if [ ! -e "$dest" ]; then
+    if [ -n "$bundled" ] && [ -f "$bundled" ]; then
+      die "$EX_CONFIG" "refusing to uninstall bundled theme: $slug"
+    fi
+    die "$EX_NOTFOUND" "theme not installed: $slug"
+  fi
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would remove $dest"
+    return 0
+  fi
+
+  if cur=$(read_state 2>/dev/null) && [ "$cur" = "$slug" ]; then
+    err "warning: $slug is the current theme; not switching"
+  fi
+
+  rm -f "$dest"
+  stm_ledger_drop "$slug"
+  info "removed $slug"
 }
 
 # ---------------------------------------------------------------------------
@@ -4087,9 +4658,12 @@ COMMANDS
   apply <theme>                 Apply a theme, then run \`sketchybar --reload\`
   current                       Print the active theme slug
   init [--format lua|bash]      Scaffold ./palettes and ./stm.config.toml
-  add <theme> <palette-file>    Install a palette into your palette directory
+  add <theme> <palette-file>    Install a local palette file into your palette directory
   preview <theme>               Print a theme's colour table (writes nothing)
   lint [<file>|<slug>]          Validate a palette (writes nothing)
+  install <spec>                Fetch one HTTPS .toml, lint, and store it (no apply)
+  uninstall <slug>              Remove a user-installed palette
+  remove <slug>                 Alias for uninstall
   doctor [theme]                Diagnose the config: format, dialect, key coverage
   verify                        Check that stm touched only the files it owns
   import [<file>]               Turn an existing colours file into a palette
@@ -4116,7 +4690,8 @@ OPTIONS
   --reset-layout        Delete the generated layout overlay on apply
   --all                 (backup) Snapshot the whole config dir, not just stm files
   --dry-run             Show what would change; write nothing
-  --force               Allow add/import/adopt to overwrite
+  --force               Allow add/import/adopt/install to overwrite
+  --allow-host <host>   Permit one extra HTTPS host for \`install\`
   --append-missing      (bash) Append palette keys absent from colors.sh
   --porcelain           Machine-readable output for \`list\`, \`preview\` and \`lint\`
   --out <file>          Write \`export\` output to a file instead of stdout
@@ -4133,11 +4708,13 @@ ENVIRONMENT
   STM_PALETTE_DIR         Additional palette directory
   STM_FORMAT              lua | bash
   STM_LUA_DIALECT         flat | nested
+  STM_FETCH               Test-only fetch stub (\`STM_FETCH <url> <dest>\`)
   NO_COLOR                Disable colour swatches in \`preview\`
 
 EXIT CODES
   0 success   1 invalid palette   2 config/format error
-  3 theme not found   4 refusing to overwrite   64 usage error
+  3 theme not found   4 refusing to overwrite   5 network/fetch
+  64 usage error
 
 EOF
 }
@@ -4216,6 +4793,12 @@ main() {
       --all) OPT_ALL=1; shift ;;
       --dry-run) OPT_DRY_RUN=1; shift ;;
       --force) OPT_FORCE=1; shift ;;
+      --allow-host)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--allow-host needs a value"
+        OPT_ALLOW_HOST="$2"
+        shift 2
+        ;;
+      --allow-host=*) OPT_ALLOW_HOST="${1#--allow-host=}"; shift ;;
       --append-missing) OPT_APPEND_MISSING=1; shift ;;
       --porcelain) OPT_PORCELAIN=1; shift ;;
       -v | --verbose) OPT_VERBOSE=1; shift ;;
@@ -4287,6 +4870,14 @@ main() {
     lint)
       [ "$args_left" -ge 1 ] || die "$EX_USAGE" "lint needs a palette file or theme name"
       cmd_lint "${positional[1]}"
+      ;;
+    install)
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
+      cmd_install "${positional[1]}"
+      ;;
+    uninstall | remove)
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "uninstall needs a theme name"
+      cmd_uninstall "${positional[1]}"
       ;;
     init)
       cmd_init

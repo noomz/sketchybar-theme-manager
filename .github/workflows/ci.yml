@@ -54,7 +54,8 @@ jobs:
           fail=0
           for f in palettes/*.toml; do
             slug=$(basename "$f" .toml)
-            if STM_ROOT="$PWD" bin/stm preview --porcelain "$slug" >/dev/null; then
+            if STM_ROOT="$PWD" bin/stm preview --porcelain "$slug" >/dev/null \
+              && STM_ROOT="$PWD" bin/stm lint --porcelain "$slug" >/dev/null; then
               echo "ok   $slug"
             else
               echo "FAIL $slug"

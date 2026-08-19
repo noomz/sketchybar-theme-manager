@@ -249,6 +249,48 @@ assert_file_not_contains "$ipal/hostile.toml" 'hijacked'
 assert_file_absent "$PWN"
 done_it
 
+# --- install fetch surface -------------------------------------------------
+
+it "every fixtures/bad palette via a stub URL writes nothing"
+: >"$STM_FETCH_LOG"
+for f in "$BAD"/*.toml; do
+  base=$(basename "$f")
+  export STM_FETCH_FILE="$f"
+  run_stm --dir "$D" install "alice/themes/palettes/$base"
+  assert_status 1 "install of $base must refuse"
+  assert_file_absent "$D/palettes/$base"
+done
+unset STM_FETCH_FILE
+assert_file_absent "$PWN"
+done_it
+
+it "file:// and http:// specs never invoke the fetch stub"
+: >"$STM_FETCH_LOG"
+run_stm --dir "$D" install 'file:///etc/passwd'
+assert_status 64
+run_stm --dir "$D" install 'http://github.com/a/b/c.toml'
+assert_status 64
+assert_eq "" "$(cat "$STM_FETCH_LOG")"
+done_it
+
+it "an oversized body served by the stub is refused and not installed"
+big="$SANDBOX/too-big.toml"
+awk 'BEGIN { print "slug = \"too-big\""; while (n++ < 70000) printf("x") }' >"$big"
+export STM_FETCH_FILE="$big"
+run_stm --dir "$D" install alice/themes/palettes/too-big.toml
+assert_status 1
+assert_file_absent "$D/palettes/too-big.toml"
+unset STM_FETCH_FILE
+done_it
+
+it "a shebang payload via stub URL is refused"
+export STM_FETCH_FILE="$BAD/shebang.toml"
+run_stm --dir "$D" install alice/themes/palettes/shebang.toml
+assert_status 1
+assert_file_absent "$D/palettes/shebang.toml"
+unset STM_FETCH_FILE
+done_it
+
 # --- final sweep ------------------------------------------------------------
 
 it "no payload file was created anywhere during this suite"

@@ -75,9 +75,11 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `stm apply <theme>` | Apply a theme, then run `sketchybar --reload` |
 | `stm current` | Print the active theme slug |
 | `stm init [--format lua\|bash]` | Scaffold `./palettes` and `./stm.config.toml` |
-| `stm add <theme> <palette-file>` | Install a palette into your palette directory |
+| `stm add <theme> <palette-file>` | Install a local palette file into your palette directory |
 | `stm preview <theme>` | Print a theme's colour table — writes nothing |
 | `stm lint [<file>|<slug>]` | Validate a palette — writes nothing |
+| `stm install <spec>` | Fetch one HTTPS `.toml`, lint it, and store it — does not apply |
+| `stm uninstall <slug>` | Remove a user-installed palette (`remove` is an alias) |
 | `stm doctor [theme]` | Diagnose the config: format, dialect, key coverage |
 | `stm verify` | Check that stm touched only the files it owns |
 | `stm import [<file>]` | Turn an existing colours file into a palette |
@@ -110,7 +112,8 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `--base <slug>` | Make the imported palette inherit from `<slug>` |
 | `--no-reload` | Don't run `sketchybar --reload` after applying |
 | `--dry-run` | Show what would change; write nothing |
-| `--force` | Let `add` / `import` / `adopt` overwrite |
+| `--force` | Let `add` / `import` / `adopt` / `install` overwrite |
+| `--allow-host <host>` | Permit one extra HTTPS host for `install` |
 | `--append-missing` | (bash) Append palette keys that `colors.sh` doesn't have |
 | `--porcelain` | Machine-readable output for `list`, `preview` and `lint` |
 | `-v, --verbose` | Extra detail on stderr |
@@ -827,6 +830,22 @@ Or just drop the file into your palette directory. A user palette with the same
 slug as a bundled one shadows it, so you can override `nord` with your own
 version without deleting anything.
 
+To fetch someone else's palette (one `.toml`, never a git clone):
+
+```sh
+stm install alice/sketchy-themes/palettes/dracula.toml
+stm install alice/sketchy-themes@v1.2.0/dracula
+stm install https://github.com/alice/sketchy-themes/blob/main/palettes/dracula.toml
+stm apply dracula                 # install does not apply and does not reload
+stm uninstall dracula
+```
+
+Bare `owner/repo/path` is GitHub. Allowed hosts: `github.com`,
+`raw.githubusercontent.com`, `gitlab.com`, `codeberg.org`. Anything else needs
+`--allow-host <host>` and is still HTTPS-only. A spec with `..`, `file://`,
+`http://`, or a non-toml path is refused before any request. Fetch failures
+exit `5`. `stm add` stays the local-file command.
+
 ---
 
 ## Exit codes
@@ -838,6 +857,7 @@ version without deleting anything.
 | `2` | Config directory or format could not be resolved |
 | `3` | Theme not found |
 | `4` | Refusing to overwrite (pass `--force`) |
+| `5` | Network / host / fetch failure |
 | `64` | Usage error |
 
 ---
@@ -848,8 +868,11 @@ version without deleting anything.
 - bash 3.2 or newer — the `/bin/bash` that ships with macOS is fine
 - [SketchyBar](https://github.com/FelixKratz/SketchyBar), for the `--reload`
 
-No Node, no Python, no Lua, no external dependencies. `stm` never touches the
-network.
+No Node, no Python, no Lua, no extra runtime. A palette may arrive over the
+network (`stm install`). It is still untrusted data: parsed by awk, never
+`eval`'d, never `source`d. The only commands that may make an outbound request
+are `install`, `search`, `login`, `logout`, `publish`, and `update`. Everything
+else is offline. Tests stub `STM_FETCH` and must not talk to the internet.
 
 ---
 
