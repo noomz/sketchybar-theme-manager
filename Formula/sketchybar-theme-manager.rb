@@ -49,6 +49,9 @@ class SketchybarThemeManager < Formula
     preview = shell_output("#{bin}/stm preview --porcelain tokyo-night")
     assert_match "0xff1a1b26", preview
 
+    lint = shell_output("#{bin}/stm lint --porcelain nord")
+    assert_match "ok\tnord", lint
+
     # Applying against a scratch Lua config must produce a loadable module and
     # must not touch the user's own colors.lua.
     (testpath/"cfg").mkpath
