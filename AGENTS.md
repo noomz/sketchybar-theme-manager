@@ -41,6 +41,7 @@ sh -n install.sh
 
 # Palette validation (what CI does):
 STM_ROOT="$PWD" bin/stm preview --porcelain <slug>
+STM_ROOT="$PWD" bin/stm lint --porcelain <slug>
 ```
 
 ## Hard constraints (do not violate)
@@ -61,7 +62,7 @@ STM_ROOT="$PWD" bin/stm preview --porcelain <slug>
 - The only things a palette may contribute to generated code: `^0x[0-9a-f]{8}$` colour literals, allowlisted layout enums (`top`/`bottom`, `on`/`off`, `left`/`right`/`center`), small integers, and ASCII labels in comments.
 - **Never make generated output depend on palette content.** If you're tempted to let a palette carry a function, snippet, or "escape hatch" field — stop. That converts "install a theme" into "run a stranger's Lua/shell". Route such needs through the user's own template instead.
 - `STM_WITH_ALPHA` and `STM_ADOPT_WRAPPER` are fixed trusted constants in `bin/stm`. Keep them constant.
-- `stm` never installs a template from a palette, never fetches anything from the network.
+- `stm` never installs a template from a palette. A palette may arrive over the network (`stm install`). It is still untrusted data: parsed by awk, never `eval`'d, never `source`d. The only commands that may make an outbound request are `install`, `search`, `login`, `logout`, `publish`, and `update`. Everything else (`apply`, `preview`, `list`, `doctor`, `verify`, `adopt`, `backup`, `restore`, `import`, `export`, `add`, `lint`) is offline. Tests stub `STM_FETCH` and must not talk to the internet. `stm lint` is the install/publish gate.
 - A palette that fails allowlist validation is a hard error. Import and adopt scrape may *skip* a line (non-hex colour, unknown layout key, function position) and say so — that skip is the design. Never skip a *colour* the writer is about to emit, and never emit a half-substituted template.
 
 ## Behaviour invariants (tests pin these)
@@ -72,7 +73,7 @@ STM_ROOT="$PWD" bin/stm preview --porcelain <slug>
 - `colors.sh` writer: only literal `0x...` values matching a palette key are rewritten; reference lines like `export X=$SURFACE0` are left alone. First edit saves `colors.sh.stm-backup` once, never overwritten.
 - Refuses to guess when both Lua and `colors.sh` exist (asks for `--format`). Detected format is kept — a shell bar stays a shell bar. `[output]` may not point at `colors.lua`, `colors_user.lua`, `.stm-state`, `.stm-manifest`, `stm.config.toml`, or `.stm-backups`.
 - `verify` checksums every file stm does not own; keep the manifest logic consistent with what apply writes.
-- Exit codes are documented: 0 ok, 1 bad palette, 2 config/format unresolved, 3 theme not found, 4 refuse-overwrite, 64 usage error. Don't change them without updating README.
+- Exit codes are documented: 0 ok, 1 bad palette, 2 config/format unresolved, 3 theme not found, 4 refuse-overwrite, 5 network/fetch, 64 usage error. Don't change them without updating README.
 
 ## Adopt
 

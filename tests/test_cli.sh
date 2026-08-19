@@ -14,9 +14,11 @@ make_lua_config "$D"
 it "help exits 0 and lists every command"
 run_stm help
 assert_status 0
-for c in list apply current init add preview lint help backup restore backups adopt; do
+for c in list apply current init add preview lint install uninstall remove help backup restore backups adopt; do
   assert_contains "$STM_OUT" "  $c" "usage should document '$c'"
 done
+assert_contains "$STM_OUT" "5 network" "usage should document exit code 5"
+assert_contains "$STM_OUT" "--allow-host" "usage should document --allow-host"
 done_it
 
 it "-h and --help work"
