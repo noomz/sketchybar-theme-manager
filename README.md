@@ -80,6 +80,9 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `stm lint [<file>|<slug>]` | Validate a palette — writes nothing |
 | `stm install <spec>` | Fetch one HTTPS `.toml`, lint it, and store it — does not apply |
 | `stm search [query]` | Search the theme catalog (metadata only; does not fetch palettes) |
+| `stm login` | Store a catalog token (`0600`; never printed) |
+| `stm logout` | Remove stored catalog credentials |
+| `stm publish <spec>` | Register a palette URL with the catalog (not an upload) |
 | `stm uninstall <slug>` | Remove a user-installed palette (`remove` is an alias) |
 | `stm doctor [theme]` | Diagnose the config: format, dialect, key coverage |
 | `stm verify` | Check that stm touched only the files it owns |
@@ -856,6 +859,22 @@ install then `POST`s `/v1/stats/install` (failures are ignored). Direct
 
 The default catalog is `https://stm.noomz.dev`. Override with `--registry`,
 `$STM_REGISTRY`, or `registry = "https://…"` in `stm.config.toml` (https only).
+
+To list a palette you already host (a link, not an upload):
+
+```sh
+stm login                         # STM_TOKEN / GH_TOKEN, or paste a portal token
+stm publish alice/themes/palettes/nord.toml
+stm logout
+```
+
+`stm login` verifies the token against the catalog and writes
+`$XDG_CONFIG_HOME/stm/credentials` mode `0600`. The token is sent only to the
+registry as `Authorization: Bearer` — never to `raw.githubusercontent.com`.
+`stm publish` fresh-fetches the spec, runs `stm lint`, then `POST /v1/themes`
+with `{ "source_url": "https://…" }` only. A lint failure posts nothing. No
+credentials → exit `2` and a prompt to `stm login`. `--dry-run` lints and
+prints the JSON that would be posted.
 
 Bare `owner/repo/path` is GitHub. Allowed hosts for palette fetches:
 `github.com`, `raw.githubusercontent.com`, `gitlab.com`, `codeberg.org`.

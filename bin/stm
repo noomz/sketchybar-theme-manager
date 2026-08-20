@@ -1898,9 +1898,14 @@ function parse_value(   c) {
   fail("unsupported json value")
 }
 function reset_obj() {
-  slug = ""; name = ""; author = ""; source_url = ""; refv = ""; sha = ""; rating = ""; installs = ""; broken = ""
+  slug = ""; name = ""; author = ""; source_url = ""; refv = ""; sha = ""; rating = ""; installs = ""; broken = ""; login = ""
 }
 function emit_obj() {
+  if (mode == "field") {
+    if (field == "login") printf("%s\n", login)
+    else if (field == "slug") printf("%s\n", slug)
+    return
+  }
   if (mode == "item") {
     if (slug == "" || name == "" || source_url == "" || broken == "") fail("catalog item is missing a required field")
     printf("%s\t%s\t%s\t%s\t%s\t%s\n", slug, name, source_url, refv, sha, broken)
@@ -1941,6 +1946,7 @@ function parse_object(   key, first, c) {
     else if (key == "rating" && KIND == "number") rating = STR
     else if (key == "installs" && KIND == "number") installs = STR
     else if (key == "broken" && KIND == "bool") broken = STR
+    else if (key == "login" && KIND == "string") login = STR
   }
   fail("unterminated json object")
 }
@@ -1971,7 +1977,7 @@ END {
   n = length(json)
   pos = 1
   skip_ws()
-  if (mode == "item") parse_object()
+  if (mode == "item" || mode == "field") parse_object()
   else parse_array()
   skip_ws()
   if (pos <= n && substr(json, pos, 1) != "") fail("trailing junk in catalog json")
@@ -1979,13 +1985,13 @@ END {
 '
 
 stm_json_parse() {
-  local mode="$1" file="$2" sz
+  local mode="$1" file="$2" field="${3:-}" sz
   [ -f "$file" ] || die "$EX_NETWORK" "catalog wrote nothing"
   sz=$(wc -c <"$file" | tr -d ' ')
   if [ "$sz" -gt "$STM_LINT_MAX_BYTES" ]; then
     die "$EX_NETWORK" "catalog response is too large ($sz bytes)"
   fi
-  awk -v mode="$mode" -v prog="$PROGNAME" "$STM_JSON_AWK" "$file"
+  awk -v mode="$mode" -v field="$field" -v prog="$PROGNAME" "$STM_JSON_AWK" "$file"
 }
 
 # stm_portal_resolve_slug <slug> — GET /v1/themes/<slug>, then parse source_url
@@ -2027,35 +2033,153 @@ $work"
   STM_INSTALL_VIA_PORTAL=1
 }
 
-# Fire-and-forget. Never fails the install: the counter is not load-bearing.
-stm_stats_post() {
-  local slug="$1" url body work tmp
-  validate_slug "$slug"
+# stm_registry_post <path> <bodyfile> [dest]
+# Optional STM_AUTH_BEARER. 0 = 2xx/4xx-except-401, 22 = 401/403/404, other = transport.
+# Login uses 400 (empty source_url) as "token accepted". Never logs the bearer.
+stm_registry_post() {
+  local path="$1" bodyfile="$2" dest="${3:-}" url st=0 work tmp hdr code=0
   stm_resolve_registry
-  url="${STM_REGISTRY_BASE}/v1/stats/install"
+  case "$path" in
+    /*) : ;;
+    *) die "$EX_CONFIG" "internal: catalog path must start with /" ;;
+  esac
+  url="${STM_REGISTRY_BASE}${path}"
   stm_registry_validate_get_url "$url"
-  body=$(printf '{"slug":"%s"}' "$slug")
-  if [ -n "${STM_POST:-}" ]; then
-    work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") || return 0
+  if [ -z "$dest" ]; then
+    work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") || return 1
     STM_TMPDIRS="$STM_TMPDIRS
 $work"
-    tmp="$work/body"
-    printf '%s\n' "$body" >"$tmp"
+    dest="$work/resp"
+  fi
+  if [ -n "${STM_POST:-}" ]; then
     set +e
-    "$STM_POST" "$url" "$tmp"
-    set -e
-    return 0
+    "$STM_POST" "$url" "$bodyfile" >"$dest"
+    st=$?
+    return "$st"
   fi
-  # Tests stub STM_FETCH; never open the network when a fetch stub is in play.
   if [ -n "${STM_FETCH:-}" ]; then
+    : >"$dest"
     return 0
   fi
+  hdr="${dest}.hdr"
   set +e
-  curl -sS --proto '=https' --proto-redir '=https' --max-redirs 0 \
-    --max-time 10 -H 'Content-Type: application/json' \
-    -d "$body" "$url" >/dev/null 2>&1
+  if [ -n "${STM_AUTH_BEARER:-}" ]; then
+    curl -sS --proto '=https' --proto-redir '=https' --max-redirs 0 \
+      --max-time 30 -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer ${STM_AUTH_BEARER}" \
+      -D "$hdr" -o "$dest" -d @"$bodyfile" "$url"
+    st=$?
+  else
+    curl -sS --proto '=https' --proto-redir '=https' --max-redirs 0 \
+      --max-time 30 -H 'Content-Type: application/json' \
+      -D "$hdr" -o "$dest" -d @"$bodyfile" "$url"
+    st=$?
+  fi
+  set -e
+  if [ -f "$hdr" ]; then
+    code=$(awk 'BEGIN { c = 0 } /^HTTP\// { c = $2 } END { print c + 0 }' "$hdr")
+    rm -f "$hdr"
+  fi
+  if [ "$code" -eq 401 ] || [ "$code" -eq 403 ] || [ "$code" -eq 404 ]; then
+    return 22
+  fi
+  if [ "$st" -ne 0 ] && [ "$code" -eq 0 ]; then
+    return "$st"
+  fi
+  return 0
+}
+
+# Fire-and-forget. Never fails the install: the counter is not load-bearing.
+stm_stats_post() {
+  local slug="$1" work tmp
+  validate_slug "$slug"
+  work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") || return 0
+  STM_TMPDIRS="$STM_TMPDIRS
+$work"
+  tmp="$work/body"
+  printf '{"slug":"%s"}\n' "$slug" >"$tmp"
+  set +e
+  stm_registry_post "/v1/stats/install" "$tmp"
   set -e
   return 0
+}
+
+stm_credentials_file() {
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/stm/credentials"
+}
+
+stm_validate_token() {
+  local token="$1"
+  [ -n "$token" ] || die "$EX_USAGE" "catalog token is empty"
+  [ "${#token}" -ge 8 ] || die "$EX_USAGE" "catalog token is too short"
+  [ "${#token}" -le 512 ] || die "$EX_USAGE" "catalog token is too long"
+  case "$token" in
+    *[[:space:]]*) die "$EX_USAGE" "catalog token must not contain whitespace" ;;
+  esac
+}
+
+# Sets STM_CRED_REGISTRY and STM_CRED_TOKEN. Returns 1 if missing.
+STM_CRED_REGISTRY=""
+STM_CRED_TOKEN=""
+stm_credentials_read() {
+  local file line
+  STM_CRED_REGISTRY=""
+  STM_CRED_TOKEN=""
+  file=$(stm_credentials_file)
+  [ -f "$file" ] || return 1
+  if [ -L "$file" ]; then
+    die "$EX_CONFIG" "refusing to read a symlink: $file"
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "" | \#*) continue ;;
+      registry=*)
+        STM_CRED_REGISTRY="${line#registry=}"
+        ;;
+      *)
+        if [ -z "$STM_CRED_TOKEN" ]; then
+          STM_CRED_TOKEN="$line"
+        fi
+        ;;
+    esac
+  done <"$file"
+  [ -n "$STM_CRED_REGISTRY" ] && [ -n "$STM_CRED_TOKEN" ]
+}
+
+stm_credentials_write() {
+  local registry="$1" token="$2" file dir tmp
+  stm_validate_registry_url "$registry"
+  stm_validate_token "$token"
+  file=$(stm_credentials_file)
+  dir=$(dirname "$file")
+  mkdir -p "$dir"
+  chmod 700 "$dir" 2>/dev/null || true
+  mktemp_in "$dir"
+  tmp="$STM_TMP"
+  printf 'registry=%s\n%s\n' "$registry" "$token" >"$tmp"
+  chmod 0600 "$tmp"
+  mv -f "$tmp" "$file"
+  chmod 0600 "$file"
+}
+
+stm_login_token() {
+  local token=""
+  if [ -n "${STM_TOKEN:-}" ]; then
+    printf '%s' "$STM_TOKEN"
+    return 0
+  fi
+  if [ -n "${GH_TOKEN:-}" ]; then
+    printf '%s' "$GH_TOKEN"
+    return 0
+  fi
+  if [ -c /dev/tty ]; then
+    printf 'Paste a catalog token (from the portal login page): ' >/dev/tty
+    IFS= read -r -s token </dev/tty || true
+    printf '\n' >/dev/tty
+    printf '%s' "$token"
+    return 0
+  fi
+  die "$EX_CONFIG" "set STM_TOKEN or run stm login on a TTY"
 }
 
 # ---------------------------------------------------------------------------
@@ -4459,6 +4583,113 @@ $rows
 EOF
 }
 
+cmd_login() {
+  local token work tmp dest st=0 login
+  token=$(stm_login_token)
+  stm_validate_token "$token"
+  stm_resolve_registry
+  work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$work"
+  tmp="$work/body"
+  dest="$work/resp"
+  printf '%s\n' '{"source_url":""}' >"$tmp"
+  export STM_AUTH_BEARER="$token"
+  stm_registry_post "/v1/themes" "$tmp" "$dest" || st=$?
+  unset STM_AUTH_BEARER
+  if [ "$st" -eq 22 ]; then
+    die "$EX_NETWORK" "catalog rejected the token"
+  fi
+  if [ "$st" -ne 0 ]; then
+    die "$EX_NETWORK" "catalog login failed"
+  fi
+  stm_credentials_write "$STM_REGISTRY_BASE" "$token"
+  login=""
+  if [ -s "$dest" ]; then
+    login=$(awk -v mode=field -v field=login -v prog="$PROGNAME" "$STM_JSON_AWK" "$dest" 2>/dev/null || true)
+  fi
+  if [ -n "$login" ]; then
+    info "logged in as $login"
+  else
+    info "logged in to $STM_REGISTRY_BASE"
+  fi
+}
+
+cmd_logout() {
+  local file
+  file=$(stm_credentials_file)
+  if [ -L "$file" ]; then
+    die "$EX_CONFIG" "refusing to remove a symlink: $file"
+  fi
+  rm -f "$file"
+  info "logged out"
+}
+
+# cmd_publish <spec> — lint the author's URL, then POST {source_url} (not the TOML).
+cmd_publish() {
+  local spec="$1" posted work tmp dest st=0 row slug bodyfile
+  [ -n "$spec" ] || die "$EX_USAGE" "publish needs a git spec or https URL"
+  case "$spec" in
+    *://* | */*)
+      stm_parse_install_spec "$spec"
+      ;;
+    *)
+      die "$EX_USAGE" "publish needs a git spec or https URL (not a catalog slug)"
+      ;;
+  esac
+  posted="$STM_SPEC_URL"
+  case "$spec" in
+    https://*) posted="$spec" ;;
+  esac
+
+  work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$work"
+  tmp="$work/payload"
+  stm_fetch_https "$STM_SPEC_URL" "$tmp" "$STM_SPEC_URL_FALLBACK"
+  stm_lint_file "$tmp"
+
+  bodyfile="$work/body"
+  printf '{"source_url":"%s"}\n' "$posted" >"$bodyfile"
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would publish $posted"
+    printf '{"source_url":"%s"}\n' "$posted"
+    return 0
+  fi
+
+  stm_credentials_read ||
+    die "$EX_CONFIG" "not logged in; run: stm login --registry ${STM_REGISTRY_BASE:-$STM_REGISTRY_DEFAULT}"
+
+  stm_resolve_registry
+  if [ -n "$OPT_REGISTRY" ] || [ -n "${STM_REGISTRY:-}" ]; then
+    if [ "$STM_CRED_REGISTRY" != "$STM_REGISTRY_BASE" ]; then
+      die "$EX_CONFIG" "credentials are for $STM_CRED_REGISTRY; pass matching --registry or run stm login"
+    fi
+  else
+    STM_REGISTRY_BASE="$STM_CRED_REGISTRY"
+    stm_validate_registry_url "$STM_REGISTRY_BASE"
+  fi
+
+  dest="$work/resp"
+  export STM_AUTH_BEARER="$STM_CRED_TOKEN"
+  stm_registry_post "/v1/themes" "$bodyfile" "$dest" || st=$?
+  unset STM_AUTH_BEARER
+  if [ "$st" -eq 22 ]; then
+    die "$EX_NETWORK" "catalog rejected the token; run: stm login --registry $STM_REGISTRY_BASE"
+  fi
+  if [ "$st" -ne 0 ]; then
+    die "$EX_NETWORK" "catalog publish failed"
+  fi
+  row=$(stm_json_parse item "$dest") || die "$EX_NETWORK" "catalog returned invalid json"
+  slug=$(printf '%s\n' "$row" | awk -F '\t' '{print $1}')
+  info "published $slug"
+  info "${STM_REGISTRY_BASE}/themes/${slug}"
+  note "source $posted"
+}
+
 # cmd_install <spec> — fetch one HTTPS .toml, lint, atomic write + ledger.
 # A bare slug asks the catalog for source_url, then the M1 fetch+lint+write.
 # Does not apply. Does not sketchybar --reload. add stays local-file only.
@@ -5139,6 +5370,9 @@ COMMANDS
   lint [<file>|<slug>]          Validate a palette (writes nothing)
   install <spec>                Fetch one HTTPS .toml, lint, and store it (no apply)
   search [query]                Search the theme catalog (metadata only)
+  login                         Store a catalog token (0600; never printed)
+  logout                        Remove stored catalog credentials
+  publish <spec>                Register a palette URL with the catalog (not an upload)
   uninstall <slug>              Remove a user-installed palette
   remove <slug>                 Alias for uninstall
   doctor [theme]                Diagnose the config: format, dialect, key coverage
@@ -5189,6 +5423,8 @@ ENVIRONMENT
   STM_FETCH               Test-only fetch stub (\`STM_FETCH <url> <dest>\`)
   STM_POST                Test-only POST stub (\`STM_POST <url> <bodyfile>\`)
   STM_REGISTRY            Catalog base URL (overrides config; --registry wins)
+  STM_TOKEN               Catalog token for \`login\` (never prompt if set)
+  GH_TOKEN                Fallback catalog token for \`login\`
   NO_COLOR                Disable colour swatches in \`preview\`
 
 EXIT CODES
@@ -5367,6 +5603,16 @@ main() {
       else
         cmd_search
       fi
+      ;;
+    login)
+      cmd_login
+      ;;
+    logout)
+      cmd_logout
+      ;;
+    publish)
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "publish needs a git spec or https URL"
+      cmd_publish "${positional[1]}"
       ;;
     uninstall | remove)
       [ "$args_left" -ge 1 ] || die "$EX_USAGE" "uninstall needs a theme name"
