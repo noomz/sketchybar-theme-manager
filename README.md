@@ -863,7 +863,7 @@ The default catalog is `https://stm.noomz.dev`. Override with `--registry`,
 To list a palette you already host (a link, not an upload):
 
 ```sh
-stm login                         # STM_TOKEN / GH_TOKEN, or paste a portal token
+stm login                         # STM_TOKEN, or paste a portal token
 stm publish alice/themes/palettes/nord.toml
 stm logout
 ```
@@ -871,10 +871,13 @@ stm logout
 `stm login` verifies the token against the catalog and writes
 `$XDG_CONFIG_HOME/stm/credentials` mode `0600`. The token is sent only to the
 registry as `Authorization: Bearer` — never to `raw.githubusercontent.com`.
-`stm publish` fresh-fetches the spec, runs `stm lint`, then `POST /v1/themes`
-with `{ "source_url": "https://…" }` only. A lint failure posts nothing. No
-credentials → exit `2` and a prompt to `stm login`. `--dry-run` lints and
-prints the JSON that would be posted.
+`--dry-run` on `login` / `logout` writes nothing (no POST, no credentials file
+change). `stm publish` fresh-fetches the spec, runs `stm lint`, then
+`POST /v1/themes` with `{ "source_url": "https://…" }` only — the URL that
+actually fetched, for a locator spec, or the URL you passed if it was already
+`https://`. A lint failure posts nothing. No credentials → exit `2` and a
+prompt to `stm login`. `--dry-run` lints and prints the JSON that would be
+posted.
 
 Bare `owner/repo/path` is GitHub. Allowed hosts for palette fetches:
 `github.com`, `raw.githubusercontent.com`, `gitlab.com`, `codeberg.org`.

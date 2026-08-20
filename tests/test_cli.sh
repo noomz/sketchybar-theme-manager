@@ -20,6 +20,8 @@ done
 assert_contains "$STM_OUT" "5 network" "usage should document exit code 5"
 assert_contains "$STM_OUT" "--allow-host" "usage should document --allow-host"
 assert_contains "$STM_OUT" "--registry" "usage should document --registry"
+assert_contains "$STM_OUT" "STM_TOKEN" "usage should document STM_TOKEN"
+assert_not_contains "$STM_OUT" "GH_TOKEN" "catalog bearer is STM_TOKEN or TTY, not GH_TOKEN (#10)"
 done_it
 
 it "-h and --help work"
