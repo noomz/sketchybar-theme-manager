@@ -1649,6 +1649,18 @@ stm_try_fetch() {
     "$STM_FETCH" "$url" "$dest"
     st=$?
     set -e
+    # Tests may set STM_FETCH_HTTP_CODE when the stub exits 22 so a catalog
+    # 5xx is not confused with a missing theme (curl -f maps every HTTP
+    # error to 22).
+    if [ "$st" -eq 22 ] && [ -n "${STM_FETCH_HTTP_CODE:-}" ]; then
+      code=$((STM_FETCH_HTTP_CODE + 0))
+      if [ "$code" -eq 404 ]; then
+        return 22
+      fi
+      if [ "$code" -ge 400 ]; then
+        return 1
+      fi
+    fi
     return "$st"
   fi
   hdr="${dest}.hdr"
@@ -1678,7 +1690,14 @@ stm_try_fetch() {
     fi
     rm -f "$hdr"
   fi
-  if [ "$st" -eq 22 ] || [ "$code" -eq 404 ]; then
+  # Only HTTP 404 is "not found". Other 4xx/5xx (curl -f → 22) are transport.
+  if [ "$code" -eq 404 ]; then
+    return 22
+  fi
+  if [ "$st" -eq 22 ]; then
+    if [ "$code" -ge 400 ]; then
+      return 1
+    fi
     return 22
   fi
   return "$st"
@@ -1729,6 +1748,9 @@ stm_fetch_https() {
 
 STM_REGISTRY_BASE=""
 STM_INSTALL_VIA_PORTAL=0
+STM_PORTAL_SLUG=""
+STM_PORTAL_SHA256=""
+STM_HTTP_CODE=0
 
 stm_urlencode() {
   printf '%s' "$1" | awk '
@@ -1861,7 +1883,8 @@ function parse_string(   out, c) {
     c = substr(json, pos, 1)
     if (c == "\\") fail("json string escapes are not allowed")
     if (c == "\"") { pos++; STR = out; return }
-    if (c == "\n" || c == "\r" || c == "\t") fail("json string contains a control character")
+    # C0 + DEL — a hostile catalog must not inject ESC into the terminal.
+    if (c < " " || c == "\177") fail("json string contains a control character")
     out = out c
     pos++
   }
@@ -1911,7 +1934,7 @@ function emit_obj() {
     printf("%s\t%s\t%s\t%s\t%s\t%s\n", slug, name, source_url, refv, sha, broken)
     return
   }
-  if (slug == "" || name == "" || author == "" || rating == "" || installs == "") return
+  if (slug == "" || name == "" || author == "" || source_url == "" || rating == "" || installs == "") fail("catalog item is missing a required field")
   printf("%s\t%s\t%s\t%s\t%s\t%s\n", slug, name, author, source_url, rating, installs)
 }
 function parse_object(   key, first, c) {
@@ -1997,7 +2020,7 @@ stm_json_parse() {
 # stm_portal_resolve_slug <slug> — GET /v1/themes/<slug>, then parse source_url
 # through the existing M1 spec path. Sets STM_INSTALL_VIA_PORTAL=1.
 stm_portal_resolve_slug() {
-  local slug="$1" work json st=0 row source_url ref broken
+  local slug="$1" work json st=0 row source_url sha broken
   validate_slug "$slug"
   work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
     die "$EX_CONFIG" "could not create a temporary directory"
@@ -2013,7 +2036,7 @@ $work"
   fi
   row=$(stm_json_parse item "$json") || die "$EX_NETWORK" "catalog returned invalid json"
   source_url=$(printf '%s\n' "$row" | awk -F '\t' '{print $3}')
-  ref=$(printf '%s\n' "$row" | awk -F '\t' '{print $4}')
+  sha=$(printf '%s\n' "$row" | awk -F '\t' '{print $5}')
   broken=$(printf '%s\n' "$row" | awk -F '\t' '{print $6}')
   if [ "$broken" = "true" ]; then
     if [ -n "$source_url" ]; then
@@ -2024,20 +2047,75 @@ $work"
   [ "$broken" = "false" ] || die "$EX_NETWORK" "catalog returned an invalid broken flag"
   [ -n "$source_url" ] || die "$EX_NETWORK" "catalog item is missing source_url"
   stm_parse_install_spec "$source_url"
-  if [ -n "$ref" ]; then
-    case "$ref" in
-      *[!A-Za-z0-9._-]*) : ;;
-      *) STM_SPEC_REF="$ref" ;;
-    esac
-  fi
+  # Leave STM_SPEC_REF as M1 derived it from source_url. Catalog `ref` is
+  # metadata; overwriting it without rebuilding the fetch URL would pin a
+  # commit that was never fetched.
   STM_INSTALL_VIA_PORTAL=1
+  STM_PORTAL_SLUG="$slug"
+  STM_PORTAL_SHA256="$sha"
 }
 
-# stm_registry_post <path> <bodyfile> [dest]
-# Optional STM_AUTH_BEARER. 0 = 2xx/4xx-except-401, 22 = 401/403/404, other = transport.
-# Login uses 400 (empty source_url) as "token accepted". Never logs the bearer.
-stm_registry_post() {
-  local path="$1" bodyfile="$2" dest="${3:-}" url st=0 work tmp hdr code=0
+# After lint of a catalog install: dest + stats use the catalog slug the user
+# typed, which must equal the palette's declared slug. Non-empty sha256 is
+# compared before any write.
+stm_portal_confirm_payload() {
+  local file="$1" got
+  [ "$STM_INSTALL_VIA_PORTAL" -eq 1 ] || return 0
+  if [ "$STM_LINT_SLUG" != "$STM_PORTAL_SLUG" ]; then
+    die "$EX_INVALID" "palette slug \"$STM_LINT_SLUG\" does not match catalog slug \"$STM_PORTAL_SLUG\""
+  fi
+  if [ -n "$STM_PORTAL_SHA256" ]; then
+    case "$STM_PORTAL_SHA256" in
+      *[!0-9a-f]*) die "$EX_NETWORK" "catalog sha256 is invalid" ;;
+    esac
+    if [ "${#STM_PORTAL_SHA256}" -ne 64 ]; then
+      die "$EX_NETWORK" "catalog sha256 is invalid"
+    fi
+    got=$(stm_sha256 "$file")
+    if [ "$got" != "$STM_PORTAL_SHA256" ]; then
+      die "$EX_NETWORK" "fetched palette does not match catalog sha256"
+    fi
+  fi
+}
+
+# Classify a catalog POST. Sets STM_HTTP_CODE. Returns:
+#   0  HTTP 2xx
+#   22 HTTP 4xx
+#   5  HTTP 3xx / 5xx
+#   other = transport (curl exit, or 1)
+stm_registry_classify_http() {
+  local st="$1" code="$2"
+  code=$((code + 0))
+  STM_HTTP_CODE="$code"
+  if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+    return 0
+  fi
+  if [ "$code" -ge 400 ] && [ "$code" -lt 500 ]; then
+    return 22
+  fi
+  if [ "$code" -ge 300 ]; then
+    return 5
+  fi
+  if [ "$st" -ne 0 ]; then
+    return "$st"
+  fi
+  return 1
+}
+
+stm_registry_write_auth_config() {
+  local cfg="$1"
+  # Token already charset-checked. Double quotes would break curl --config.
+  printf 'header = "Authorization: Bearer %s"\n' "$STM_AUTH_BEARER" >"$cfg"
+  chmod 0600 "$cfg"
+}
+
+# stm_registry_post_raw <path> <bodyfile> [dest]
+# Optional STM_AUTH_BEARER (never exported). Bearer goes in a 0600 curl --config
+# file, not argv. STM_POST is invoked as `STM_POST <url> <bodyfile> [curlcfg]`.
+# Always restores set -e. Sets STM_HTTP_CODE. Return codes: see classify.
+stm_registry_post_raw() {
+  local path="$1" bodyfile="$2" dest="${3:-}" url st=0 work hdr cfg="" code=0
+  STM_HTTP_CODE=0
   stm_resolve_registry
   case "$path" in
     /*) : ;;
@@ -2051,55 +2129,99 @@ stm_registry_post() {
 $work"
     dest="$work/resp"
   fi
+  if [ -n "${STM_AUTH_BEARER:-}" ]; then
+    cfg="${dest}.curlcfg"
+    stm_registry_write_auth_config "$cfg"
+  fi
   if [ -n "${STM_POST:-}" ]; then
     set +e
-    "$STM_POST" "$url" "$bodyfile" >"$dest"
+    "$STM_POST" "$url" "$bodyfile" "$cfg" >"$dest"
     st=$?
-    return "$st"
+    set -e
+    [ -n "$cfg" ] && rm -f "$cfg"
+    if [ -n "${STM_POST_HTTP_CODE:-}" ]; then
+      code=$((STM_POST_HTTP_CODE + 0))
+    elif [ -n "${STM_POST_HTTP_FILE:-}" ] && [ -s "${STM_POST_HTTP_FILE}" ]; then
+      code=$(awk 'NR==1 { print $1+0; exit }' "$STM_POST_HTTP_FILE")
+    elif [ "$st" -eq 22 ]; then
+      code=401
+    elif [ "$st" -eq 0 ]; then
+      code=200
+    fi
+    stm_registry_classify_http "$st" "$code" || return $?
+    return 0
   fi
   if [ -n "${STM_FETCH:-}" ]; then
+    [ -n "$cfg" ] && rm -f "$cfg"
     : >"$dest"
+    STM_HTTP_CODE=200
     return 0
   fi
   hdr="${dest}.hdr"
   set +e
-  if [ -n "${STM_AUTH_BEARER:-}" ]; then
-    curl -sS --proto '=https' --proto-redir '=https' --max-redirs 0 \
+  if [ -n "$cfg" ]; then
+    # -q must be first so ~/.curlrc cannot dump the bearer.
+    curl -q --config "$cfg" --proto '=https' --proto-redir '=https' --max-redirs 0 \
       --max-time 30 -H 'Content-Type: application/json' \
-      -H "Authorization: Bearer ${STM_AUTH_BEARER}" \
       -D "$hdr" -o "$dest" -d @"$bodyfile" "$url"
     st=$?
   else
-    curl -sS --proto '=https' --proto-redir '=https' --max-redirs 0 \
+    curl -q --proto '=https' --proto-redir '=https' --max-redirs 0 \
       --max-time 30 -H 'Content-Type: application/json' \
       -D "$hdr" -o "$dest" -d @"$bodyfile" "$url"
     st=$?
   fi
   set -e
+  [ -n "$cfg" ] && rm -f "$cfg"
   if [ -f "$hdr" ]; then
     code=$(awk 'BEGIN { c = 0 } /^HTTP\// { c = $2 } END { print c + 0 }' "$hdr")
     rm -f "$hdr"
   fi
-  if [ "$code" -eq 401 ] || [ "$code" -eq 403 ] || [ "$code" -eq 404 ]; then
-    return 22
-  fi
-  if [ "$st" -ne 0 ] && [ "$code" -eq 0 ]; then
-    return "$st"
-  fi
+  stm_registry_classify_http "$st" "$code" || return $?
   return 0
 }
 
+# Publish / generic POST: succeed only on HTTP 2xx.
+stm_registry_post() {
+  stm_registry_post_raw "$@"
+}
+
+# Login probe: POST /v1/themes {"source_url":""}. Succeed only on HTTP 400
+# (token accepted, body refused). 2xx would create a listing — return 23.
+stm_registry_login_probe() {
+  local bodyfile="$1" dest="${2:-}" st=0
+  stm_registry_post_raw "/v1/themes" "$bodyfile" "$dest" || st=$?
+  if [ "$STM_HTTP_CODE" -eq 400 ]; then
+    return 0
+  fi
+  if [ "$STM_HTTP_CODE" -ge 200 ] && [ "$STM_HTTP_CODE" -lt 300 ]; then
+    return 23
+  fi
+  return "$st"
+}
+
 # Fire-and-forget. Never fails the install: the counter is not load-bearing.
+# Short timeout, silent curl — must not stall a successful install or print
+# curl errors. Does not send a bearer.
 stm_stats_post() {
-  local slug="$1" work tmp
+  local slug="$1" work tmp url
   validate_slug "$slug"
   work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") || return 0
   STM_TMPDIRS="$STM_TMPDIRS
 $work"
   tmp="$work/body"
   printf '{"slug":"%s"}\n' "$slug" >"$tmp"
+  stm_resolve_registry
+  url="${STM_REGISTRY_BASE}/v1/stats/install"
+  stm_registry_validate_get_url "$url"
   set +e
-  stm_registry_post "/v1/stats/install" "$tmp"
+  if [ -n "${STM_POST:-}" ]; then
+    "$STM_POST" "$url" "$tmp" >/dev/null 2>&1
+  elif [ -z "${STM_FETCH:-}" ]; then
+    curl -s --proto '=https' --proto-redir '=https' --max-redirs 0 \
+      --max-time 10 -H 'Content-Type: application/json' \
+      -o /dev/null -d @"$tmp" "$url" >/dev/null 2>&1
+  fi
   set -e
   return 0
 }
@@ -2115,6 +2237,7 @@ stm_validate_token() {
   [ "${#token}" -le 512 ] || die "$EX_USAGE" "catalog token is too long"
   case "$token" in
     *[[:space:]]*) die "$EX_USAGE" "catalog token must not contain whitespace" ;;
+    *[!A-Za-z0-9._~+/=-]*) die "$EX_USAGE" "catalog token contains an invalid character" ;;
   esac
 }
 
@@ -2151,9 +2274,13 @@ stm_credentials_write() {
   stm_validate_registry_url "$registry"
   stm_validate_token "$token"
   file=$(stm_credentials_file)
+  if [ -L "$file" ]; then
+    die "$EX_CONFIG" "refusing to write a symlink: $file"
+  fi
   dir=$(dirname "$file")
   mkdir -p "$dir"
   chmod 700 "$dir" 2>/dev/null || true
+  assert_writable_target "$file"
   mktemp_in "$dir"
   tmp="$STM_TMP"
   printf 'registry=%s\n%s\n' "$registry" "$token" >"$tmp"
@@ -2166,10 +2293,6 @@ stm_login_token() {
   local token=""
   if [ -n "${STM_TOKEN:-}" ]; then
     printf '%s' "$STM_TOKEN"
-    return 0
-  fi
-  if [ -n "${GH_TOKEN:-}" ]; then
-    printf '%s' "$GH_TOKEN"
     return 0
   fi
   if [ -c /dev/tty ]; then
@@ -4585,9 +4708,13 @@ EOF
 
 cmd_login() {
   local token work tmp dest st=0 login
+  stm_resolve_registry
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would write $(stm_credentials_file)"
+    return 0
+  fi
   token=$(stm_login_token)
   stm_validate_token "$token"
-  stm_resolve_registry
   work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
     die "$EX_CONFIG" "could not create a temporary directory"
   STM_TMPDIRS="$STM_TMPDIRS
@@ -4595,9 +4722,12 @@ $work"
   tmp="$work/body"
   dest="$work/resp"
   printf '%s\n' '{"source_url":""}' >"$tmp"
-  export STM_AUTH_BEARER="$token"
-  stm_registry_post "/v1/themes" "$tmp" "$dest" || st=$?
-  unset STM_AUTH_BEARER
+  STM_AUTH_BEARER="$token"
+  stm_registry_login_probe "$tmp" "$dest" || st=$?
+  STM_AUTH_BEARER=""
+  if [ "$st" -eq 23 ]; then
+    die "$EX_NETWORK" "catalog treated the login probe as a publish (HTTP $STM_HTTP_CODE); refusing to store the token"
+  fi
   if [ "$st" -eq 22 ]; then
     die "$EX_NETWORK" "catalog rejected the token"
   fi
@@ -4619,6 +4749,10 @@ $work"
 cmd_logout() {
   local file
   file=$(stm_credentials_file)
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would remove $file"
+    return 0
+  fi
   if [ -L "$file" ]; then
     die "$EX_CONFIG" "refusing to remove a symlink: $file"
   fi
@@ -4638,11 +4772,6 @@ cmd_publish() {
       die "$EX_USAGE" "publish needs a git spec or https URL (not a catalog slug)"
       ;;
   esac
-  posted="$STM_SPEC_URL"
-  case "$spec" in
-    https://*) posted="$spec" ;;
-  esac
-
   work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
     die "$EX_CONFIG" "could not create a temporary directory"
   STM_TMPDIRS="$STM_TMPDIRS
@@ -4650,6 +4779,13 @@ $work"
   tmp="$work/payload"
   stm_fetch_https "$STM_SPEC_URL" "$tmp" "$STM_SPEC_URL_FALLBACK"
   stm_lint_file "$tmp"
+
+  # Locator specs POST the URL that actually landed (fallback may differ).
+  # An explicit https:// spec is the author's blob URL — keep it.
+  posted="$STM_SPEC_URL"
+  case "$spec" in
+    https://*) posted="$spec" ;;
+  esac
 
   bodyfile="$work/body"
   printf '{"source_url":"%s"}\n' "$posted" >"$bodyfile"
@@ -4674,10 +4810,10 @@ $work"
   fi
 
   dest="$work/resp"
-  export STM_AUTH_BEARER="$STM_CRED_TOKEN"
+  STM_AUTH_BEARER="$STM_CRED_TOKEN"
   stm_registry_post "/v1/themes" "$bodyfile" "$dest" || st=$?
-  unset STM_AUTH_BEARER
-  if [ "$st" -eq 22 ]; then
+  STM_AUTH_BEARER=""
+  if [ "$STM_HTTP_CODE" -eq 401 ] || [ "$STM_HTTP_CODE" -eq 403 ]; then
     die "$EX_NETWORK" "catalog rejected the token; run: stm login --registry $STM_REGISTRY_BASE"
   fi
   if [ "$st" -ne 0 ]; then
@@ -4698,6 +4834,8 @@ cmd_install() {
 
   [ -n "$spec" ] || die "$EX_USAGE" "install needs a spec or a catalog slug"
   STM_INSTALL_VIA_PORTAL=0
+  STM_PORTAL_SLUG=""
+  STM_PORTAL_SHA256=""
   case "$spec" in
     *://* | */*)
       stm_parse_install_spec "$spec"
@@ -4718,6 +4856,7 @@ $work"
     tmp="$work/payload"
     stm_fetch_https "$STM_SPEC_URL" "$tmp" "$STM_SPEC_URL_FALLBACK"
     stm_lint_file "$tmp"
+    stm_portal_confirm_payload "$tmp"
     dest="$dir/$STM_LINT_SLUG.toml"
     info "spec $spec"
     info "host $STM_SPEC_HOST"
@@ -4733,6 +4872,7 @@ $work"
   tmp="$STM_TMP"
   stm_fetch_https "$STM_SPEC_URL" "$tmp" "$STM_SPEC_URL_FALLBACK"
   stm_lint_file "$tmp"
+  stm_portal_confirm_payload "$tmp"
   slug="$STM_LINT_SLUG"
   dest="$dir/$slug.toml"
 
@@ -5421,10 +5561,9 @@ ENVIRONMENT
   STM_FORMAT              lua | bash
   STM_LUA_DIALECT         flat | nested
   STM_FETCH               Test-only fetch stub (\`STM_FETCH <url> <dest>\`)
-  STM_POST                Test-only POST stub (\`STM_POST <url> <bodyfile>\`)
+  STM_POST                Test-only POST stub (\`STM_POST <url> <bodyfile> [curlcfg]\`)
   STM_REGISTRY            Catalog base URL (overrides config; --registry wins)
   STM_TOKEN               Catalog token for \`login\` (never prompt if set)
-  GH_TOKEN                Fallback catalog token for \`login\`
   NO_COLOR                Disable colour swatches in \`preview\`
 
 EXIT CODES

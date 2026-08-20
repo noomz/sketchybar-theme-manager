@@ -46,7 +46,7 @@ setup_sandbox() {
   export XDG_STATE_HOME="$SANDBOX/home/.local/state"
   mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 
-  unset SKETCHYBAR_CONFIG_DIR STM_CONFIG STM_PALETTE_DIR STM_FORMAT STM_REGISTRY STM_TOKEN GH_TOKEN STM_POST_BODY STM_AUTH_BEARER 2>/dev/null || true
+  unset SKETCHYBAR_CONFIG_DIR STM_CONFIG STM_PALETTE_DIR STM_FORMAT STM_REGISTRY STM_TOKEN GH_TOKEN STM_POST_BODY STM_AUTH_BEARER STM_POST_HTTP_CODE STM_FETCH_HTTP_CODE 2>/dev/null || true
 
   # Bundled palettes still come from the repo.
   export STM_ROOT="$REPO_ROOT"
@@ -118,21 +118,30 @@ STUB
   unset STM_FETCH_EXIT STM_FETCH_FILE 2>/dev/null || true
 
   # Default POST stub: never opens the network. Logs to STM_POST_LOG.
+  # Optional third arg is a curl --config file (Bearer); never log the token.
   export STM_POST_LOG="$SANDBOX/post.log"
+  export STM_POST_HTTP_FILE="$SANDBOX/post.http"
   : >"$STM_POST_LOG"
+  : >"$STM_POST_HTTP_FILE"
   cat >"$SANDBOX/bin/stm-post" <<'STUB'
 #!/bin/sh
 url=$1
 body=$2
+hdrfile=${3:-}
 payload=""
 if [ -n "$body" ] && [ -f "$body" ]; then
   payload=$(tr -d '\n' <"$body")
 fi
 auth=""
-[ -n "${STM_AUTH_BEARER:-}" ] && auth="bearer"
+if [ -n "$hdrfile" ] && [ -f "$hdrfile" ] && grep -q 'Authorization: Bearer ' "$hdrfile" 2>/dev/null; then
+  auth="bearer"
+fi
 printf 'POST\t%s\t%s\t%s\n' "$url" "$payload" "$auth" >> "${STM_POST_LOG:-/dev/null}"
 if [ -n "${STM_POST_EXIT:-}" ]; then
   exit "$STM_POST_EXIT"
+fi
+if [ -n "${STM_POST_HTTP_FILE:-}" ]; then
+  printf '%s\n' "${STM_POST_HTTP_CODE:-200}" >"$STM_POST_HTTP_FILE"
 fi
 if [ -n "${STM_POST_BODY:-}" ] && [ -f "${STM_POST_BODY}" ]; then
   cat "${STM_POST_BODY}"
@@ -141,7 +150,7 @@ exit 0
 STUB
   chmod 755 "$SANDBOX/bin/stm-post"
   export STM_POST="$SANDBOX/bin/stm-post"
-  unset STM_POST_EXIT 2>/dev/null || true
+  unset STM_POST_EXIT STM_POST_HTTP_CODE 2>/dev/null || true
   export PATH="$SANDBOX/bin:$PATH"
 }
 
