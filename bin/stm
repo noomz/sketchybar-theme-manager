@@ -2065,6 +2065,7 @@ stm_portal_confirm_payload() {
     die "$EX_INVALID" "palette slug \"$STM_LINT_SLUG\" does not match catalog slug \"$STM_PORTAL_SLUG\""
   fi
   if [ -n "$STM_PORTAL_SHA256" ]; then
+    STM_PORTAL_SHA256=$(printf '%s' "$STM_PORTAL_SHA256" | tr 'A-F' 'a-f')
     case "$STM_PORTAL_SHA256" in
       *[!0-9a-f]*) die "$EX_NETWORK" "catalog sha256 is invalid" ;;
     esac
@@ -2161,12 +2162,12 @@ $work"
   set +e
   if [ -n "$cfg" ]; then
     # -q must be first so ~/.curlrc cannot dump the bearer.
-    curl -q --config "$cfg" --proto '=https' --proto-redir '=https' --max-redirs 0 \
+    curl -q -sS --config "$cfg" --proto '=https' --proto-redir '=https' --max-redirs 0 \
       --max-time 30 -H 'Content-Type: application/json' \
       -D "$hdr" -o "$dest" -d @"$bodyfile" "$url"
     st=$?
   else
-    curl -q --proto '=https' --proto-redir '=https' --max-redirs 0 \
+    curl -q -sS --proto '=https' --proto-redir '=https' --max-redirs 0 \
       --max-time 30 -H 'Content-Type: application/json' \
       -D "$hdr" -o "$dest" -d @"$bodyfile" "$url"
     st=$?
@@ -2187,15 +2188,13 @@ stm_registry_post() {
 }
 
 # Login probe: POST /v1/themes {"source_url":""}. Succeed only on HTTP 400
-# (token accepted, body refused). 2xx would create a listing — return 23.
+# (token accepted, body refused). Callers refuse 2xx via STM_HTTP_CODE so a
+# curl write-error (also 23) is not mistaken for a created listing.
 stm_registry_login_probe() {
   local bodyfile="$1" dest="${2:-}" st=0
   stm_registry_post_raw "/v1/themes" "$bodyfile" "$dest" || st=$?
   if [ "$STM_HTTP_CODE" -eq 400 ]; then
     return 0
-  fi
-  if [ "$STM_HTTP_CODE" -ge 200 ] && [ "$STM_HTTP_CODE" -lt 300 ]; then
-    return 23
   fi
   return "$st"
 }
@@ -4725,10 +4724,10 @@ $work"
   STM_AUTH_BEARER="$token"
   stm_registry_login_probe "$tmp" "$dest" || st=$?
   STM_AUTH_BEARER=""
-  if [ "$st" -eq 23 ]; then
+  if [ "$STM_HTTP_CODE" -ge 200 ] && [ "$STM_HTTP_CODE" -lt 300 ]; then
     die "$EX_NETWORK" "catalog treated the login probe as a publish (HTTP $STM_HTTP_CODE); refusing to store the token"
   fi
-  if [ "$st" -eq 22 ]; then
+  if [ "$STM_HTTP_CODE" -eq 401 ] || [ "$STM_HTTP_CODE" -eq 403 ]; then
     die "$EX_NETWORK" "catalog rejected the token"
   fi
   if [ "$st" -ne 0 ]; then
