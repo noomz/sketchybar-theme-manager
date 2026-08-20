@@ -46,7 +46,7 @@ setup_sandbox() {
   export XDG_STATE_HOME="$SANDBOX/home/.local/state"
   mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 
-  unset SKETCHYBAR_CONFIG_DIR STM_CONFIG STM_PALETTE_DIR STM_FORMAT STM_REGISTRY 2>/dev/null || true
+  unset SKETCHYBAR_CONFIG_DIR STM_CONFIG STM_PALETTE_DIR STM_FORMAT STM_REGISTRY STM_TOKEN GH_TOKEN STM_POST_BODY STM_AUTH_BEARER 2>/dev/null || true
 
   # Bundled palettes still come from the repo.
   export STM_ROOT="$REPO_ROOT"
@@ -128,9 +128,14 @@ payload=""
 if [ -n "$body" ] && [ -f "$body" ]; then
   payload=$(tr -d '\n' <"$body")
 fi
-printf 'POST\t%s\t%s\n' "$url" "$payload" >> "${STM_POST_LOG:-/dev/null}"
+auth=""
+[ -n "${STM_AUTH_BEARER:-}" ] && auth="bearer"
+printf 'POST\t%s\t%s\t%s\n' "$url" "$payload" "$auth" >> "${STM_POST_LOG:-/dev/null}"
 if [ -n "${STM_POST_EXIT:-}" ]; then
   exit "$STM_POST_EXIT"
+fi
+if [ -n "${STM_POST_BODY:-}" ] && [ -f "${STM_POST_BODY}" ]; then
+  cat "${STM_POST_BODY}"
 fi
 exit 0
 STUB

@@ -29,7 +29,7 @@ STM_ROOT="$PWD" bin/stm list
 STM_ROOT="$PWD" bin/stm preview tokyo-night
 STM_ROOT="$PWD" bin/stm doctor
 STM_ROOT="$PWD" bin/stm lint palettes/nord.toml
-# install <spec> / install <slug> / search [query] / uninstall|remove <slug>
+# install <spec> / install <slug> / search [query] / login / logout / publish
 # --allow-host <host> (palette fetch); --registry <url> (catalog); fetch failures exit 5
 STM_ROOT="$PWD" bin/stm install --dry-run alice/themes/palettes/nord.toml
 STM_ROOT="$PWD" bin/stm search dracula

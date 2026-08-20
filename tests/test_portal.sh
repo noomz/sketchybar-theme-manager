@@ -121,6 +121,11 @@ case "$url" in
     cp "$STM_TEST_REPO/palettes/nord.toml" "$dest"
     exit 0
     ;;
+  https://raw.githubusercontent.com/alice/themes/main/shebang.toml | \
+  https://raw.githubusercontent.com/alice/themes/HEAD/palettes/shebang.toml)
+    cp "$STM_TEST_FIXTURES/bad/shebang.toml" "$dest"
+    exit 0
+    ;;
 esac
 exit 22
 STUB
@@ -129,6 +134,57 @@ export STM_FETCH="$SANDBOX/bin/portal-fetch"
 export STM_PORTAL_DIR="$SANDBOX/portal"
 export STM_AUTHOR_FILE="$SANDBOX/dracula.toml"
 export STM_DECOY_FILE="$SANDBOX/decoy.toml"
+
+NORD_RAW="https://raw.githubusercontent.com/alice/themes/HEAD/palettes/nord.toml"
+cat >"$SANDBOX/portal/publish.json" <<EOF
+{"slug":"nord","name":"Nord","source_url":"$NORD_RAW","ref":"HEAD","sha256":"abc","broken":false}
+EOF
+cat >"$SANDBOX/bin/portal-post" <<'STUB'
+#!/bin/sh
+url=$1
+body=$2
+payload=""
+if [ -n "$body" ] && [ -f "$body" ]; then
+  payload=$(tr -d '\n' <"$body")
+fi
+auth=""
+[ -n "${STM_AUTH_BEARER:-}" ] && auth="bearer"
+printf 'POST\t%s\t%s\t%s\n' "$url" "$payload" "$auth" >> "${STM_POST_LOG:-/dev/null}"
+if [ -n "${STM_POST_EXIT:-}" ]; then
+  exit "$STM_POST_EXIT"
+fi
+case "$url" in
+  */v1/stats/install)
+    exit 0
+    ;;
+  */v1/themes)
+    case "$payload" in
+      *'"source_url":""'*)
+        printf '%s\n' '{"login":"alice"}'
+        exit 0
+        ;;
+      *)
+        if [ -n "${STM_POST_BODY:-}" ] && [ -f "${STM_POST_BODY}" ]; then
+          cat "${STM_POST_BODY}"
+        elif [ -n "${STM_PORTAL_DIR:-}" ] && [ -f "${STM_PORTAL_DIR}/publish.json" ]; then
+          cat "${STM_PORTAL_DIR}/publish.json"
+        fi
+        exit 0
+        ;;
+    esac
+    ;;
+esac
+exit 0
+STUB
+chmod 755 "$SANDBOX/bin/portal-post"
+export STM_POST="$SANDBOX/bin/portal-post"
+
+CRED="${XDG_CONFIG_HOME}/stm/credentials"
+TOKEN="test-token-alice"
+
+cred_mode() {
+  stat -f %Lp "$1"
+}
 
 # --- search ----------------------------------------------------------------
 
@@ -278,6 +334,85 @@ reset_logs
 run_stm --dir "$D" --registry http://portal.test search dracula
 assert_status 64
 assert_eq "" "$(fetch_log)"
+done_it
+
+# --- login / logout / publish (#10) ----------------------------------------
+
+it "login with STM_TOKEN writes credentials 0600 and hides the token"
+reset_logs
+export STM_TOKEN="$TOKEN"
+run_stm --dir "$D" --registry "$REG" --verbose login
+assert_status 0
+assert_file_exists "$CRED"
+assert_eq "600" "$(cred_mode "$CRED")"
+assert_file_contains "$CRED" "registry=${REG}"
+assert_file_contains "$CRED" "$TOKEN"
+assert_contains "$STM_OUT" "alice"
+assert_not_contains "$STM_OUT" "$TOKEN"
+assert_not_contains "$STM_ERR" "$TOKEN"
+assert_contains "$(post_log)" "/v1/themes"
+assert_contains "$(post_log)" "bearer"
+assert_contains "$(post_log)" '"source_url":""'
+unset STM_TOKEN
+done_it
+
+it "logout removes the credentials file and is idempotent"
+run_stm --dir "$D" --registry "$REG" logout
+assert_status 0
+assert_file_absent "$CRED"
+run_stm --dir "$D" --registry "$REG" logout
+assert_status 0
+done_it
+
+it "publish posts source_url only, never the palette body"
+reset_logs
+export STM_TOKEN="$TOKEN"
+run_stm --dir "$D" --registry "$REG" login
+unset STM_TOKEN
+reset_logs
+run_stm --dir "$D" --registry "$REG" --verbose publish alice/themes/palettes/nord.toml
+assert_status 0
+assert_contains "$(post_log)" "/v1/themes"
+assert_contains "$(post_log)" '"source_url":"'"$NORD_RAW"'"'
+assert_contains "$(post_log)" "bearer"
+assert_not_contains "$(post_log)" "bar_bg"
+assert_not_contains "$(post_log)" "[colors]"
+assert_not_contains "$(post_log)" "0xff"
+assert_not_contains "$STM_OUT" "$TOKEN"
+assert_not_contains "$STM_ERR" "$TOKEN"
+assert_contains "$STM_OUT" "nord"
+done_it
+
+it "publish of a hostile palette exits 1 and does not POST"
+reset_logs
+run_stm --dir "$D" --registry "$REG" publish alice/themes/palettes/shebang.toml
+assert_status 1
+assert_eq "" "$(post_log)"
+done_it
+
+it "publish without credentials exits 2 and does not POST"
+run_stm --dir "$D" --registry "$REG" logout
+reset_logs
+run_stm --dir "$D" --registry "$REG" publish alice/themes/palettes/nord.toml
+assert_status 2
+assert_contains "$STM_ERR" "stm login"
+assert_eq "" "$(post_log)"
+done_it
+
+it "token never lands in the ledger, an installed palette, or a snapshot"
+export STM_TOKEN="$TOKEN"
+run_stm --dir "$D" --registry "$REG" login
+unset STM_TOKEN
+run_stm --dir "$D" --registry "$REG" --force install alice/themes/palettes/nord.toml
+assert_status 0
+assert_file_not_contains "${XDG_CONFIG_HOME}/stm/installed" "$TOKEN"
+assert_file_not_contains "$USER_PAL/nord.toml" "$TOKEN"
+run_stm --dir "$D" backup --all cred-snap
+assert_status 0
+if grep -rF -- "$TOKEN" "$D/.stm-backups" >/dev/null 2>&1; then
+  _note_fail "snapshot must not contain the catalog token"
+fi
+assert_file_exists "$CRED"
 done_it
 
 finish
