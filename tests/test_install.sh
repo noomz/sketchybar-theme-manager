@@ -84,10 +84,9 @@ assert_status 0
 assert_contains "$STM_OUT" "https://raw.githubusercontent.com/alice/themes/HEAD/nord.toml"
 done_it
 
-it "a bare slug is a usage error (portal is M2)"
-run_stm --dir "$D" install nord
-assert_status 64
-assert_contains "$STM_ERR" "portal"
+it "a bare slug is not a git spec (catalog path is in test_portal.sh)"
+run_stm --dir "$D" --registry https://portal.test install nord
+assert_ne 0 "$STM_STATUS" "slug install needs catalog json, not a git spec"
 assert_file_absent "$USER_PAL/nord.toml"
 done_it
 

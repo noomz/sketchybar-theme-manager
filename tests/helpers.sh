@@ -46,7 +46,7 @@ setup_sandbox() {
   export XDG_STATE_HOME="$SANDBOX/home/.local/state"
   mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 
-  unset SKETCHYBAR_CONFIG_DIR STM_CONFIG STM_PALETTE_DIR STM_FORMAT 2>/dev/null || true
+  unset SKETCHYBAR_CONFIG_DIR STM_CONFIG STM_PALETTE_DIR STM_FORMAT STM_REGISTRY 2>/dev/null || true
 
   # Bundled palettes still come from the repo.
   export STM_ROOT="$REPO_ROOT"
@@ -116,6 +116,27 @@ STUB
   export STM_TEST_FIXTURES="$FIXTURES_DIR"
   export STM_TEST_REPO="$REPO_ROOT"
   unset STM_FETCH_EXIT STM_FETCH_FILE 2>/dev/null || true
+
+  # Default POST stub: never opens the network. Logs to STM_POST_LOG.
+  export STM_POST_LOG="$SANDBOX/post.log"
+  : >"$STM_POST_LOG"
+  cat >"$SANDBOX/bin/stm-post" <<'STUB'
+#!/bin/sh
+url=$1
+body=$2
+payload=""
+if [ -n "$body" ] && [ -f "$body" ]; then
+  payload=$(tr -d '\n' <"$body")
+fi
+printf 'POST\t%s\t%s\n' "$url" "$payload" >> "${STM_POST_LOG:-/dev/null}"
+if [ -n "${STM_POST_EXIT:-}" ]; then
+  exit "$STM_POST_EXIT"
+fi
+exit 0
+STUB
+  chmod 755 "$SANDBOX/bin/stm-post"
+  export STM_POST="$SANDBOX/bin/stm-post"
+  unset STM_POST_EXIT 2>/dev/null || true
   export PATH="$SANDBOX/bin:$PATH"
 }
 

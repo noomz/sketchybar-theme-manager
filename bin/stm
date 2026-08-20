@@ -32,6 +32,10 @@ export LC_ALL
 STM_VERSION="0.4.0"
 PROGNAME="stm"
 
+# Default catalog. Override with --registry, $STM_REGISTRY, or registry = in
+# stm.config.toml. The portal lists author URLs; it does not host palettes.
+STM_REGISTRY_DEFAULT="https://stm.noomz.dev"
+
 # Every palette must define these. Order here is documentation only; output is
 # always sorted alphabetically.
 STM_REQUIRED_KEYS="black white red green blue yellow orange magenta grey bg1 bg2 bar_bg bar_border popup_bg popup_border"
@@ -841,6 +845,7 @@ OPT_ALL=0
 OPT_NO_WIRE=0
 OPT_NO_LAYOUT=0
 OPT_ALLOW_HOST=""
+OPT_REGISTRY=""
 
 RESOLVED_CONFIG=""
 RESOLVED_DIR=""
@@ -1601,7 +1606,7 @@ stm_parse_install_spec() {
       stm_parse_locator_spec "$spec"
       ;;
     *)
-      die "$EX_USAGE" "install needs owner/repo/path.toml (a slug needs the portal)"
+      die "$EX_USAGE" "install needs owner/repo/path.toml or a catalog slug"
       ;;
   esac
   [ -n "$STM_SPEC_URL" ] || die "$EX_USAGE" "could not resolve install spec"
@@ -1712,6 +1717,345 @@ stm_fetch_https() {
   [ -f "$dest" ] || die "$EX_NETWORK" "fetch wrote nothing: $url"
   # Persist the URL that actually landed so the ledger is not the 404.
   STM_SPEC_URL="$url"
+}
+
+# ---------------------------------------------------------------------------
+# catalog (portal) — metadata only. Palettes are always fetched from source_url.
+# Frozen JSON (#7 / #9):
+#   GET /v1/themes?q=     → [{ slug, name, author, source_url, rating, installs }]
+#   GET /v1/themes/<slug> → { slug, name, source_url, ref, sha256, broken }
+#   POST /v1/stats/install → { slug }   after a successful local slug install
+# ---------------------------------------------------------------------------
+
+STM_REGISTRY_BASE=""
+STM_INSTALL_VIA_PORTAL=0
+
+stm_urlencode() {
+  printf '%s' "$1" | awk '
+    BEGIN { for (i = 0; i < 256; i++) ord[sprintf("%c", i)] = i }
+    {
+      n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (c ~ /[A-Za-z0-9._~-]/) printf "%s", c
+        else printf "%%%02X", ord[c] + 0
+      }
+    }'
+}
+
+stm_validate_registry_url() {
+  local url="$1" rest host port
+  case "$url" in
+    https://*) : ;;
+    *) die "$EX_USAGE" "registry URL must be https" ;;
+  esac
+  case "$url" in
+    https://*@*) die "$EX_USAGE" "registry URL must not contain userinfo" ;;
+  esac
+  case "$url" in
+    *[\?\#]*) die "$EX_USAGE" "registry URL must not contain a query or fragment" ;;
+  esac
+  rest="${url#https://}"
+  host="${rest%%/*}"
+  [ -n "$host" ] || die "$EX_USAGE" "registry URL has no host"
+  case "$host" in
+    *:*)
+      port="${host#*:}"
+      host="${host%%:*}"
+      case "$port" in
+        "" | *[!0-9]*) die "$EX_USAGE" "invalid registry port" ;;
+      esac
+      ;;
+  esac
+  host=$(stm_lc "$host")
+  case "$host" in
+    "" | localhost | *.localhost)
+      die "$EX_USAGE" "registry host is not allowed: $host"
+      ;;
+    *[!a-z0-9.-]* | -* | *- | .* | *. | *..*)
+      die "$EX_USAGE" "invalid registry host: $host"
+      ;;
+  esac
+  case "$host" in
+    *[!0-9.]*) : ;;
+    *) die "$EX_USAGE" "registry host must not be a numeric IP: $host" ;;
+  esac
+}
+
+stm_resolve_registry() {
+  local raw=""
+  if [ -n "$OPT_REGISTRY" ]; then
+    raw="$OPT_REGISTRY"
+  elif [ -n "${STM_REGISTRY:-}" ]; then
+    raw="$STM_REGISTRY"
+  elif [ -n "$RESOLVED_CONFIG" ]; then
+    raw=$(stm_config_get "$RESOLVED_CONFIG" registry 2>/dev/null || true)
+  fi
+  [ -n "$raw" ] || raw="$STM_REGISTRY_DEFAULT"
+  stm_validate_registry_url "$raw"
+  while :; do
+    case "$raw" in
+      */) raw="${raw%/}" ;;
+      *) break ;;
+    esac
+  done
+  STM_REGISTRY_BASE="$raw"
+}
+
+stm_registry_validate_get_url() {
+  local url="$1"
+  case "$url" in
+    https://*) : ;;
+    *) die "$EX_USAGE" "catalog URL is not https" ;;
+  esac
+  case "$url" in
+    https://*@*) die "$EX_USAGE" "catalog URL must not contain userinfo" ;;
+  esac
+  case "$url" in
+    "$STM_REGISTRY_BASE" | "$STM_REGISTRY_BASE"/*)
+      return 0
+      ;;
+  esac
+  die "$EX_USAGE" "catalog URL left the registry origin"
+}
+
+# stm_registry_get <path> <dest> — 0 ok, 22 not found, other = transport.
+# Path must start with /. Does not follow redirects (catalog is not a CDN).
+stm_registry_get() {
+  local path="$1" dest="$2" url st=0
+  stm_resolve_registry
+  case "$path" in
+    /*) : ;;
+    *) die "$EX_CONFIG" "internal: catalog path must start with /" ;;
+  esac
+  url="${STM_REGISTRY_BASE}${path}"
+  stm_registry_validate_get_url "$url"
+  stm_try_fetch "$url" "$dest" || st=$?
+  if [ "$st" -eq 23 ]; then
+    die "$EX_NETWORK" "catalog refused a redirect: $url"
+  fi
+  return "$st"
+}
+
+# Constrained JSON reader for the frozen catalog shapes. Strings may not
+# contain escapes or control characters; unknown keys are ignored.
+# shellcheck disable=SC2016
+STM_JSON_AWK='
+function fail(msg) {
+  printf("%s: %s\n", prog, msg) > "/dev/stderr"
+  bad = 1
+  exit 1
+}
+function skip_ws(   c) {
+  while (pos <= n) {
+    c = substr(json, pos, 1)
+    if (c == " " || c == "\t" || c == "\n" || c == "\r") pos++
+    else return
+  }
+}
+function parse_string(   out, c) {
+  if (substr(json, pos, 1) != "\"") fail("expected a json string")
+  pos++
+  out = ""
+  while (pos <= n) {
+    c = substr(json, pos, 1)
+    if (c == "\\") fail("json string escapes are not allowed")
+    if (c == "\"") { pos++; STR = out; return }
+    if (c == "\n" || c == "\r" || c == "\t") fail("json string contains a control character")
+    out = out c
+    pos++
+  }
+  fail("unterminated json string")
+}
+function parse_number(   start, c, tok) {
+  start = pos
+  c = substr(json, pos, 1)
+  if (c == "-") pos++
+  if (pos > n || substr(json, pos, 1) !~ /[0-9]/) fail("invalid json number")
+  while (pos <= n && substr(json, pos, 1) ~ /[0-9]/) pos++
+  if (substr(json, pos, 1) == ".") {
+    pos++
+    if (pos > n || substr(json, pos, 1) !~ /[0-9]/) fail("invalid json number")
+    while (pos <= n && substr(json, pos, 1) ~ /[0-9]/) pos++
+  }
+  tok = substr(json, start, pos - start)
+  if (tok !~ /^-?[0-9]+(\.[0-9]+)?$/) fail("invalid json number")
+  STR = tok
+}
+function parse_literal(word) {
+  if (substr(json, pos, length(word)) != word) fail("invalid json literal")
+  pos += length(word)
+  STR = word
+}
+function parse_value(   c) {
+  skip_ws()
+  c = substr(json, pos, 1)
+  if (c == "\"") { parse_string(); KIND = "string"; return }
+  if (c == "-" || c ~ /[0-9]/) { parse_number(); KIND = "number"; return }
+  if (c == "t") { parse_literal("true"); KIND = "bool"; return }
+  if (c == "f") { parse_literal("false"); KIND = "bool"; return }
+  if (c == "n") { parse_literal("null"); KIND = "null"; return }
+  fail("unsupported json value")
+}
+function reset_obj() {
+  slug = ""; name = ""; author = ""; source_url = ""; refv = ""; sha = ""; rating = ""; installs = ""; broken = ""
+}
+function emit_obj() {
+  if (mode == "item") {
+    if (slug == "" || name == "" || source_url == "" || broken == "") fail("catalog item is missing a required field")
+    printf("%s\t%s\t%s\t%s\t%s\t%s\n", slug, name, source_url, refv, sha, broken)
+    return
+  }
+  if (slug == "" || name == "" || author == "" || rating == "" || installs == "") return
+  printf("%s\t%s\t%s\t%s\t%s\t%s\n", slug, name, author, source_url, rating, installs)
+}
+function parse_object(   key, first, c) {
+  if (substr(json, pos, 1) != "{") fail("expected a json object")
+  pos++
+  reset_obj()
+  first = 1
+  while (pos <= n) {
+    skip_ws()
+    c = substr(json, pos, 1)
+    if (c == "}") { pos++; emit_obj(); return }
+    if (!first) {
+      if (c != ",") fail("expected a comma in json object")
+      pos++
+      skip_ws()
+      c = substr(json, pos, 1)
+      if (c == "}") fail("trailing comma in json object")
+    }
+    first = 0
+    parse_string()
+    key = STR
+    skip_ws()
+    if (substr(json, pos, 1) != ":") fail("expected a colon in json object")
+    pos++
+    parse_value()
+    if (key == "slug" && KIND == "string") slug = STR
+    else if (key == "name" && KIND == "string") name = STR
+    else if (key == "author" && KIND == "string") author = STR
+    else if (key == "source_url" && KIND == "string") source_url = STR
+    else if (key == "ref" && KIND == "string") refv = STR
+    else if (key == "sha256" && KIND == "string") sha = STR
+    else if (key == "rating" && KIND == "number") rating = STR
+    else if (key == "installs" && KIND == "number") installs = STR
+    else if (key == "broken" && KIND == "bool") broken = STR
+  }
+  fail("unterminated json object")
+}
+function parse_array(   first, c) {
+  if (substr(json, pos, 1) != "[") fail("expected a json array")
+  pos++
+  first = 1
+  while (pos <= n) {
+    skip_ws()
+    c = substr(json, pos, 1)
+    if (c == "]") { pos++; return }
+    if (!first) {
+      if (c != ",") fail("expected a comma in json array")
+      pos++
+      skip_ws()
+      c = substr(json, pos, 1)
+      if (c == "]") fail("trailing comma in json array")
+    }
+    first = 0
+    parse_object()
+  }
+  fail("unterminated json array")
+}
+{
+  json = json $0 "\n"
+}
+END {
+  n = length(json)
+  pos = 1
+  skip_ws()
+  if (mode == "item") parse_object()
+  else parse_array()
+  skip_ws()
+  if (pos <= n && substr(json, pos, 1) != "") fail("trailing junk in catalog json")
+}
+'
+
+stm_json_parse() {
+  local mode="$1" file="$2" sz
+  [ -f "$file" ] || die "$EX_NETWORK" "catalog wrote nothing"
+  sz=$(wc -c <"$file" | tr -d ' ')
+  if [ "$sz" -gt "$STM_LINT_MAX_BYTES" ]; then
+    die "$EX_NETWORK" "catalog response is too large ($sz bytes)"
+  fi
+  awk -v mode="$mode" -v prog="$PROGNAME" "$STM_JSON_AWK" "$file"
+}
+
+# stm_portal_resolve_slug <slug> — GET /v1/themes/<slug>, then parse source_url
+# through the existing M1 spec path. Sets STM_INSTALL_VIA_PORTAL=1.
+stm_portal_resolve_slug() {
+  local slug="$1" work json st=0 row source_url ref broken
+  validate_slug "$slug"
+  work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$work"
+  json="$work/theme.json"
+  stm_registry_get "/v1/themes/${slug}" "$json" || st=$?
+  if [ "$st" -eq 22 ]; then
+    die "$EX_NOTFOUND" "theme not in catalog: $slug"
+  fi
+  if [ "$st" -ne 0 ]; then
+    die "$EX_NETWORK" "catalog lookup failed: $slug"
+  fi
+  row=$(stm_json_parse item "$json") || die "$EX_NETWORK" "catalog returned invalid json"
+  source_url=$(printf '%s\n' "$row" | awk -F '\t' '{print $3}')
+  ref=$(printf '%s\n' "$row" | awk -F '\t' '{print $4}')
+  broken=$(printf '%s\n' "$row" | awk -F '\t' '{print $6}')
+  if [ "$broken" = "true" ]; then
+    if [ -n "$source_url" ]; then
+      die "$EX_NOTFOUND" "catalog lists $slug as broken (install the author URL yourself: $source_url)"
+    fi
+    die "$EX_NOTFOUND" "catalog lists $slug as broken"
+  fi
+  [ "$broken" = "false" ] || die "$EX_NETWORK" "catalog returned an invalid broken flag"
+  [ -n "$source_url" ] || die "$EX_NETWORK" "catalog item is missing source_url"
+  stm_parse_install_spec "$source_url"
+  if [ -n "$ref" ]; then
+    case "$ref" in
+      *[!A-Za-z0-9._-]*) : ;;
+      *) STM_SPEC_REF="$ref" ;;
+    esac
+  fi
+  STM_INSTALL_VIA_PORTAL=1
+}
+
+# Fire-and-forget. Never fails the install: the counter is not load-bearing.
+stm_stats_post() {
+  local slug="$1" url body work tmp
+  validate_slug "$slug"
+  stm_resolve_registry
+  url="${STM_REGISTRY_BASE}/v1/stats/install"
+  stm_registry_validate_get_url "$url"
+  body=$(printf '{"slug":"%s"}' "$slug")
+  if [ -n "${STM_POST:-}" ]; then
+    work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") || return 0
+    STM_TMPDIRS="$STM_TMPDIRS
+$work"
+    tmp="$work/body"
+    printf '%s\n' "$body" >"$tmp"
+    set +e
+    "$STM_POST" "$url" "$tmp"
+    set -e
+    return 0
+  fi
+  # Tests stub STM_FETCH; never open the network when a fetch stub is in play.
+  if [ -n "${STM_FETCH:-}" ]; then
+    return 0
+  fi
+  set +e
+  curl -sS --proto '=https' --proto-redir '=https' --max-redirs 0 \
+    --max-time 10 -H 'Content-Type: application/json' \
+    -d "$body" "$url" >/dev/null 2>&1
+  set -e
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -4085,13 +4429,52 @@ cmd_add() {
   info "added $slug -> $dest"
 }
 
+# cmd_search [query] — GET /v1/themes?q=. Metadata only: no palette fetch, no lint.
+cmd_search() {
+  local query="${1:-}" work json st=0 rows slug name author source_url rating installs
+  work=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$work"
+  json="$work/list.json"
+  stm_registry_get "/v1/themes?q=$(stm_urlencode "$query")" "$json" || st=$?
+  if [ "$st" -ne 0 ]; then
+    die "$EX_NETWORK" "catalog search failed"
+  fi
+  rows=$(stm_json_parse list "$json") || die "$EX_NETWORK" "catalog returned invalid json"
+  if [ -z "$rows" ]; then
+    [ "$OPT_PORCELAIN" -eq 1 ] || err "no matching themes"
+    return 0
+  fi
+  while IFS=$'\t' read -r slug name author source_url rating installs; do
+    [ -n "$slug" ] || continue
+    : "$source_url"
+    if [ "$OPT_PORCELAIN" -eq 1 ]; then
+      printf '%s\t%s\t%s\t%s\t%s\n' "$slug" "$name" "$author" "$rating" "$installs"
+    else
+      printf '%-24s %-24s %-16s %8s %8s\n' "$slug" "$name" "$author" "$rating" "$installs"
+    fi
+  done <<EOF
+$rows
+EOF
+}
+
 # cmd_install <spec> — fetch one HTTPS .toml, lint, atomic write + ledger.
+# A bare slug asks the catalog for source_url, then the M1 fetch+lint+write.
 # Does not apply. Does not sketchybar --reload. add stays local-file only.
 cmd_install() {
   local spec="$1" dir dest tmp work slug hash ts
 
-  [ -n "$spec" ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
-  stm_parse_install_spec "$spec"
+  [ -n "$spec" ] || die "$EX_USAGE" "install needs a spec or a catalog slug"
+  STM_INSTALL_VIA_PORTAL=0
+  case "$spec" in
+    *://* | */*)
+      stm_parse_install_spec "$spec"
+      ;;
+    *)
+      stm_portal_resolve_slug "$spec"
+      ;;
+  esac
 
   dir=$(user_palette_dir) ||
     die "$EX_CONFIG" "could not determine a writable palette directory; pass --palette-dir"
@@ -4133,6 +4516,9 @@ $work"
   info "installed $slug -> $dest"
   note "source $STM_SPEC_URL"
   info "run: stm apply $slug"
+  if [ "$STM_INSTALL_VIA_PORTAL" -eq 1 ]; then
+    stm_stats_post "$slug"
+  fi
 }
 
 # cmd_uninstall <slug> — remove a user-installed palette and its ledger row.
@@ -4752,6 +5138,7 @@ COMMANDS
   preview <theme>               Print a theme's colour table (writes nothing)
   lint [<file>|<slug>]          Validate a palette (writes nothing)
   install <spec>                Fetch one HTTPS .toml, lint, and store it (no apply)
+  search [query]                Search the theme catalog (metadata only)
   uninstall <slug>              Remove a user-installed palette
   remove <slug>                 Alias for uninstall
   doctor [theme]                Diagnose the config: format, dialect, key coverage
@@ -4782,8 +5169,9 @@ OPTIONS
   --dry-run             Show what would change; write nothing
   --force               Allow add/import/adopt/install to overwrite
   --allow-host <host>   Permit one extra HTTPS host for \`install\`
+  --registry <url>      Catalog base URL (https only; default: $STM_REGISTRY_DEFAULT)
   --append-missing      (bash) Append palette keys absent from colors.sh
-  --porcelain           Machine-readable output for \`list\`, \`preview\` and \`lint\`
+  --porcelain           Machine-readable output for \`list\`, \`preview\`, \`lint\` and \`search\`
   --out <file>          Write \`export\` output to a file instead of stdout
   --slug <slug>         Name for the palette \`import\` creates
   --base <slug>         Make the imported palette inherit from <slug>
@@ -4799,6 +5187,8 @@ ENVIRONMENT
   STM_FORMAT              lua | bash
   STM_LUA_DIALECT         flat | nested
   STM_FETCH               Test-only fetch stub (\`STM_FETCH <url> <dest>\`)
+  STM_POST                Test-only POST stub (\`STM_POST <url> <bodyfile>\`)
+  STM_REGISTRY            Catalog base URL (overrides config; --registry wins)
   NO_COLOR                Disable colour swatches in \`preview\`
 
 EXIT CODES
@@ -4889,6 +5279,12 @@ main() {
         shift 2
         ;;
       --allow-host=*) OPT_ALLOW_HOST="${1#--allow-host=}"; shift ;;
+      --registry)
+        [ "$#" -ge 2 ] || die "$EX_USAGE" "--registry needs a value"
+        OPT_REGISTRY="$2"
+        shift 2
+        ;;
+      --registry=*) OPT_REGISTRY="${1#--registry=}"; shift ;;
       --append-missing) OPT_APPEND_MISSING=1; shift ;;
       --porcelain) OPT_PORCELAIN=1; shift ;;
       -v | --verbose) OPT_VERBOSE=1; shift ;;
@@ -4962,8 +5358,15 @@ main() {
       cmd_lint "${positional[1]}"
       ;;
     install)
-      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "install needs owner/repo/path.toml"
+      [ "$args_left" -ge 1 ] || die "$EX_USAGE" "install needs a spec or a catalog slug"
       cmd_install "${positional[1]}"
+      ;;
+    search)
+      if [ "$args_left" -ge 1 ]; then
+        cmd_search "${positional[1]}"
+      else
+        cmd_search
+      fi
       ;;
     uninstall | remove)
       [ "$args_left" -ge 1 ] || die "$EX_USAGE" "uninstall needs a theme name"

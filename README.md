@@ -79,6 +79,7 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `stm preview <theme>` | Print a theme's colour table — writes nothing |
 | `stm lint [<file>|<slug>]` | Validate a palette — writes nothing |
 | `stm install <spec>` | Fetch one HTTPS `.toml`, lint it, and store it — does not apply |
+| `stm search [query]` | Search the theme catalog (metadata only; does not fetch palettes) |
 | `stm uninstall <slug>` | Remove a user-installed palette (`remove` is an alias) |
 | `stm doctor [theme]` | Diagnose the config: format, dialect, key coverage |
 | `stm verify` | Check that stm touched only the files it owns |
@@ -114,8 +115,9 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `--dry-run` | Show what would change; write nothing |
 | `--force` | Let `add` / `import` / `adopt` / `install` overwrite |
 | `--allow-host <host>` | Permit one extra HTTPS host for `install` |
+| `--registry <url>` | Catalog base URL (`https` only; default `https://stm.noomz.dev`) |
 | `--append-missing` | (bash) Append palette keys that `colors.sh` doesn't have |
-| `--porcelain` | Machine-readable output for `list`, `preview` and `lint` |
+| `--porcelain` | Machine-readable output for `list`, `preview`, `lint` and `search` |
 | `-v, --verbose` | Extra detail on stderr |
 | `-q, --quiet` | Suppress non-error output |
 | `-h, --help` | Show usage |
@@ -833,6 +835,8 @@ version without deleting anything.
 To fetch someone else's palette (one `.toml`, never a git clone):
 
 ```sh
+stm search dracula
+stm install dracula               # catalog slug → author's source_url
 stm install alice/sketchy-themes/palettes/dracula.toml
 stm install alice/sketchy-themes@v1.2.0/dracula
 stm install https://github.com/alice/sketchy-themes/blob/main/palettes/dracula.toml
@@ -840,11 +844,24 @@ stm apply dracula                 # install does not apply and does not reload
 stm uninstall dracula
 ```
 
-Bare `owner/repo/path` is GitHub. Allowed hosts: `github.com`,
-`raw.githubusercontent.com`, `gitlab.com`, `codeberg.org`. Anything else needs
-`--allow-host <host>` and is still HTTPS-only. A spec with `..`, `file://`,
-`http://`, or a non-toml path is refused before any request. Fetch failures
-exit `5`. `stm add` stays the local-file command.
+`stm search` asks the catalog for metadata only (`GET /v1/themes?q=`) and
+never downloads a palette. `--porcelain` prints
+`slug<TAB>name<TAB>author<TAB>rating<TAB>installs`. A bare `stm install <slug>`
+looks the slug up (`GET /v1/themes/<slug>`), then fetches the author's
+`source_url` through the same lint-then-write path as a git spec. The catalog
+does not host palette files; a listing with `broken=true` exits `3` and prints
+the author URL so you can `stm install` that URL yourself. A successful slug
+install then `POST`s `/v1/stats/install` (failures are ignored). Direct
+`owner/repo/path` installs do not.
+
+The default catalog is `https://stm.noomz.dev`. Override with `--registry`,
+`$STM_REGISTRY`, or `registry = "https://…"` in `stm.config.toml` (https only).
+
+Bare `owner/repo/path` is GitHub. Allowed hosts for palette fetches:
+`github.com`, `raw.githubusercontent.com`, `gitlab.com`, `codeberg.org`.
+Anything else needs `--allow-host <host>` and is still HTTPS-only. A spec with
+`..`, `file://`, `http://`, or a non-toml path is refused before any request.
+Fetch failures exit `5`. `stm add` stays the local-file command.
 
 ---
 

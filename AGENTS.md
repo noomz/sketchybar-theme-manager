@@ -29,8 +29,10 @@ STM_ROOT="$PWD" bin/stm list
 STM_ROOT="$PWD" bin/stm preview tokyo-night
 STM_ROOT="$PWD" bin/stm doctor
 STM_ROOT="$PWD" bin/stm lint palettes/nord.toml
-# install <spec> / uninstall|remove <slug>; --allow-host <host>; fetch failures exit 5
+# install <spec> / install <slug> / search [query] / uninstall|remove <slug>
+# --allow-host <host> (palette fetch); --registry <url> (catalog); fetch failures exit 5
 STM_ROOT="$PWD" bin/stm install --dry-run alice/themes/palettes/nord.toml
+STM_ROOT="$PWD" bin/stm search dracula
 
 # Tests — always run both bash versions before finishing work:
 tests/run.sh                                        # /bin/bash (3.2 on macOS, the floor)
