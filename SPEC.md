@@ -67,6 +67,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V20 `tests/run.sh` green bash 3.2 + 5. shellcheck silent incl `bundles/items/*/plugin.sh`.
 - V21 bundled item dir resolve only: `$STM_ROOT/bundles/items` → `script_dir/../bundles/items` → `script_dir/../share/stm/bundles/items` (script_dir symlink-resolved). no absolute brew prefix probe (brew share link may be symlink? → V4 refuse).
 - V22 `lint item:<name>` write nothing: config dir, item ledger, palette ledger byte-identical. valid → exit 0.
+- V23 `doctor` key coverage ! skip stm-owned item code: `items/stm/`, `items_generated.lua`, `.stm-backups/`. item colour need checked only via manifest `colors` (V4).
 
 ## §T tasks
 
@@ -82,7 +83,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T8 | x | `apply` hook: regen loader + reload | V13 |
 | T9 | x | `uninstall item:` | V11 |
 | T10 | x | manifest / backup / verify exclusion lists (`bin/stm` ~3006, 3929, 4037, 5111) | V12 |
-| T11 | . | `doctor`: installed items, version drift, wiring (`lua_file_is_wired`), CLI note | V18,I.wire |
+| T11 | . | `doctor`: installed items, version drift, wiring (`lua_file_is_wired`), CLI note | V18,V23,I.wire |
 | T12 | . | `stm help`, README Items section, rewrite trust paras (README ~446, AGENTS.md ~68-76, CONTRIBUTING.md) | C2,I.cli |
 | T13 | . | CI: `stm lint item:<name>` every bundled item, shellcheck plugins | V20,V22 |
 | T14 | . | real-bar smoke: install, wire, `stm apply gruvbox`, switch theme → recolour | V10,V17 |
@@ -92,3 +93,4 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 
 | id | date | cause | fix |
 |----|------|-------|-----|
+| B1 | 2026-09-30 | `config_used_keys` scan every `*.lua` under config dir incl `items/stm/` + `.stm-backups/` → tailscale `item.lua` probe `colors.popup` → false `USED BUT MISSING popup`, doctor exit 1 | V23 |
