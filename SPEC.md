@@ -79,7 +79,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T5 | x | `item:` routing in `cmd_install`/`cmd_uninstall` before spec parse | V1,V2,V3 |
 | T6 | x | install write path + ledger `stm/items` | V5,V6,V7,V8,V19,I.fs |
 | T7 | x | `items_generated.lua` writer + `[item.<name>]` read + slot/default position | V9,V10,I.cfg |
-| T8 | . | `apply` hook: regen loader + reload | V13 |
+| T8 | x | `apply` hook: regen loader + reload | V13 |
 | T9 | . | `uninstall item:` | V11 |
 | T10 | . | manifest / backup / verify exclusion lists (`bin/stm` ~3006, 3929, 4037, 5111) | V12 |
 | T11 | . | `doctor`: installed items, version drift, wiring (`lua_file_is_wired`), CLI note | V18,I.wire |

@@ -1308,6 +1308,14 @@ stm_item_ledger_file() {
   printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/stm/items"
 }
 
+# stm_item_names — installed item names, in ledger order.
+stm_item_names() {
+  local file
+  file=$(stm_item_ledger_file)
+  [ -f "$file" ] || return 0
+  awk -F'\t' 'NF { print $1 }' "$file"
+}
+
 # stm_item_installed <name> — true if the item ledger has a row for <name>.
 stm_item_installed() {
   local file
@@ -3798,7 +3806,7 @@ EOF
 }
 
 cmd_apply() {
-  local slug="$1" file records target name reloaded note_text tpl
+  local slug="$1" file records target name reloaded note_text tpl names loader=""
 
   file=$(find_palette "$slug") || {
     err "theme not found: $slug"
@@ -3825,8 +3833,17 @@ cmd_apply() {
   target=$(target_path "$RESOLVED_FORMAT")
   name=$(stm_records_meta "$records" name)
 
+  # Installed items follow the palette's [items] slots. Rendered before any
+  # write, so a bad [item.<name>] option refuses the whole apply. Only a config
+  # that already has the loader gets it: install is what creates it.
+  names=$(stm_item_names)
+  if [ "$RESOLVED_FORMAT" = "lua" ] && [ -n "$names" ] && [ -f "$RESOLVED_DIR/items_generated.lua" ]; then
+    loader=$(stm_items_loader_render "$names" "$records")
+  fi
+
   if [ "$OPT_DRY_RUN" -eq 1 ]; then
     info "would apply $name ($slug)"
+    [ -n "$loader" ] && info "  items:  $RESOLVED_DIR/items_generated.lua"
     info "  format: $RESOLVED_FORMAT"
     info "  target: $target"
     if [ "$RESOLVED_FORMAT" = "bash" ]; then
@@ -3886,6 +3903,12 @@ cmd_apply() {
     reset_layout_file "$RESOLVED_FORMAT"
   else
     write_layout "$records" "$RESOLVED_FORMAT"
+  fi
+
+  if [ -n "$loader" ]; then
+    mktemp_in "$RESOLVED_DIR"
+    printf '%s\n' "$loader" >"$STM_TMP"
+    commit_tmp "$STM_TMP" "$RESOLVED_DIR/items_generated.lua"
   fi
 
   write_state "$slug"
@@ -5317,9 +5340,7 @@ cmd_install_item() {
   # Rendered before anything is written, so bad [item.<name>] options fail
   # the install (and --dry-run) with nothing touched.
   names=$({
-    if [ -f "$ledger" ]; then
-      awk -F'\t' -v n="$name" 'NF && $1 != n { print $1 }' "$ledger"
-    fi
+    stm_item_names | awk -v n="$name" '$0 != n'
     printf '%s\n' "$name"
   })
   loader=$(stm_items_loader_render "$names" "$(stm_current_palette_records)")
