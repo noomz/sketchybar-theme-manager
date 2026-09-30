@@ -87,7 +87,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T12 | x | `stm help`, README Items section, rewrite trust paras (README ~446, AGENTS.md ~68-76, CONTRIBUTING.md) | C2,I.cli |
 | T13 | x | CI: `stm lint item:<name>` every bundled item, shellcheck plugins | V20,V22 |
 | T14 | x | real-bar smoke: install, wire, `stm apply gruvbox`, switch theme → recolour | V10,V17 |
-| T15 | . | Formula + `install.sh` ship `bundles/items/` (known files only) to `share/stm/bundles/items` | C3,V21 |
+| T15 | x | Formula + `install.sh` ship `bundles/items/` (known files only) to `share/stm/bundles/items` | C3,V21 |
 
 ## §B bugs
 

@@ -21,6 +21,20 @@ class SketchybarThemeManager < Formula
     # both the ../share/stm/palettes probe (relative to the Cellar bin/) and the
     # absolute /opt/homebrew/share/stm/palettes probe (via the linked prefix).
     (share/"stm/palettes").install Dir["palettes/*.toml"]
+
+    # Item bundles are code: bin/stm finds them only through ../share/stm/
+    # bundles/items next to the resolved (Cellar) script, never via the linked
+    # prefix. Ship only the files an item may have, from bare-named bundle
+    # directories, never a symlink.
+    Dir["bundles/items/*"].each do |dir|
+      name = File.basename(dir)
+      next if File.symlink?(dir) || !File.directory?(dir)
+      next unless name.match?(/\A[a-z][a-z0-9_-]*\z/)
+
+      files = %w[item.toml item.lua plugin.sh].map { |f| File.join(dir, f) }
+      files.select! { |f| File.file?(f) && !File.symlink?(f) }
+      (share/"stm/bundles/items"/name).install files
+    end
   end
 
   def caveats
@@ -51,6 +65,10 @@ class SketchybarThemeManager < Formula
 
     lint = shell_output("#{bin}/stm lint --porcelain nord")
     assert_match "ok\tnord", lint
+
+    # The bundled items must be findable from the installed location.
+    item = shell_output("#{bin}/stm lint --porcelain item:tailscale")
+    assert_match "ok\titem:tailscale", item
 
     # Applying against a scratch Lua config must produce a loadable module and
     # must not touch the user's own colors.lua.

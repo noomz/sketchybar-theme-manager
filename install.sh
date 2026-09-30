@@ -15,8 +15,13 @@
 # Layout it creates:
 #   $STM_PREFIX/bin/stm
 #   $STM_PREFIX/share/stm/palettes/*.toml
+#   $STM_PREFIX/share/stm/bundles/items/<name>/{item.toml,item.lua,plugin.sh}
 
 set -eu
+
+# Byte-wise character ranges: under a UTF-8 locale [a-z] can match upper case.
+LC_ALL=C
+export LC_ALL
 
 REPO="noomz/sketchybar-theme-manager"
 PREFIX="${STM_PREFIX:-${HOME:-}/.local}"
@@ -61,7 +66,11 @@ say ""
 # --- fetch ------------------------------------------------------------------
 
 WORKDIR=""
+STAGE=""
 cleanup() {
+  if [ -n "$STAGE" ] && [ -d "$STAGE" ]; then
+    rm -rf "$STAGE"
+  fi
   [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ] && rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
@@ -79,7 +88,7 @@ fi
 say "Extracting"
 # --strip-components=1 drops the GitHub-generated "<repo>-<ref>/" wrapper. The
 # extraction target is our own private temp dir, so a hostile archive cannot
-# reach anything of yours; we then copy only the two paths we expect.
+# reach anything of yours; we then copy only the paths we expect.
 mkdir -p "$WORKDIR/src"
 tar -xzf "$WORKDIR/stm.tar.gz" -C "$WORKDIR/src" --strip-components=1 ||
   die "could not extract the archive"
@@ -105,8 +114,43 @@ for f in "$WORKDIR/src/palettes"/*.toml; do
   cp "$f" "$SHARE_DIR/"
   count=$((count + 1))
 done
+
+# Item bundles are code. Copy only the files an item may have, from bundle
+# directories with a bare item name, never through a symlink. Build the new
+# tree beside the old one, then swap it in, so files and bundles a release no
+# longer ships do not linger. A release without bundles/items installs none.
+ITEMS_DIR="$PREFIX/share/stm/bundles/items"
+items=0
+if [ -d "$WORKDIR/src/bundles/items" ]; then
+  mkdir -p "$PREFIX/share/stm/bundles"
+  STAGE=$(mktemp -d "$PREFIX/share/stm/bundles/.items.XXXXXX") ||
+    die "could not create a staging directory"
+  for b in "$WORKDIR/src/bundles/items"/*; do
+    [ -d "$b" ] && [ ! -L "$b" ] || continue
+    name=${b##*/}
+    case "$name" in
+      [a-z]*) ;;
+      *) continue ;;
+    esac
+    case "$name" in
+      *[!a-z0-9_-]*) continue ;;
+    esac
+    mkdir "$STAGE/$name"
+    for f in item.toml item.lua plugin.sh; do
+      [ -f "$b/$f" ] && [ ! -L "$b/$f" ] || continue
+      cp "$b/$f" "$STAGE/$name/$f"
+    done
+    items=$((items + 1))
+  done
+  chmod 755 "$STAGE"
+  rm -rf "$ITEMS_DIR"
+  mv "$STAGE" "$ITEMS_DIR"
+  STAGE=""
+fi
+
 say "  installed $BIN_DIR/stm"
 say "  installed $count palettes into $SHARE_DIR"
+say "  installed $items item bundles into $ITEMS_DIR"
 
 # --- verify -----------------------------------------------------------------
 
