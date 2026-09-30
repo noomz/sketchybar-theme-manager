@@ -1,0 +1,14 @@
+# Minimal valid item bundle. Every tests/fixtures/bad-items/* case is this
+# manifest with exactly one defect, so a rejection can only be for that defect.
+name = "ok"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["green", "yellow", "red", "grey"]
+default_position = "right"
+update_freq = 30
+events = ["system_woke"]
+
+[options.label]
+values = ["on", "off"]
+default = "on"

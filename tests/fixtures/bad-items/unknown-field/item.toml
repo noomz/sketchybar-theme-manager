@@ -1,0 +1,13 @@
+name = "unknown-field"
+version = "0.1.0"
+homepage = "https://example.com"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["green", "yellow", "red", "grey"]
+default_position = "right"
+update_freq = 30
+events = ["system_woke"]
+
+[options.label]
+values = ["on", "off"]
+default = "on"

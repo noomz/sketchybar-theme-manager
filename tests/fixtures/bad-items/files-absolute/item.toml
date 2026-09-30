@@ -1,0 +1,12 @@
+name = "files-absolute"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "/etc/hosts"]
+colors = ["green", "yellow", "red", "grey"]
+default_position = "right"
+update_freq = 30
+events = ["system_woke"]
+
+[options.label]
+values = ["on", "off"]
+default = "on"
