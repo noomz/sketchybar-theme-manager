@@ -9,6 +9,7 @@ Operating rules for AI agents (and humans) working in this repo.
 ```
 bin/stm                          # the whole product: one bash file (~4k lines), bash 3.2
 palettes/*.toml                  # bundled themes (8); filename must equal slug
+bundles/items/<name>/            # bundled item bundles (code): item.toml, item.lua, plugin.sh
 tests/                           # plain-bash suite (no bats); run via tests/run.sh
 tests/test_*.sh                  # one file per area, sources tests/helpers.sh
 tests/fixtures/                  # good + hostile fixtures (tests/fixtures/bad/ = malicious palettes)

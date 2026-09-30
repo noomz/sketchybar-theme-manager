@@ -49,8 +49,9 @@ cd sketchybar-theme-manager
 ln -s "$PWD/bin/stm" ~/.local/bin/stm
 ```
 
-The script finds its bundled palettes relative to its own location, so a
-symlink works fine.
+The script finds its bundled palettes and [items](#items) relative to its own
+location, so a symlink works fine. The installer and the formula put them in
+`share/stm/palettes` and `share/stm/bundles/items`.
 
 ---
 
