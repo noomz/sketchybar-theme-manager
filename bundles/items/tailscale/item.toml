@@ -27,3 +27,9 @@ default = "on"
 [options.click]
 values = ["popup", "app"]
 default = "popup"
+
+# The icon: "TS" text, a Nerd Font glyph (needs a Nerd Font), or the Tailscale
+# app's own icon (falls back to "TS" when the app is not installed).
+[options.icon]
+values = ["text", "nerd", "app"]
+default = "text"

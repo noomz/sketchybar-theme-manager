@@ -27,8 +27,21 @@ FAKE_BIN="$SANDBOX/ts-bin"
 JQ_BIN="$SANDBOX/ts-jq"
 mkdir -p "$FAKE_BIN" "$JQ_BIN"
 
+# An `--set ... icon.background.image=app.<id>` call is the plugin asking
+# whether an app icon resolves: logged to $SB_LOG.probe, and like SketchyBar it
+# exits 1 unless <id> is in $SB_APPS. Any other call is the plugin's update.
 cat >"$FAKE_BIN/sketchybar" <<'EOF'
 #!/bin/sh
+for a; do
+  case "$a" in
+    icon.background.image=app.*)
+      id=${a#icon.background.image=app.}
+      printf '%s\n' "$id" >>"$SB_LOG.probe"
+      case " ${SB_APPS:-} " in *" $id "*) exit 0 ;; esac
+      exit 1
+      ;;
+  esac
+done
 printf '%s\n' "$@" >"$SB_LOG"
 EOF
 
@@ -63,17 +76,20 @@ fi
 
 # run_plugin <parser> <cli> [VAR=value...] — one plugin run with a clean env.
 # The argv sketchybar received lands in $SB, one arg per line.
+# The app ids it probed land in $PROBES, one per line.
 SB=""
+PROBES=""
 run_plugin() {
   local parser="$1" cli="$2" path="$FAKE_BIN:/bin"
   shift 2
   [ "$parser" = jq ] && path="$JQ_BIN:$path"
-  rm -f "$SB_LOG"
+  rm -f "$SB_LOG" "$SB_LOG.probe"
   env -i HOME="$HOME" TMPDIR="$SANDBOX" PATH="$path" SB_LOG="$SB_LOG" \
     NAME=stm.tailscale SENDER=routine STM_TAILSCALE="$cli" \
     STM_GREEN=$GREEN STM_YELLOW=$YELLOW STM_RED=$RED STM_GREY=$GREY \
     "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
   SB=$(cat "$SB_LOG" 2>/dev/null || true)
+  PROBES=$(cat "$SB_LOG.probe" 2>/dev/null || true)
 }
 
 # run_state <parser> <fixture> [VAR=value...]
@@ -172,6 +188,38 @@ for P in $PARSERS; do
   assert_eq "$(argv_of --set stm.tailscale label.drawing=off icon.color=$GREEN)" "$SB" "all-off argv"
   run_state "$P" exit-node STM_TS_PEERS=off
   sb_has 'label=exit bravo  100.64.0.1'
+  done_it
+
+  it "[$P] icon=app: app icon from the standalone build, state colour on the label (V25, V17)"
+  run_state "$P" stopped STM_TS_ICON=app SB_APPS="io.tailscale.ipn.macsys io.tailscale.ipn.macos"
+  assert_eq "io.tailscale.ipn.macsys" "$PROBES" "probe order"
+  sb_has label=stopped icon= icon.background.drawing=on label.color=$RED
+  sb_lacks icon.color=$RED icon=TS
+  done_it
+
+  it "[$P] icon=app: App Store build when the standalone one is missing (V25)"
+  run_state "$P" running STM_TS_ICON=app SB_APPS="io.tailscale.ipn.macos"
+  assert_eq "$(argv_of io.tailscale.ipn.macsys io.tailscale.ipn.macos)" "$PROBES" "probe order"
+  # The item's own --set, up to the popup rows (whose dots keep icon.color).
+  expected=$(argv_of --set stm.tailscale label.drawing=on 'label=2/3  100.64.0.1' \
+    icon= icon.background.drawing=on label.color=$GREEN --remove)
+  assert_eq "$expected" "$(printf '%s\n' "$SB" | head -n 8)" "app icon argv"
+  done_it
+
+  it "[$P] icon=app, no Tailscale app: TS text icon coloured as usual (V25)"
+  run_state "$P" starting STM_TS_ICON=app
+  assert_eq "$(argv_of io.tailscale.ipn.macsys io.tailscale.ipn.macos)" "$PROBES" "probe order"
+  sb_has icon=TS icon.background.drawing=off icon.color=$YELLOW
+  sb_lacks label.color=$YELLOW icon.background.drawing=on
+  done_it
+
+  it "[$P] icon=text|nerd: no app probe, icon string left to item.lua (V25)"
+  for mode in text nerd; do
+    run_state "$P" stopped STM_TS_ICON=$mode SB_APPS="io.tailscale.ipn.macsys"
+    assert_eq "" "$PROBES" "no probe for $mode"
+    sb_has icon.color=$RED
+    sb_lacks icon=TS icon= label.color=$RED icon.background.drawing=on
+  done
   done_it
 
 done

@@ -501,7 +501,7 @@ if [ -n "$LUA_BIN" ]; then
   L="$SANDBOX/luacfg"
   make_lua_config "$L"
   L_ABS=$(cd -- "$L" && pwd)
-  printf '[item.tailscale]\nclick = "app"\n' >"$L/stm.config.toml"
+  printf '[item.tailscale]\nclick = "app"\nicon = "nerd"\n' >"$L/stm.config.toml"
   STM_ROOT="$REPO_ROOT" run_stm --dir "$L" --no-reload install item:tailscale
   assert_status 0
   mkdir -p "$SANDBOX/lua"
@@ -509,6 +509,7 @@ if [ -n "$LUA_BIN" ]; then
 local sbar = {}
 function sbar.add(kind, name, props)
   print("add " .. kind .. " " .. name .. " " .. tostring(props.position) .. " " .. tostring(props.update_freq))
+  print("icon " .. tostring(props.icon.string))
   return { subscribe = function() end, set = function() end }
 end
 function sbar.exec(cmd) print("exec " .. cmd) end
@@ -519,6 +520,9 @@ EOF
   assert_contains "$lua_out" "add item stm.tailscale right 30"
   assert_contains "$lua_out" "'$L_ABS/plugins/stm/tailscale.sh'"
   assert_contains "$lua_out" "STM_TS_CLICK='app'"
+  assert_contains "$lua_out" "STM_TS_ICON='nerd'"
+  # nf-md-dots_grid, U+F15FC (V25).
+  assert_contains "$lua_out" "icon $(printf '\363\261\227\274')"
   assert_contains "$lua_out" "STM_GREEN='0xffa6da95'"
   assert_not_contains "$lua_out" "stm: item"
   done_it

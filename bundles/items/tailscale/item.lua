@@ -28,6 +28,7 @@ return function(sbar, opts, colors)
     "STM_TS_PEERS=" .. quote(o.peers),
     "STM_TS_IP=" .. quote(o.ip),
     "STM_TS_CLICK=" .. quote(o.click),
+    "STM_TS_ICON=" .. quote(o.icon),
   }, " ")
   local plugin = quote(opts.plugin_dir .. "/tailscale.sh")
 
@@ -38,10 +39,20 @@ return function(sbar, opts, colors)
     click_script = "sketchybar --set " .. quote(opts.name) .. " popup.drawing=toggle"
   end
 
+  -- icon=app: plugin.sh points icon.background.image at the Tailscale app and
+  -- falls back to "TS" when SketchyBar cannot find it. nerd: nf-md-dots_grid
+  -- (Nerd Fonts have no Tailscale glyph).
+  local icon = { string = "TS", color = colors.grey }
+  if o.icon == "nerd" then
+    icon.string = "\u{F15FC}"
+  elseif o.icon == "app" then
+    icon = { string = "", background = { drawing = true } }
+  end
+
   local item = sbar.add("item", opts.name, {
     position = opts.position,
     update_freq = opts.update_freq,
-    icon = { string = "TS", color = colors.grey },
+    icon = icon,
     label = { string = "tailscale" },
     click_script = click_script,
     popup = {

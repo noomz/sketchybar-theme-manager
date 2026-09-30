@@ -7,6 +7,7 @@
 #                                       palette colours as 0xAARRGGBB (may be empty)
 #   STM_TS_EXIT_NODE STM_TS_PEERS STM_TS_IP   on | off  (label fields)
 #   STM_TS_CLICK                        popup | app
+#   STM_TS_ICON                         text | nerd | app
 # Colours are never hard-coded here: they follow the palette.
 #
 # STM_TAILSCALE overrides the CLI lookup (tests, unusual installs). Stock
@@ -152,13 +153,33 @@ case "$state" in
   *) label="unknown" ;;
 esac
 
+# icon=app: the Tailscale app's icon, standalone build first, then the App
+# Store one. SketchyBar exits non-zero when it cannot resolve a bundle id; with
+# neither, fall back to the TS text icon. The image is never tinted, so the
+# state colour goes on the label instead.
+app_icon=""
+if [ "${STM_TS_ICON:-text}" = app ]; then
+  for id in io.tailscale.ipn.macsys io.tailscale.ipn.macos; do
+    if sketchybar --set "$NAME" icon.background.image="app.$id" >/dev/null 2>&1; then
+      app_icon=$id
+      break
+    fi
+  done
+fi
+
 set -- --set "$NAME"
 if [ -n "$label" ]; then
   set -- "$@" label.drawing=on label="$label"
 else
   set -- "$@" label.drawing=off
 fi
-[ -n "$color" ] && set -- "$@" icon.color="$color"
+if [ -n "$app_icon" ]; then
+  set -- "$@" icon= icon.background.drawing=on
+  [ -n "$color" ] && set -- "$@" label.color="$color"
+else
+  [ "${STM_TS_ICON:-text}" = app ] && set -- "$@" icon=TS icon.background.drawing=off
+  [ -n "$color" ] && set -- "$@" icon.color="$color"
+fi
 
 # Popup rows: rebuilt on every run so they follow the palette and the tailnet.
 if [ "${STM_TS_CLICK:-popup}" = popup ]; then
