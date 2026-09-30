@@ -542,7 +542,7 @@ Bash configs get `layout.sh` (`BAR_POSITION`, `ITEM_CLOCK`, `ITEM_ORDER_LEFT`,
 `stm` also ships ready-made bar items. They are code, not data, so they live
 inside the `stm` release (`bundles/items/`) and are never downloaded. There is
 one so far: `tailscale`, which shows whether Tailscale is up, your IP and exit
-node, and lists peers in a popup.
+node, and lists this device and its peers in a popup.
 
 ```console
 $ stm install item:tailscale
@@ -582,7 +582,7 @@ value is an error.
 ```toml
 [item.tailscale]
 exit_node = "on"   # on | off  — show the exit node
-peers = "on"       # on | off  — show online/total peers
+peers = "on"       # on | off  — show online/total devices, this one included
 ip = "on"          # on | off  — show this machine's Tailscale IP
 click = "popup"    # popup | app
 icon = "text"      # text | nerd | app
