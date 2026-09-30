@@ -220,6 +220,26 @@ run_stm --dir "$D" lint item:shapes
 assert_status 0
 done_it
 
+# --- the bundles shipped in this repo -------------------------------------
+
+it "every bundled item passes lint item:"
+n=0
+for b in "$REPO_ROOT"/bundles/items/*/; do
+  [ -d "$b" ] || continue
+  n=$((n + 1))
+  name=$(basename "$b")
+  STM_ROOT="$REPO_ROOT" run_stm --dir "$D" lint "item:$name"
+  assert_status 0 "bundled item:$name must lint clean"
+done
+[ "$n" -gt 0 ] || _note_fail "no bundled items found under bundles/items/"
+done_it
+
+it "bundled item code never hard-codes a colour (V14)"
+hits=$(grep -nE '0x[0-9A-Fa-f]{6,8}|#[0-9A-Fa-f]{6}([^0-9A-Za-z]|$)' \
+  "$REPO_ROOT"/bundles/items/*/item.lua "$REPO_ROOT"/bundles/items/*/plugin.sh 2>/dev/null)
+assert_eq "" "$hits" "colours must come from the palette via colors / env"
+done_it
+
 # --- install item: -- same gate, reached through install ------------------
 
 it "install item: rejects names that are not a bare bundled name"
