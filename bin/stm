@@ -4147,13 +4147,26 @@ EOF
 # sub-table forms folded back to the flat canonical name. Non-colour members
 # (with_alpha, display) are excluded — they are structure, not palette data.
 # Bash: every NAME assigned a 0x literal in colors.sh.
+# config_lua_files <dir> — the user's Lua files, as ./relpaths: every *.lua
+# under <dir> except stm-owned item code and backups, which are not the
+# user's config (V23).
+config_lua_files() {
+  (
+    cd "$1" 2>/dev/null || exit 0
+    find . \( -path ./items/stm -o -path ./.stm-backups -o -path ./.git \) -prune -o \
+      -type f -name '*.lua' ! -path ./items_generated.lua -print
+  )
+}
+
 # shellcheck disable=SC2018,SC2019  # shell var names are ASCII and LC_ALL=C is set
 config_used_keys() {
-  local dir="$1" fmt="$2"
+  local dir="$1" fmt="$2" f
   if [ "$fmt" = "lua" ]; then
     # Comments are stripped first: prose mentioning "colors.lua" would otherwise
     # be read as a reference to a colour key named `lua`.
-    find "$dir" -type f -name '*.lua' -exec awk '{ sub(/--.*$/, ""); print }' {} + 2>/dev/null |
+    config_lua_files "$dir" | while IFS= read -r f; do
+      awk '{ sub(/--.*$/, ""); print }' "$dir/$f" 2>/dev/null
+    done |
       grep -oE 'colors\.[a-zA-Z_][a-zA-Z0-9_.]*' |
       sed 's/^colors\.//' |
       sed 's/^bar\./bar_/; s/^popup\./popup_/' |
@@ -4232,6 +4245,8 @@ $tmpdir"
     printf '  %-16s %s\n' "theme" "none applied yet; checking default"
     slug="tokyo-night"
   fi
+
+  doctor_items || rc=1
 
   if ! file=$(find_palette "$slug"); then
     printf '\n  palette not found: %s\n' "$slug"
@@ -4323,6 +4338,100 @@ EOF
     printf 'OK\n'
   else
     printf 'PROBLEMS FOUND\n'
+  fi
+  return "$rc"
+}
+
+# stm_tailscale_cli — the tailscale CLI the item's plugin would find (I.ts):
+# $STM_TAILSCALE when set (no fallback), else the usual install paths, else PATH.
+stm_tailscale_cli() {
+  local c
+  if [ -n "${STM_TAILSCALE:-}" ]; then
+    [ -x "$STM_TAILSCALE" ] && printf '%s\n' "$STM_TAILSCALE"
+    return 0
+  fi
+  for c in /usr/local/bin/tailscale \
+    /Applications/Tailscale.app/Contents/MacOS/Tailscale \
+    /opt/homebrew/bin/tailscale; do
+    if [ -x "$c" ]; then
+      printf '%s\n' "$c"
+      return 0
+    fi
+  done
+  command -v tailscale 2>/dev/null || true
+}
+
+# doctor_items — the Items section of doctor: each installed item against its
+# bundle, stray files stm did not install, the loader and its wiring. Silent
+# when no item is installed and no stray file exists (V18). Returns 1 when an
+# item cannot load; drift, unbundled items and a missing CLI are notes.
+doctor_items() {
+  local d="$RESOLVED_DIR" ledger names n p f base strays="" cur ref rc=0 wired="" cli
+
+  names=$(stm_item_names)
+  for p in items/stm plugins/stm; do
+    [ -d "$d/$p" ] && [ ! -L "$d/$p" ] || continue
+    for f in "$d/$p"/*.lua "$d/$p"/*.sh; do
+      [ -f "$f" ] || continue
+      base=${f##*/}
+      base=${base%.*}
+      printf '%s\n' "$names" | grep -qxF -- "$base" && continue
+      strays="$strays$p/${f##*/}
+"
+    done
+  done
+  [ -n "$names$strays" ] || return 0
+
+  printf '\nItems\n'
+  ledger=$(stm_item_ledger_file)
+  for n in $names; do
+    ref=$(awk -F'\t' -v n="$n" '$1==n { print $4; exit }' "$ledger")
+    if [ ! -f "$d/items/stm/$n.lua" ]; then
+      printf '  %-16s MISSING items/stm/%s.lua (run: stm install --force item:%s)\n' "$n" "$n" "$n"
+      rc=1
+      continue
+    fi
+    if cur=$(stm_item_load "$n" 2>/dev/null &&
+      printf '%s\t%s\n' "$(stm_item_tree_sha)" \
+        "$(printf '%s\n' "$STM_ITEM_RECORDS" | awk -F'\t' '$1=="meta" && $2=="version" { print $3; exit }')"); then
+      if [ "${cur%%	*}" = "$(awk -F'\t' -v n="$n" '$1==n { print $3; exit }' "$ledger")" ]; then
+        printf '  %-16s %s ok (installed with stm %s)\n' "$n" "${cur#*	}" "$ref"
+      else
+        printf '  %-16s %s update available: stm install --force item:%s\n' "$n" "${cur#*	}" "$n"
+      fi
+    else
+      printf '  %-16s no longer bundled with stm %s (installed with stm %s); stm uninstall item:%s removes it\n' \
+        "$n" "$STM_VERSION" "$ref" "$n"
+    fi
+  done
+  printf '%s' "$strays" | while IFS= read -r f; do
+    printf '  %-16s %s is not in the item ledger (not installed by stm; remove it)\n' "stray" "$f"
+  done
+  [ -z "$strays" ] || rc=1
+  [ -n "$names" ] || return "$rc"
+
+  if [ -f "$d/items_generated.lua" ]; then
+    printf '  %-16s %s\n' "loader" "items_generated.lua"
+  else
+    printf '  %-16s MISSING items_generated.lua (run: stm install --force item:<name>)\n' "loader"
+    rc=1
+  fi
+  for f in ./sketchybarrc $(config_lua_files "$d"); do
+    if lua_file_is_wired "$d/$f" items_generated; then
+      wired="${f#./}"
+      break
+    fi
+  done
+  if [ -n "$wired" ]; then
+    printf '  %-16s require("items_generated") in %s\n' "wiring" "$wired"
+  else
+    printf '  %-16s NOT WIRED: add require("items_generated") to your init.lua\n' "wiring"
+    rc=1
+  fi
+
+  if printf '%s\n' "$names" | grep -qx tailscale; then
+    cli=$(stm_tailscale_cli)
+    printf '  %-16s %s\n' "tailscale CLI" "${cli:-not found (the item shows \"not installed\")}"
   fi
   return "$rc"
 }
@@ -5793,10 +5902,12 @@ append_palette_sections() {
   fi
 }
 
+# lua_file_is_wired <file> [module] — true if <file> requires <module>
+# (default colors_generated), directly or through pcall.
 lua_file_is_wired() {
-  local f="$1"
+  local f="$1" m="${2:-colors_generated}"
   [ -f "$f" ] || return 1
-  grep -qE 'pcall[[:space:]]*\([[:space:]]*require[[:space:]]*,[[:space:]]*"colors_generated"[[:space:]]*\)|require[[:space:]]*\([[:space:]]*"colors_generated"[[:space:]]*\)' "$f"
+  grep -qE "pcall[[:space:]]*\\([[:space:]]*require[[:space:]]*,[[:space:]]*\"$m\"[[:space:]]*\\)|require[[:space:]]*\\([[:space:]]*\"$m\"[[:space:]]*\\)" "$f"
 }
 
 print_adopt_wrapper() {
