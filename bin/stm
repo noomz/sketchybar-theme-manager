@@ -279,8 +279,23 @@ BEGIN {
 
   # Table header
   if (line ~ /^[ \t]*\[/) {
+    # [item.<name>]: option values for an installed item. Data only; each
+    # value is checked against the item manifest before it reaches Lua.
+    if (line ~ /^[ \t]*\[[ \t]*item\.[a-z][a-z0-9_-]*[ \t]*\][ \t]*(#.*)?$/) {
+      sec = line
+      sub(/^[ \t]*\[[ \t]*/, "", sec)
+      sub(/[ \t]*\].*$/, "", sec)
+      itemname = substr(sec, 6)
+      if (length(itemname) > 32)
+        fail("item name \"" itemname "\" is too long (max 32)")
+      if (seen_section[sec])
+        fail("duplicate [" sec "] table")
+      seen_section[sec] = 1
+      section = "itemopt"
+      next
+    }
     if (line !~ /^[ \t]*\[[ \t]*[A-Za-z0-9_-]+[ \t]*\][ \t]*(#.*)?$/)
-      fail("unsupported table syntax (only plain [colors] / [extras] / [layout] / [items] headers are allowed)")
+      fail("unsupported table syntax (only plain [colors] / [extras] / [layout] / [items] and [item.<name>] headers are allowed)")
     sec = line
     sub(/^[ \t]*\[[ \t]*/, "", sec)
     sub(/[ \t]*\].*$/, "", sec)
@@ -347,6 +362,20 @@ BEGIN {
       fail("invalid item slot \"" val "\" for \"" key "\" (want left, right or center)")
     items[key] = val
     item_order[++nitems] = key
+    next
+  }
+
+  if (section == "itemopt") {
+    if (key !~ /^[a-z][a-z0-9_]*$/ || length(key) > 32)
+      fail("invalid item option key \"" key "\" in [item." itemname "] (want lower-case [a-z][a-z0-9_]*, max 32)")
+    if (val !~ /^[a-z0-9][a-z0-9_-]*$/ || length(val) > 32)
+      fail("invalid item option value \"" val "\" for \"" key "\" in [item." itemname "] (want lower-case [a-z0-9][a-z0-9_-]*, max 32)")
+    if ((itemname SUBSEP key) in itemopts)
+      fail("duplicate item option \"" key "\" in [item." itemname "]")
+    itemopts[itemname SUBSEP key] = 1
+    io_name[++nio] = itemname
+    io_key[nio] = key
+    io_val[nio] = val
     next
   }
 
@@ -417,6 +446,8 @@ END {
     printf("layout\t%s\t%s\n", layout_order[i], layouts[layout_order[i]])
   for (i = 1; i <= nitems; i++)
     printf("item\t%s\t%s\n", item_order[i], items[item_order[i]])
+  for (i = 1; i <= nio; i++)
+    printf("itemopt\t%s\t%s\t%s\n", io_name[i], io_key[i], io_val[i])
 }
 
 # normalise_colour — accept 0xAARRGGBB or #RRGGBB, always return lower-case
@@ -557,15 +588,16 @@ $tmpdir"
   local i
   i="$depth"
   while [ "$i" -ge 0 ]; do
-    awk -F'\t' '$1=="color" || $1=="extra" || $1=="layout"' "$tmpdir/link.$i" >>"$merged"
+    awk -F'\t' '$1=="color" || $1=="extra" || $1=="layout" || $1=="itemopt"' "$tmpdir/link.$i" >>"$merged"
     i=$((i - 1))
   done
 
   # Last value wins per key; a key may be promoted from extra to color (or the
   # reverse) by a child, so the kind travels with the winning definition.
-  # Layout keys merge the same way. Items are not in $merged: a child [items]
-  # table replaces the parent's list entirely.
-  local colours layouts items
+  # Layout keys merge the same way, and so do [item.<name>] options, per
+  # (item, key). Items are not in $merged: a child [items] table replaces the
+  # parent's list entirely.
+  local colours layouts items itemopts
   colours=$(awk -F'\t' '
     $1 == "color" || $1 == "extra" {
       kind[$2] = $1; val[$2] = $3
@@ -579,6 +611,14 @@ $tmpdir"
       if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 }
     }
     END { for (i = 1; i <= n; i++) printf("layout\t%s\t%s\n", order[i], val[order[i]]) }
+  ' "$merged")
+  itemopts=$(awk -F'\t' '
+    $1 == "itemopt" {
+      k = $2 "\t" $3
+      val[k] = $4
+      if (!(k in seen)) { seen[k] = 1; order[++n] = k }
+    }
+    END { for (i = 1; i <= n; i++) printf("itemopt\t%s\t%s\n", order[i], val[order[i]]) }
   ' "$merged")
   items=""
   i=0
@@ -617,6 +657,7 @@ color	transparent	0x00000000"
     printf 'meta\thas_items\t1\n'
     printf '%s\n' "$items"
   fi
+  [ -n "$itemopts" ] && printf '%s\n' "$itemopts"
 
   rm -rf "$tmpdir"
 }
@@ -648,6 +689,11 @@ stm_records_layout() {
 # Item name<TAB>slot rows, declaration order.
 stm_records_items() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="item" { printf("%s\t%s\n", $2, $3) }'
+}
+
+# [item.<name>] options as item<TAB>key<TAB>value rows, declaration order.
+stm_records_itemopts() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="itemopt" { printf("%s\t%s\t%s\n", $2, $3, $4) }'
 }
 
 # True if the resolved records carry any layout or item data.
@@ -777,8 +823,11 @@ $(stm_config_pairs "$RESOLVED_CONFIG" mapping)
 EOF
 
   # A mapped key overrides a palette key of the same name: last definition wins.
+  # Only colour rows are keyed by name. Every other record (meta, layout, item
+  # slots, item options) passes through verbatim: an item named `red` must
+  # never replace the colour red, and an itemopt row has four fields.
   printf '%s\n' "$out" | awk -F'\t' '
-    $1=="meta" { print; next }
+    $1!="color" && $1!="extra" { print; next }
     { kind[$2] = $1; val[$2] = $3
       if (!($2 in seen)) { seen[$2] = 1; order[++n] = $2 } }
     END { for (i = 1; i <= n; i++) printf("%s\t%s\t%s\n", kind[order[i]], order[i], val[order[i]]) }
@@ -1340,21 +1389,40 @@ stm_item_tree_sha() {
 # values from the manifest's closed charsets, the config dir checked below.
 # ---------------------------------------------------------------------------
 
-# Validates [item.<name>] from stm.config.toml against the manifest options and
-# prints the Lua `options` fields. Input: the item records, a `%cfg` line, then
-# the config pairs. Unknown key or a value outside `values` -> exit 1.
+# Resolves every option of one item and prints the Lua `options` fields.
+# Input: the item records, a `%pal` line, the theme's [item.<name>] pairs, a
+# `%cfg` line, then the stm.config.toml pairs. Later sections win per key, so
+# config > palette > manifest default.
+#
+# The two sources fail differently. stm.config.toml is the user's own file: an
+# unknown key or a value outside `values` -> exit 1. A palette is foreign and
+# may target another version of the item: the same defects are a warning and
+# the pair is ignored. Either way only a manifest value reaches the Lua.
 # shellcheck disable=SC2016  # awk source
 STM_ITEM_OPTIONS_AWK='
-BEGIN { FS = "\t" }
-$0 == "%cfg" { cfg = 1; next }
-!cfg && $1 == "value" {
+BEGIN { FS = "\t"; sec = "manifest" }
+$0 == "%pal" { sec = "pal"; next }
+$0 == "%cfg" { sec = "cfg"; next }
+sec == "manifest" && $1 == "value" {
   ok[$2 SUBSEP $3] = 1
   want[$2] = want[$2] (want[$2] == "" ? "" : ", ") $3
   next
 }
-!cfg && $1 == "option" { order[++n] = $2; val[$2] = $3; isopt[$2] = 1; next }
-!cfg { next }
+sec == "manifest" && $1 == "option" { order[++n] = $2; val[$2] = $3; isopt[$2] = 1; next }
+sec == "manifest" { next }
 $0 == "" { next }
+sec == "pal" {
+  if (!($1 in isopt)) {
+    keys = ""
+    for (i = 1; i <= n; i++) keys = keys (i > 1 ? ", " : "") order[i]
+    printf("%s: warning: theme %s: ignoring [item.%s] %s = \"%s\" (unknown option; want one of: %s)\n", prog, theme, item, $1, $2, keys) > "/dev/stderr"
+  } else if (!(($1 SUBSEP $2) in ok)) {
+    printf("%s: warning: theme %s: ignoring [item.%s] %s = \"%s\" (want one of: %s)\n", prog, theme, item, $1, $2, want[$1]) > "/dev/stderr"
+  } else {
+    val[$1] = $2
+  }
+  next
+}
 !($1 in isopt) {
   keys = ""
   for (i = 1; i <= n; i++) keys = keys (i > 1 ? ", " : "") order[i]
@@ -1389,7 +1457,7 @@ stm_current_palette_records() {
 # palette [items] slot for stm.<name>, else the manifest default_position.
 # An item no longer bundled is left out with a warning.
 stm_items_loader_render() {
-  local names="$1" precs="$2" dir n recs pos freq ev events opts
+  local names="$1" precs="$2" dir n recs pos freq ev events opts theme
   dir=$(cd -- "$RESOLVED_DIR" && pwd) || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
   case "$dir" in
     *[\"\\]* | *[[:cntrl:]]*)
@@ -1401,7 +1469,8 @@ stm_items_loader_render() {
   # shellcheck disable=SC2016  # literal backticks: Lua comment text
   printf -- '-- `stm install item:<name>`, `stm uninstall item:<name>` and `stm apply`.\n'
   printf -- '-- Load it once from your config: require("items_generated")\n'
-  printf -- '-- Item options live in stm.config.toml under [item.<name>].\n\n'
+  printf -- '-- Item options: [item.<name>] in stm.config.toml, else in the theme,\n'
+  printf -- '-- else the item default.\n\n'
   printf 'local sbar = require("sketchybar")\n'
   printf 'local colors = require("colors")\n'
   printf 'local dir = "%s"\n\n' "$dir"
@@ -1414,6 +1483,7 @@ stm_items_loader_render() {
   printf '  end\n'
   printf 'end\n'
 
+  theme=$(stm_records_meta "$precs" slug)
   for n in $names; do
     validate_item_name "$n"
     if ! recs=$(stm_item_load "$n" && printf '%s\n' "$STM_ITEM_RECORDS"); then
@@ -1421,11 +1491,13 @@ stm_items_loader_render() {
       continue
     fi
     opts=$({
-      printf '%s\n%%cfg\n' "$recs"
+      printf '%s\n%%pal\n' "$recs"
+      stm_records_itemopts "$precs" | awk -F'\t' -v n="$n" '$1==n { printf("%s\t%s\n", $2, $3) }'
+      printf '%%cfg\n'
       if [ -n "$RESOLVED_CONFIG" ]; then
         stm_config_pairs "$RESOLVED_CONFIG" "item.$n"
       fi
-    } | awk -v prog="$PROGNAME" -v item="$n" "$STM_ITEM_OPTIONS_AWK") ||
+    } | awk -v prog="$PROGNAME" -v item="$n" -v theme="$theme" "$STM_ITEM_OPTIONS_AWK") ||
       die "$EX_INVALID" "invalid [item.$n] in $RESOLVED_CONFIG"
     pos=$(stm_records_items "$precs" | awk -F'\t' -v k="stm.$n" '$1==k { print $2; exit }')
     [ -n "$pos" ] || pos=$(printf '%s\n' "$recs" | awk -F'\t' '$1=="meta" && $2=="default_position" { print $3; exit }')
@@ -3809,7 +3881,7 @@ EOF
 }
 
 cmd_apply() {
-  local slug="$1" file records target name reloaded note_text tpl names loader=""
+  local slug="$1" file records target name reloaded note_text tpl names n item_root loader=""
 
   file=$(find_palette "$slug") || {
     err "theme not found: $slug"
@@ -3842,6 +3914,21 @@ cmd_apply() {
   names=$(stm_item_names)
   if [ "$RESOLVED_FORMAT" = "lua" ] && [ -n "$names" ] && [ -f "$RESOLVED_DIR/items_generated.lua" ]; then
     loader=$(stm_items_loader_render "$names" "$records")
+  fi
+
+  # A theme may set options for items; it never installs them. Say which ones
+  # it names that are not installed, once each, and only suggest installing
+  # an item stm actually ships.
+  if [ "$RESOLVED_FORMAT" = "lua" ]; then
+    item_root=$(bundled_item_dir 2>/dev/null) || item_root=""
+    for n in $(stm_records_itemopts "$records" | awk -F'\t' '!seen[$1]++ { print $1 }'); do
+      stm_item_installed "$n" && continue
+      if [ -n "$item_root" ] && [ -d "$item_root/$n" ] && [ ! -L "$item_root/$n" ]; then
+        err "note: item:$n not installed (stm install item:$n)"
+      else
+        err "note: item:$n is not a bundled item; the theme's options for it are ignored"
+      fi
+    done
   fi
 
   if [ "$OPT_DRY_RUN" -eq 1 ]; then
@@ -5119,6 +5206,12 @@ cmd_export() {
       stm_records_items "$records" |
         while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
     fi
+    # One [item.<name>] table per item, in first-seen order.
+    stm_records_itemopts "$records" | awk -F'\t' '
+      { if (!($1 in seen)) { seen[$1] = 1; names[++n] = $1 }
+        body[$1] = body[$1] sprintf("%s = \"%s\"\n", $2, $3) }
+      END { for (i = 1; i <= n; i++) printf("\n[item.%s]\n%s", names[i], body[names[i]]) }
+    '
   )
 
   if [ -n "$OPT_OUT" ]; then

@@ -86,12 +86,13 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - V27 palette `[item.<name>]` header: `<name>` ! match `[a-z][a-z0-9_-]*`; key ! `[a-z][a-z0-9_]*`; value ! `[a-z0-9][a-z0-9_-]{0,31}`. other dotted header | dup header | bad key/value → palette invalid (parse fail, same as bad `[layout]`).
 - V28 palette option reach generated Lua only when value ∈ installed bundled item manifest `values`. unknown key | value ∉ `values` → stderr warning (palette slug + item + key), option ignored, fall through, `apply` exit 0. (≠ V9: config = user own → hard error; palette = foreign, may target other item version.)
 - V29 option precedence per key: config > palette (`base =` merged, child win per key) > manifest `default`. loader bytes = f(ledger, config, active palette) — same whether written by `install`, `uninstall` or `apply`.
-- V30 palette `[item.<name>]` never install | uninstall | fetch item. named item not installed → `apply` stderr `note: item:<name> not installed (stm install item:<name>)` once per item, exit 0, no extra write.
+- V30 palette `[item.<name>]` never install | uninstall | fetch item. named item not installed → `apply` stderr once per item, exit 0, no extra write: bundled → `note: item:<name> not installed (stm install item:<name>)`; not bundled → `note: item:<name> is not a bundled item; the theme's options for it are ignored` (never suggest install).
 - V31 `export` emit merged `[item.<name>]` tables; `add` | `import` round-trip byte-stable.
 - V32 manifest `shape` values ⊄ `plain|pill|split` → V4 hard error. semantics fixed all bundles: plain = no item bg; pill = one item, `background.color` = `bg1`; split = `stm.<name>.icon` (icon only, bg = accent|state colour, icon colour `black`) + `stm.<name>` (label only, bg `bg1`). colours only palette keys (V14); manifest `colors` ∋ every key used.
 - V33 split: icon sub-item visually left of label every position (`right` → add main then icon; `left|center` → icon then main). popup + click on main; icon sub-item `click_script` = main.
 - V34 tailscale `shape` default `plain` → render identical to 0.6.0. pill: text|nerd → `icon.color` = state colour (V17); app → V25 rule (state on `label.color`). split: icon sub-item bg = state colour; app image draw over it.
 - V35 bundled palettes colour-only (C13); CI fail if any carry `[layout]` `[items]` `[item.<name>]`. `kanagawa-wave` key set ⊇ `tokyo-night.toml` key set (canonical + bash 26-name + semantic); `stm lint` pass.
+- V36 record transforms on colour data (`apply_mapping`, `apply_alpha`) key + rewrite only `color`/`extra` rows. every other record (`meta` `layout` `item` `itemopt`) pass byte-identical, any field count. item / option named like colour never replace colour.
 
 ## §T tasks
 
@@ -118,11 +119,11 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T19 | x | tailscale review fixes: app-mode `label.color` always, strip control chars, non-empty label join, probe cache, transparent icon bg + scale; sparse-self fixture, Lua text/nerd/app test, generic fixture name | V24,V25,V26,V14 |
 | T20 | x | tailscale `status` bound by watchdog `sleep 3` not tick loop; CI bash 3.2 hang test green | V15 |
 | T21 | x | `palettes/kanagawa-wave.toml` (cite upstream) + tests: bundled count 8→9 (`test_cli.sh:175`), dialect/backup/verify loops, README theme list | V35,I.kw |
-| T22 | . | red tests: palette `[item.<name>]` fixtures good + bad (header, key, value, other dotted, dup) | V27 |
-| T23 | . | palette parser: `[item.<name>]` header → `itemopt` records; `base =` merge child win per key | V27,V29 |
-| T24 | . | loader: palette opts into `STM_ITEM_OPTIONS_AWK` between config + default; warn + ignore bad | V28,V29,V9 |
-| T25 | . | `apply` note for palette-named uninstalled items | V30 |
-| T26 | . | `export` emit `[item.<name>]`; round-trip test | V31 |
+| T22 | x | red tests: palette `[item.<name>]` fixtures good + bad (header, key, value, other dotted, dup) | V27 |
+| T23 | x | palette parser: `[item.<name>]` header → `itemopt` records; `base =` merge child win per key | V27,V29 |
+| T24 | x | loader: palette opts into `STM_ITEM_OPTIONS_AWK` between config + default; warn + ignore bad | V28,V29,V9 |
+| T25 | x | `apply` note for palette-named uninstalled items | V30 |
+| T26 | x | `export` emit `[item.<name>]`; round-trip test | V31 |
 | T27 | . | manifest lint: `shape` values ⊆ vocab; CI bundled palettes colour-only check | V32,V35,V4 |
 | T28 | . | tailscale `shape`: manifest (+ `bg1` `black` colours) + item.lua + plugin.sh; tests plain = 0.6.0, pill, split left/right order, app+split | V32,V33,V34,V10,V14,I.tsopt |
 | T29 | . | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
@@ -142,3 +143,4 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | B3 | 2026-09-30 | tailscale `icon=app` fallback set `icon.color` only; prior resolved run left `label.color` = old state → red `TS` beside green `stopped` | V25 |
 | B4 | 2026-09-30 | tailscale parsers emit TAB/newline records; peer `HostName` w/ `\n` + `\t` forge extra online peer row + inflate count (display spoof) | V24 |
 | B5 | 2026-09-30 | tailscale hang bound = 30 x `/bin/sleep 0.1` loop; fork cost on loaded CI runner stretch ~3s → 7s, hang test fail (bash 3.2 job) | V15 |
+| B6 | 2026-09-30 | `apply_mapping` final awk keyed every non-meta record by `$2` (3 fields) → any `stm.config.toml` present: 4-field `itemopt` rows lose value + collapse per item (palette options → warning, default); also pre-existing: palette `[items] red = "left"` replace colour `red` after required-key check | V36 |

@@ -621,6 +621,109 @@ assert_contains "$STM_OUT$STM_ERR" "items_generated.lua"
 assert_eq "$before" "$(snapshot)" "--dry-run must write nothing"
 done_it
 
+# --- palette [item.<name>] options (#19) ------------------------------------
+
+# opt_palette <slug> <toml-line>... — nord plus the given lines, in $P.
+opt_palette() {
+  local slug="$1"
+  shift
+  {
+    sed "s/^slug = .*/slug = \"$slug\"/;s/^name = .*/name = \"$slug\"/" "$REPO_ROOT/palettes/nord.toml"
+    printf '\n'
+    printf '%s\n' "$@"
+  } >"$P/$slug.toml"
+}
+
+it "palette [item.<name>] value beats the manifest default; a theme without it resets (V29)"
+opt_palette optoff '[item.ok]' 'label = "off"'
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply optoff
+assert_status 0
+assert_file_contains "$LOADER" '["label"] = "off",'
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 0
+assert_file_contains "$LOADER" '["label"] = "on",'
+done_it
+
+it "stm.config.toml [item.<name>] beats the palette (V29, I.cfg)"
+printf '[item.ok]\nlabel = "on"\n' >"$CFG"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply optoff
+assert_status 0
+assert_file_contains "$LOADER" '["label"] = "on",'
+rm -f "$CFG"
+done_it
+
+it "install, apply and uninstall write the same loader for the same state (V29)"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply optoff
+assert_status 0
+by_apply=$(cat "$LOADER")
+run_stm --dir "$D" --palette-dir "$P" --no-reload --force install item:ok
+assert_status 0
+assert_eq "$by_apply" "$(cat "$LOADER")" "install must render the active theme's options"
+ship_ok_as two
+run_stm --dir "$D" --palette-dir "$P" --no-reload install item:two
+assert_status 0
+run_stm --dir "$D" --palette-dir "$P" --no-reload uninstall item:two
+assert_status 0
+assert_eq "$by_apply" "$(cat "$LOADER")" "uninstall must render the active theme's options"
+rm -rf "${BUNDLES:?}/two"
+done_it
+
+it "palette options survive a stm.config.toml without [item.<name>] (V29, V36, B6)"
+printf '[alpha]\nbar_bg = "60"\n' >"$CFG"
+opt_palette optboth '[item.ok]' 'label = "off"'
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply optboth
+assert_status 0
+assert_file_contains "$LOADER" '["label"] = "off",'
+assert_not_contains "$STM_ERR" "ignoring"
+by_apply=$(cat "$LOADER")
+run_stm --dir "$D" --palette-dir "$P" --no-reload --force install item:ok
+assert_status 0
+assert_eq "$by_apply" "$(cat "$LOADER")" "install and apply must agree with a config present"
+rm -f "$CFG"
+done_it
+
+it "an [items] slot or [item.<name>] table named like a colour never drops it (V36, B6)"
+printf '[alpha]\nbar_bg = "60"\n' >"$CFG"
+opt_palette optred '[items]' 'red = "left"' '' '[item.red]' 'x = "y"' '' '[item.green]' 'x = "y"'
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply optred
+assert_status 0
+assert_file_contains "$D/colors_generated.lua" "  red = 0xffbf616a,"
+assert_file_contains "$D/colors_generated.lua" "  green = 0xffa3be8c,"
+rm -f "$CFG"
+done_it
+
+it "a bad palette option warns, is ignored, and apply still succeeds (V28)"
+for bad in 'label = "maybe"' 'colour = "on"'; do
+  opt_palette optbad '[item.ok]' "$bad"
+  run_stm --dir "$D" --palette-dir "$P" --no-reload apply optbad
+  assert_status 0 "palette $bad must not fail apply"
+  assert_contains "$STM_ERR" "warning: theme optbad: ignoring [item.ok]"
+  assert_file_contains "$LOADER" '["label"] = "on",'
+  assert_file_not_contains "$LOADER" "maybe"
+  assert_file_not_contains "$LOADER" "colour"
+done
+done_it
+
+it "palette options for an item not installed: a note, nothing installed, offline (V30)"
+ship_ok_as spare
+opt_palette optghost '[item.spare]' 'label = "off"' '' '[item.ghost]' 'shape = "pill"' \
+  '' '[item.ok]' 'label = "off"'
+reset_fetch_log
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply optghost
+assert_status 0
+assert_contains "$STM_ERR" "note: item:spare not installed (stm install item:spare)"
+assert_eq 1 "$(printf '%s\n' "$STM_ERR" | awk '/item:spare not installed/ { n++ } END { print n+0 }')" "one note per item"
+assert_contains "$STM_ERR" "note: item:ghost is not a bundled item; the theme's options for it are ignored"
+assert_not_contains "$STM_ERR" "stm install item:ghost"
+assert_not_contains "$STM_ERR" "item:ok not installed"
+assert_file_absent "$D/items/stm/spare.lua"
+assert_not_contains "$(cat "$ITEM_LEDGER")" "spare"
+rm -rf "${BUNDLES:?}/spare"
+assert_file_absent "$D/items/stm/ghost.lua"
+assert_not_contains "$(cat "$ITEM_LEDGER")" "ghost"
+assert_eq "" "$(fetch_log)" "apply must not call STM_FETCH"
+done_it
+
 it "apply with no items installed leaves items_generated.lua alone (V13)"
 reset_items
 printf -- '-- hand-made\n' >"$LOADER"
