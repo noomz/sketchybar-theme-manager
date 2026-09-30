@@ -1,0 +1,12 @@
+name = "color-not-required"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["green", "rosewater"]
+default_position = "right"
+update_freq = 30
+events = ["system_woke"]
+
+[options.label]
+values = ["on", "off"]
+default = "on"

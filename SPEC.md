@@ -67,7 +67,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 
 | id | status | task | cites |
 |----|--------|------|-------|
-| T1 | . | `tests/fixtures/bad-items/*` + `tests/test_items.sh` skeleton (red) | V3,V4 |
+| T1 | x | `tests/fixtures/bad-items/*` + `tests/test_items.sh` skeleton (red) | V3,V4 |
 | T2 | . | awk manifest parser + validator, closed field set | V4,I.bundle |
 | T3 | . | `bundles/items/tailscale/` item.toml + item.lua + plugin.sh | I.ts,I.tsopt,V14,V15,V16,V17 |
 | T4 | . | plugin tests: fake `tailscale` (Running, Running+exit node, Stopped, NeedsLogin, Starting, hang, absent) + fake `sketchybar` log; jq + plutil paths | V15,V16,V17 |
