@@ -67,11 +67,13 @@ run_status() {
 #   exit_ip<TAB>100.y (or empty)    peer<TAB>1|0<TAB>name<TAB>100.z
 # A node's name is the first label of its DNSName (the MagicDNS name the
 # Tailscale app shows); iOS and Android report HostName "localhost". HostName
-# is used only when DNSName is empty.
+# is used only when DNSName is empty. Peers set their own HostName, so control
+# characters are dropped: a tab or newline would forge a record.
 parse_jq() {
   jq -r '
-    def name: ((.DNSName // "") | sub("\\..*$"; "")) as $d |
-      if $d != "" then $d else (.HostName // "") end;
+    def clean: gsub("[[:cntrl:]]"; "");
+    def name: ((.DNSName // "") | clean | sub("\\..*$"; "")) as $d |
+      if $d != "" then $d else (.HostName // "" | clean) end;
     "state\t" + (.BackendState // ""),
     "self_ip\t" + ((.Self.TailscaleIPs // [])[0] // ""),
     "self_name\t" + ((.Self // {}) | name),
@@ -87,11 +89,12 @@ px() {
   /usr/bin/plutil -extract "$1" raw -o - "$WORK/status.json" 2>/dev/null
 }
 
-# node_name <key path> — DNSName's first label, else HostName.
+# node_name <key path> — DNSName's first label, else HostName; control
+# characters dropped as in parse_jq.
 node_name() {
-  n=$(px "$1.DNSName")
+  n=$(px "$1.DNSName" | /usr/bin/tr -d '[:cntrl:]')
   n=${n%%.*}
-  [ -n "$n" ] || n=$(px "$1.HostName")
+  [ -n "$n" ] || n=$(px "$1.HostName" | /usr/bin/tr -d '[:cntrl:]')
   printf '%s' "$n"
 }
 
@@ -150,7 +153,7 @@ case "$state" in
       total=$(/usr/bin/wc -l <"$WORK/peers" | /usr/bin/tr -d ' ')
       label="${label:+$label  }$((online + 1))/$((total + 1))"
     fi
-    if [ "${STM_TS_IP:-on}" = on ]; then
+    if [ "${STM_TS_IP:-on}" = on ] && [ -n "$(field self_ip)" ]; then
       label="${label:+$label  }$(field self_ip)"
     fi
     ;;
@@ -163,16 +166,32 @@ esac
 
 # icon=app: the Tailscale app's icon, standalone build first, then the App
 # Store one. SketchyBar exits non-zero when it cannot resolve a bundle id; with
-# neither, fall back to the TS text icon. The image is never tinted, so the
-# state colour goes on the label instead.
+# neither, fall back to the TS text icon. The lookup costs SketchyBar calls and
+# an image reload, so its answer (the id, or "none") is cached, and looked up
+# again only on forced (reload, --update) and system_woke, or without a valid
+# cache. The image persists on the item between runs.
+icon_mode=${STM_TS_ICON:-text}
 app_icon=""
-if [ "${STM_TS_ICON:-text}" = app ]; then
-  for id in io.tailscale.ipn.macsys io.tailscale.ipn.macos; do
-    if sketchybar --set "$NAME" icon.background.image="app.$id" >/dev/null 2>&1; then
-      app_icon=$id
-      break
-    fi
-  done
+if [ "$icon_mode" = app ]; then
+  cache="${TMPDIR:-/tmp}/stm-tailscale-icon.$NAME"
+  cached=$(/bin/cat "$cache" 2>/dev/null)
+  case "${SENDER:-}" in forced | system_woke) cached="" ;; esac
+  case "$cached" in
+    io.tailscale.ipn.macsys | io.tailscale.ipn.macos) app_icon=$cached ;;
+    none) ;;
+    *)
+      for id in io.tailscale.ipn.macsys io.tailscale.ipn.macos; do
+        if sketchybar --set "$NAME" icon.background.image="app.$id" >/dev/null 2>&1; then
+          app_icon=$id
+          break
+        fi
+      done
+      if tmp=$(/usr/bin/mktemp "$cache.XXXXXX" 2>/dev/null); then
+        printf '%s\n' "${app_icon:-none}" >"$tmp"
+        /bin/mv -f "$tmp" "$cache" 2>/dev/null || /bin/rm -f "$tmp"
+      fi
+      ;;
+  esac
 fi
 
 set -- --set "$NAME"
@@ -183,10 +202,15 @@ else
 fi
 if [ -n "$app_icon" ]; then
   set -- "$@" icon= icon.background.drawing=on
-  [ -n "$color" ] && set -- "$@" label.color="$color"
-else
-  [ "${STM_TS_ICON:-text}" = app ] && set -- "$@" icon=TS icon.background.drawing=off
-  [ -n "$color" ] && set -- "$@" icon.color="$color"
+elif [ "$icon_mode" = app ]; then
+  set -- "$@" icon=TS icon.background.drawing=off
+fi
+# The app image is never tinted, so in app mode the state colour always goes
+# on the label, resolved or not: a fallback run must not leave the colour of
+# an earlier resolved run there.
+if [ -n "$color" ]; then
+  [ "$icon_mode" = app ] && set -- "$@" label.color="$color"
+  [ -z "$app_icon" ] && set -- "$@" icon.color="$color"
 fi
 
 # Popup rows: rebuilt on every run so they follow the palette and the tailnet.
@@ -201,10 +225,12 @@ if [ "${STM_TS_CLICK:-popup}" = popup ]; then
       set -- "$@" --add item "$NAME.row.exit" "popup.$NAME" \
         --set "$NAME.row.exit" icon.drawing=off label="exit node: ${exit_name:-$(field exit_ip)}"
     fi
-    self_name=$(field self_name)
+    self_label=$(field self_name)
+    self_ip=$(field self_ip)
+    self_label="${self_label:+$self_label  }${self_ip:+$self_ip  }(this device)"
     dot=$STM_GREEN
     set -- "$@" --add item "$NAME.row.self" "popup.$NAME" \
-      --set "$NAME.row.self" icon="●" label="${self_name:+$self_name  }$(field self_ip)  (this device)"
+      --set "$NAME.row.self" icon="●" label="$self_label"
     [ -n "$dot" ] && set -- "$@" icon.color="$dot"
     n=0
     while IFS="$tab" read -r on host ip; do

@@ -2,7 +2,7 @@
   "Version": "1.76.1",
   "BackendState": "Running",
   "Self": {
-    "HostName": "Siriwat's MacBook Pro",
+    "HostName": "Alex's MacBook Pro",
     "DNSName": "mac.tail0000.ts.net.",
     "Online": true,
     "TailscaleIPs": ["100.64.0.1", "fd7a:115c:a1e0::1"]
