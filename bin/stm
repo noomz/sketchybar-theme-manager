@@ -5116,6 +5116,21 @@ $work"
   note "source $posted"
 }
 
+# cmd_install_item <name> — install item:<name> from the bundled items only.
+# Offline: nothing here fetches.
+cmd_install_item() {
+  stm_item_load "$1"
+  err "install item:$1: not implemented yet"
+  return "$EX_USAGE"
+}
+
+# cmd_uninstall_item <name> — remove an installed item:<name>.
+cmd_uninstall_item() {
+  validate_item_name "$1"
+  err "uninstall item:$1: not implemented yet"
+  return "$EX_USAGE"
+}
+
 # cmd_install <spec> — fetch one HTTPS .toml, lint, atomic write + ledger.
 # A bare slug asks the catalog for source_url, then the M1 fetch+lint+write.
 # Does not apply. Does not sketchybar --reload. add stays local-file only.
@@ -5123,6 +5138,16 @@ cmd_install() {
   local spec="$1" dir dest tmp work slug hash ts
 
   [ -n "$spec" ] || die "$EX_USAGE" "install needs a spec or a catalog slug"
+
+  # item:<name> is bundled code: routed before any palette spec, slug or
+  # catalog lookup, so it can never fetch or yield a palette.
+  case "$spec" in
+    item:*)
+      cmd_install_item "${spec#item:}"
+      return
+      ;;
+  esac
+
   STM_INSTALL_VIA_PORTAL=0
   STM_PORTAL_SLUG=""
   STM_PORTAL_SHA256=""
@@ -5188,6 +5213,14 @@ cmd_uninstall() {
   local slug="$1" dir dest bundled_dir bundled cur
 
   [ -n "$slug" ] || die "$EX_USAGE" "uninstall needs a theme name"
+
+  case "$slug" in
+    item:*)
+      cmd_uninstall_item "${slug#item:}"
+      return
+      ;;
+  esac
+
   validate_slug "$slug"
 
   dir=$(user_palette_dir) ||
