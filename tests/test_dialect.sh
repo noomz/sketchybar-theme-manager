@@ -237,18 +237,29 @@ done_it
 
 # --- the bundled palette set ------------------------------------------------
 
-it "ships eight palettes including frappe"
+it "ships nine palettes including frappe and kanagawa-wave"
 run_stm list --porcelain
 assert_status 0
 for t in tokyo-night catppuccin-mocha catppuccin-macchiato catppuccin-frappe \
-  catppuccin-latte nord gruvbox rose-pine; do
+  catppuccin-latte nord gruvbox rose-pine kanagawa-wave; do
   assert_contains "$STM_OUT" "$t" "missing bundled palette $t"
 done
-assert_eq 8 "$(printf '%s\n' "$STM_OUT" | wc -l | tr -d ' ')"
+assert_eq 9 "$(printf '%s\n' "$STM_OUT" | wc -l | tr -d ' ')"
+done_it
+
+it "kanagawa-wave carries every key tokyo-night does"
+run_stm preview --porcelain tokyo-night
+assert_status 0
+want=$(printf '%s\n' "$STM_OUT" | cut -f1 | sort)
+run_stm preview --porcelain kanagawa-wave
+assert_status 0
+have=$(printf '%s\n' "$STM_OUT" | cut -f1 | sort)
+assert_eq "" "$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$have") | tr '\n' ' ')" \
+  "kanagawa-wave is missing keys"
 done_it
 
 it "every palette carries the bash Catppuccin dialect keys"
-for slug in tokyo-night catppuccin-mocha catppuccin-frappe nord gruvbox rose-pine; do
+for slug in tokyo-night catppuccin-mocha catppuccin-frappe nord gruvbox rose-pine kanagawa-wave; do
   run_stm preview --porcelain "$slug"
   assert_status 0 "$slug should parse"
   for k in rosewater mauve peach text subtext1 overlay0 surface0 base mantle crust; do
