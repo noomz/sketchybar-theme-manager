@@ -707,4 +707,76 @@ assert_file_absent "$ITEM_LEDGER"
 ship_ok_as ok
 done_it
 
+# --- manifest / verify / backup ---------------------------------------------
+
+it "item files and the loader stay out of the manifest baseline and verify (V12)"
+reset_items
+mkdir -p "$D/items"
+printf 'return {}\n' >"$D/items/clock.lua"
+run_stm --dir "$D" --palette-dir "$P" --no-reload install item:ok
+assert_status 0
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 0
+assert_file_not_contains "$D/.stm-manifest" "items/stm/"
+assert_file_not_contains "$D/.stm-manifest" "plugins/stm/"
+assert_file_not_contains "$D/.stm-manifest" "items_generated.lua"
+assert_file_contains "$D/.stm-manifest" "./items/clock.lua"
+ship_ok_as two
+run_stm --dir "$D" --no-reload install item:two
+assert_status 0
+printf -- '-- newer\n' >>"$BUNDLES/ok/item.lua"
+run_stm --dir "$D" --no-reload --force install item:ok
+assert_status 0
+run_stm --dir "$D" --no-reload uninstall item:two
+assert_status 0
+run_stm --dir "$D" verify
+assert_status 0
+assert_contains "$STM_OUT" "items_generated.lua items/stm/ plugins/stm/"
+# Control: the user's own item file is still watched.
+printf -- '-- edited\n' >>"$D/items/clock.lua"
+run_stm --dir "$D" verify
+assert_status 1
+assert_contains "$STM_OUT" "items/clock.lua"
+done_it
+
+it "owned backup holds the loader and item files; restore brings them back (V12)"
+run_stm --dir "$D" --no-reload backup itemsnap
+assert_status 0
+files=$(cat "$D/.stm-backups/itemsnap/files.list")
+assert_contains "$files" "items_generated.lua"
+assert_contains "$files" "items/stm/ok.lua"
+assert_contains "$files" "plugins/stm/ok.sh"
+assert_not_contains "$files" "items/clock.lua"
+cp "$D/items_generated.lua" "$SANDBOX/loader.before"
+run_stm --dir "$D" --no-reload uninstall item:ok
+assert_status 0
+run_stm --dir "$D" --no-reload restore itemsnap
+assert_status 0
+assert_files_equal "$BUNDLES/ok/item.lua" "$D/items/stm/ok.lua"
+assert_files_equal "$BUNDLES/ok/plugin.sh" "$D/plugins/stm/ok.sh"
+assert_eq "-rwxr-xr-x" "$(stat -f %Sp "$D/plugins/stm/ok.sh")" "restored plugin mode"
+assert_files_equal "$SANDBOX/loader.before" "$D/items_generated.lua"
+done_it
+
+it "restore never writes through a symlinked plugins/stm"
+mv "$D/plugins/stm" "$SANDBOX/plugins-away"
+rm "$SANDBOX/plugins-away/ok.sh"
+ln -s "$SANDBOX/plugins-away" "$D/plugins/stm"
+run_stm --dir "$D" --no-reload restore itemsnap
+assert_contains "$STM_ERR" "symlink"
+assert_file_absent "$SANDBOX/plugins-away/ok.sh" "restore wrote through a symlinked plugins/stm"
+rm "$D/plugins/stm"
+mv "$SANDBOX/plugins-away" "$D/plugins/stm"
+done_it
+
+it "[output] may not target items_generated.lua"
+printf '[output]\nlua = "items_generated.lua"\n' >"$CFG"
+before=$(snapshot)
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 2
+assert_contains "$STM_ERR" "items_generated.lua"
+assert_eq "$before" "$(snapshot)" "nothing written"
+rm -f "$CFG"
+done_it
+
 finish

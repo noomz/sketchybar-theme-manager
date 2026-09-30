@@ -3455,7 +3455,7 @@ validate_output_name() {
   esac
   # Never let stm be pointed at files it must not own.
   case "$v" in
-    colors.lua | colors_user.lua | .stm-state | .stm-manifest | stm.config.toml | .stm-backups)
+    colors.lua | colors_user.lua | .stm-state | .stm-manifest | stm.config.toml | .stm-backups | items_generated.lua)
       die "$EX_CONFIG" "[output] $key may not be \"$v\" — stm must not own that file"
       ;;
   esac
@@ -4340,7 +4340,8 @@ manifest_path() { printf '%s\n' "$RESOLVED_DIR/.stm-manifest"; }
 
 # manifest_lines <dir> <managed-basename> — `sha  ./relpath` for every regular
 # file stm does not own. `find -type f` is false for symlinks, so a link
-# pointing outside the config dir is never followed or recorded.
+# pointing outside the config dir is never followed or recorded. Installed
+# items (items/stm/, plugins/stm/, items_generated.lua) are stm's as well.
 manifest_lines() {
   local dir="$1" managed="$2"
   (
@@ -4355,6 +4356,9 @@ manifest_lines() {
       ! -name '.stm-tmp.*' \
       ! -name 'layout_generated.lua' \
       ! -name 'layout.sh' \
+      ! -path './items_generated.lua' \
+      ! -path './items/stm/*' \
+      ! -path './plugins/stm/*' \
       ! -name "$managed" \
       -exec shasum -a 256 {} + 2>/dev/null
   ) | sort -k2
@@ -4406,7 +4410,7 @@ $tmpdir"
     "$mf" "$now" | wc -l | tr -d ' ')
 
   info "Verifying $RESOLVED_DIR against $(basename "$mf")"
-  info "  managed by stm (not checked): $managed layout_generated.lua layout.sh .stm-backups/"
+  info "  managed by stm (not checked): $managed layout_generated.lua layout.sh items_generated.lua items/stm/ plugins/stm/ .stm-backups/"
   info ""
 
   if [ "$n_changed" -gt 0 ]; then
@@ -4527,6 +4531,26 @@ owned_relpaths() {
     esac
     printf '%s\n' "$rel"
   done | sort -u
+  owned_item_relpaths
+}
+
+# Installed items: the loader and the regular files directly inside
+# items/stm/ and plugins/stm/. A symlinked stm dir is never followed.
+owned_item_relpaths() {
+  local p f
+  [ -f "$RESOLVED_DIR/items_generated.lua" ] && [ ! -L "$RESOLVED_DIR/items_generated.lua" ] &&
+    printf 'items_generated.lua\n'
+  for p in items/stm plugins/stm; do
+    [ -d "$RESOLVED_DIR/$p" ] && [ ! -L "$RESOLVED_DIR/$p" ] || continue
+    for f in "$RESOLVED_DIR/$p"/*; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      case "${f##*/}" in
+        *[!A-Za-z0-9._-]* | .*) continue ;;
+      esac
+      printf '%s\n' "$p/${f##*/}"
+    done
+  done
+  return 0
 }
 
 snapshot_owned() {
@@ -4677,6 +4701,10 @@ restore_owned() {
     esac
     f="$snap/$rel"
     [ -f "$f" ] || continue
+    if [ -L "$RESOLVED_DIR/$(dirname "$rel")" ]; then
+      err "warning: not restoring $rel: $(dirname "$rel") is a symlink"
+      continue
+    fi
     mkdir -p "$RESOLVED_DIR/$(dirname "$rel")"
     assert_writable_target "$RESOLVED_DIR/$rel"
     cp -p "$f" "$RESOLVED_DIR/$rel"
