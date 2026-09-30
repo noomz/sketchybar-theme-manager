@@ -68,9 +68,9 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V21 bundled item dir resolve only: `$STM_ROOT/bundles/items` → `script_dir/../bundles/items` → `script_dir/../share/stm/bundles/items` (script_dir symlink-resolved). no absolute brew prefix probe (brew share link may be symlink? → V4 refuse).
 - V22 `lint item:<name>` write nothing: config dir, item ledger, palette ledger byte-identical. valid → exit 0.
 - V23 `doctor` key coverage ! skip stm-owned item code: `items/stm/`, `items_generated.lua`, `.stm-backups/`. item colour need checked only via manifest `colors` (V4).
-- V24 tailscale peer name = first label of `Peer{}.DNSName` (MagicDNS name, as Tailscale app show). `HostName` only when `DNSName` empty. iOS report `HostName` = `localhost`. jq + plutil paths same.
-- V25 tailscale `icon`: `text` → `TS`; `nerd` → nf-md-dots_grid U+F15FC (Nerd Fonts lack Tailscale brand glyph); `app` → `icon.background.image` = `app.<id>` (icon slot size to image; item `background.image` draw behind label), id = first of `io.tailscale.ipn.macsys`, `io.tailscale.ipn.macos` sketchybar resolve; none → `TS` text. image never tinted → `app` mode state colour (V17) on `label.color`, not `icon.color`. no image file shipped (V4 files set; trademark).
-- V26 tailscale peer count include self: Running → label `online/total` = peers + this device (self always online). popup row `<NAME>.row.self` after exit row, before peers: `<self name>  <self ip>  (this device)`, green dot. self name same rule as V24 (`Self.DNSName` first label, else `HostName`). self never in peer rows, never counted twice. jq + plutil same.
+- V24 tailscale peer name = first label of `Peer{}.DNSName` (MagicDNS name, as Tailscale app show). `HostName` only when `DNSName` empty. iOS report `HostName` = `localhost`. control chars (tab, newline…) stripped from `DNSName` + `HostName` before use → peer-set name never forge record / row. jq + plutil paths same.
+- V25 tailscale `icon`: `text` → `TS`; `nerd` → nf-md-dots_grid U+F15FC (Nerd Fonts lack Tailscale brand glyph); `app` → `icon.background.image` = `app.<id>` (icon slot size to image; item `background.image` draw behind label), id = first of `io.tailscale.ipn.macsys`, `io.tailscale.ipn.macos` sketchybar resolve; none → `TS` text. image never tinted → `app` mode state colour (V17) always on `label.color` (resolved or fallback; fallback add `icon.color` too) → no stale label colour. `app` icon: `icon.background.color` = 0 (transparent, no palette colour → no pill from user defaults), `icon.background.image.scale` = 0.625 (32pt app image → 20pt). probe only when `SENDER` ∈ `forced|system_woke` or no valid cache; cache `${TMPDIR:-/tmp}/stm-tailscale-icon.<NAME>` = resolved id | `none`, written `mktemp` + `mv`, other content → probe. no image file shipped (V4 files set; trademark).
+- V26 tailscale peer count include self: Running → label `online/total` = peers + this device (self always online). popup row `<NAME>.row.self` after exit row, before peers: `<self name>  <self ip>  (this device)`, green dot. self name same rule as V24 (`Self.DNSName` first label, else `HostName`). self never in peer rows, never counted twice. row + bar label join only non-empty parts (no name / no IP → no double gap). jq + plutil same.
 
 ## §T tasks
 
@@ -94,6 +94,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T16 | x | tailscale peer name from `DNSName` first label, fallback `HostName`; fixture iOS peer `HostName=localhost`; jq + plutil | V24,I.ts |
 | T17 | x | tailscale `icon` option (`text` `nerd` `app`; manifest + item.lua + plugin.sh + tests + README) | V25,V17,V14,I.tsopt |
 | T18 | x | tailscale count self in `online/total` + popup self row `(this device)`; fixtures + jq/plutil tests + README | V26,V24,I.ts |
+| T19 | . | tailscale review fixes: app-mode `label.color` always, strip control chars, non-empty label join, probe cache, transparent icon bg + scale; sparse-self fixture, Lua text/nerd/app test, generic fixture name | V24,V25,V26,V14 |
 
 ## §B bugs
 
@@ -101,3 +102,5 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 |----|------|-------|-----|
 | B1 | 2026-09-30 | `config_used_keys` scan every `*.lua` under config dir incl `items/stm/` + `.stm-backups/` → tailscale `item.lua` probe `colors.popup` → false `USED BUT MISSING popup`, doctor exit 1 | V23 |
 | B2 | 2026-09-30 | tailscale plugin read `Peer{}.HostName`; iOS peer report `localhost` → popup show `localhost`, app show `iphone171` (`DNSName` first label) | V24 |
+| B3 | 2026-09-30 | tailscale `icon=app` fallback set `icon.color` only; prior resolved run left `label.color` = old state → red `TS` beside green `stopped` | V25 |
+| B4 | 2026-09-30 | tailscale parsers emit TAB/newline records; peer `HostName` w/ `\n` + `\t` forge extra online peer row + inflate count (display spoof) | V24 |
