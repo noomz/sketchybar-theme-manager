@@ -124,12 +124,15 @@ ROWS_RE='/stm\.tailscale\.row\..*/'
 
 for P in $PARSERS; do
 
-  it "[$P] Running: green icon, peers online/total, own IP, peer popup (V17, V16)"
+  it "[$P] Running: green icon, devices online/total, own IP, popup (V17, V16, V26)"
   run_state "$P" running
-  # Online peers first, then by name; offline peers grey.
+  # This device counts and gets its own row (HostName: no Self.DNSName here).
+  # Then online peers first, then by name; offline peers grey.
   expected=$(argv_of \
-    --set stm.tailscale label.drawing=on 'label=2/3  100.64.0.1' icon.color=$GREEN \
+    --set stm.tailscale label.drawing=on 'label=3/4  100.64.0.1' icon.color=$GREEN \
     --remove "$ROWS_RE" \
+    --add item stm.tailscale.row.self popup.stm.tailscale \
+    --set stm.tailscale.row.self icon=● 'label=mac  100.64.0.1  (this device)' icon.color=$GREEN \
     --add item stm.tailscale.row.1 popup.stm.tailscale \
     --set stm.tailscale.row.1 icon=● 'label=bravo  100.64.0.4' icon.color=$GREEN \
     --add item stm.tailscale.row.2 popup.stm.tailscale \
@@ -142,7 +145,7 @@ for P in $PARSERS; do
 
   it "[$P] Running + exit node: label and popup name the exit node"
   run_state "$P" exit-node
-  sb_has 'label=exit bravo  2/3  100.64.0.1' icon.color=$GREEN \
+  sb_has 'label=exit bravo  3/4  100.64.0.1' icon.color=$GREEN \
     stm.tailscale.row.exit 'label=exit node: bravo'
   done_it
 
@@ -151,10 +154,12 @@ for P in $PARSERS; do
   # first label of DNSName.
   run_state "$P" mobile
   expected=$(argv_of \
-    --set stm.tailscale label.drawing=on 'label=exit pixel7  2/4  100.64.0.1' icon.color=$GREEN \
+    --set stm.tailscale label.drawing=on 'label=exit pixel7  3/5  100.64.0.1' icon.color=$GREEN \
     --remove "$ROWS_RE" \
     --add item stm.tailscale.row.exit popup.stm.tailscale \
     --set stm.tailscale.row.exit icon.drawing=off 'label=exit node: pixel7' \
+    --add item stm.tailscale.row.self popup.stm.tailscale \
+    --set stm.tailscale.row.self icon=● 'label=mac  100.64.0.1  (this device)' icon.color=$GREEN \
     --add item stm.tailscale.row.1 popup.stm.tailscale \
     --set stm.tailscale.row.1 icon=● 'label=iphone171  100.64.0.2' icon.color=$GREEN \
     --add item stm.tailscale.row.2 popup.stm.tailscale \
@@ -164,7 +169,7 @@ for P in $PARSERS; do
     --add item stm.tailscale.row.4 popup.stm.tailscale \
     --set stm.tailscale.row.4 icon=● 'label=oldbox  100.64.0.4' icon.color=$GREY)
   assert_eq "$expected" "$SB" "mobile argv"
-  sb_lacks 'label=localhost  100.64.0.2'
+  sb_lacks 'label=localhost  100.64.0.2' "label=Siriwat's MacBook Pro  100.64.0.1  (this device)"
   done_it
 
   it "[$P] Starting: yellow, label starting (V17)"
@@ -201,7 +206,7 @@ for P in $PARSERS; do
   run_state "$P" running STM_TS_ICON=app SB_APPS="io.tailscale.ipn.macos"
   assert_eq "$(argv_of io.tailscale.ipn.macsys io.tailscale.ipn.macos)" "$PROBES" "probe order"
   # The item's own --set, up to the popup rows (whose dots keep icon.color).
-  expected=$(argv_of --set stm.tailscale label.drawing=on 'label=2/3  100.64.0.1' \
+  expected=$(argv_of --set stm.tailscale label.drawing=on 'label=3/4  100.64.0.1' \
     icon= icon.background.drawing=on label.color=$GREEN --remove)
   assert_eq "$expected" "$(printf '%s\n' "$SB" | head -n 8)" "app icon argv"
   done_it

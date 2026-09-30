@@ -63,20 +63,21 @@ run_status() {
 }
 
 # Both parsers emit the same records:
-#   state<TAB>Running    self_ip<TAB>100.x    exit_ip<TAB>100.y (or empty)
-#   peer<TAB>1|0<TAB>name<TAB>100.z
-# A peer's name is the first label of its DNSName (the MagicDNS name the
+#   state<TAB>Running    self_ip<TAB>100.x    self_name<TAB>mac
+#   exit_ip<TAB>100.y (or empty)    peer<TAB>1|0<TAB>name<TAB>100.z
+# A node's name is the first label of its DNSName (the MagicDNS name the
 # Tailscale app shows); iOS and Android report HostName "localhost". HostName
 # is used only when DNSName is empty.
 parse_jq() {
   jq -r '
+    def name: ((.DNSName // "") | sub("\\..*$"; "")) as $d |
+      if $d != "" then $d else (.HostName // "") end;
     "state\t" + (.BackendState // ""),
     "self_ip\t" + ((.Self.TailscaleIPs // [])[0] // ""),
+    "self_name\t" + ((.Self // {}) | name),
     "exit_ip\t" + (((.ExitNodeStatus // {}).TailscaleIPs // [])[0] // "" | sub("/.*$"; "")),
     ((.Peer // {}) | to_entries[] | .value |
-      "peer\t" + (if .Online then "1" else "0" end) + "\t" +
-      (((.DNSName // "") | sub("\\..*$"; "")) as $d |
-        if $d != "" then $d else (.HostName // "") end) +
+      "peer\t" + (if .Online then "1" else "0" end) + "\t" + name +
       "\t" + ((.TailscaleIPs // [])[0] // ""))
   ' "$WORK/status.json" 2>/dev/null
 }
@@ -86,9 +87,18 @@ px() {
   /usr/bin/plutil -extract "$1" raw -o - "$WORK/status.json" 2>/dev/null
 }
 
+# node_name <key path> — DNSName's first label, else HostName.
+node_name() {
+  n=$(px "$1.DNSName")
+  n=${n%%.*}
+  [ -n "$n" ] || n=$(px "$1.HostName")
+  printf '%s' "$n"
+}
+
 parse_plutil() {
   printf 'state\t%s\n' "$(px BackendState)"
   printf 'self_ip\t%s\n' "$(px Self.TailscaleIPs.0)"
+  printf 'self_name\t%s\n' "$(node_name Self)"
   e=$(px ExitNodeStatus.TailscaleIPs.0)
   printf 'exit_ip\t%s\n' "${e%%/*}"
   px Peer >"$WORK/keys" || : >"$WORK/keys"
@@ -96,10 +106,7 @@ parse_plutil() {
     case "$k" in "" | *.*) continue ;; esac
     on=0
     [ "$(px "Peer.$k.Online")" = true ] && on=1
-    name=$(px "Peer.$k.DNSName")
-    name=${name%%.*}
-    [ -n "$name" ] || name=$(px "Peer.$k.HostName")
-    printf 'peer\t%s\t%s\t%s\n' "$on" "$name" "$(px "Peer.$k.TailscaleIPs.0")"
+    printf 'peer\t%s\t%s\t%s\n' "$on" "$(node_name "Peer.$k")" "$(px "Peer.$k.TailscaleIPs.0")"
   done <"$WORK/keys"
 }
 
@@ -138,9 +145,10 @@ case "$state" in
       label="exit ${exit_name:-$exit_ip}"
     fi
     if [ "${STM_TS_PEERS:-on}" = on ]; then
+      # Devices on the tailnet: the peers plus this one, which is online.
       online=$(/usr/bin/awk -F'\t' '$1 == "1"' "$WORK/peers" | /usr/bin/wc -l | /usr/bin/tr -d ' ')
       total=$(/usr/bin/wc -l <"$WORK/peers" | /usr/bin/tr -d ' ')
-      label="${label:+$label  }$online/$total"
+      label="${label:+$label  }$((online + 1))/$((total + 1))"
     fi
     if [ "${STM_TS_IP:-on}" = on ]; then
       label="${label:+$label  }$(field self_ip)"
@@ -193,6 +201,11 @@ if [ "${STM_TS_CLICK:-popup}" = popup ]; then
       set -- "$@" --add item "$NAME.row.exit" "popup.$NAME" \
         --set "$NAME.row.exit" icon.drawing=off label="exit node: ${exit_name:-$(field exit_ip)}"
     fi
+    self_name=$(field self_name)
+    dot=$STM_GREEN
+    set -- "$@" --add item "$NAME.row.self" "popup.$NAME" \
+      --set "$NAME.row.self" icon="●" label="${self_name:+$self_name  }$(field self_ip)  (this device)"
+    [ -n "$dot" ] && set -- "$@" icon.color="$dot"
     n=0
     while IFS="$tab" read -r on host ip; do
       [ "$n" -ge "$MAX_PEERS" ] && break
