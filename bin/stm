@@ -2776,10 +2776,11 @@ stm_iso8601() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
-# stm_ledger_stage <file> <key> <row> — the ledger with <key>'s row replaced
-# by <row>, staged in STM_TMP next to <file>. The caller commits it.
+# stm_ledger_stage <file> <key> [row] — the ledger with <key>'s row replaced
+# by <row> (or dropped, without one), staged in STM_TMP next to <file>. The
+# caller commits it, or removes both when the result is empty.
 stm_ledger_stage() {
-  local file="$1" key="$2" row="$3" dir
+  local file="$1" key="$2" row="${3:-}" dir
   dir=$(dirname "$file")
   mkdir -p "$dir"
   mktemp_in "$dir"
@@ -2788,7 +2789,7 @@ stm_ledger_stage() {
   else
     : >"$STM_TMP"
   fi
-  printf '%s\n' "$row" >>"$STM_TMP"
+  [ -z "$row" ] || printf '%s\n' "$row" >>"$STM_TMP"
 }
 
 stm_ledger_put() {
@@ -2800,19 +2801,21 @@ stm_ledger_put() {
 }
 
 stm_ledger_drop() {
-  local slug="$1" file tmp dir
+  local file
   file=$(stm_ledger_file)
   [ -f "$file" ] || return 0
-  dir=$(dirname "$file")
-  mktemp_in "$dir"
-  tmp="$STM_TMP"
-  awk -F '\t' -v s="$slug" '$1 != s { print }' "$file" >"$tmp"
-  if [ ! -s "$tmp" ]; then
-    rm -f "$tmp" "$file"
-    STM_TMP=""
-    return 0
+  stm_ledger_stage "$file" "$1"
+  stm_ledger_commit "$STM_TMP" "$file"
+}
+
+# stm_ledger_commit <tmp> <file> — commit a staged ledger; an empty one
+# removes the ledger instead.
+stm_ledger_commit() {
+  if [ -s "$1" ]; then
+    commit_tmp "$1" "$2"
+  else
+    rm -f "$1" "$2"
   fi
-  commit_tmp "$tmp" "$file"
 }
 
 # detect_format — inspect the sketchybar dir and decide lua vs bash.
@@ -5377,11 +5380,59 @@ cmd_install_item() {
   info "installed item:$name -> $lua_dest"
 }
 
-# cmd_uninstall_item <name> — remove an installed item:<name>.
+# cmd_uninstall_item <name> — remove an installed item:<name>: its files under
+# items/stm/ and plugins/stm/ and its ledger row, then regenerate the loader.
+# Works for an item no longer bundled. Every target is checked, and the ledger
+# and loader staged, before anything is removed.
 cmd_uninstall_item() {
-  validate_item_name "$1"
-  err "uninstall item:$1: not implemented yet"
-  return "$EX_USAGE"
+  local name="$1" d ledger p f loader="" led_tmp gen_tmp="" names
+
+  validate_item_name "$name"
+  stm_item_installed "$name" || die "$EX_NOTFOUND" "item not installed: item:$name"
+  d="$RESOLVED_DIR"
+
+  for p in items plugins; do
+    [ -L "$d/$p/stm" ] && die "$EX_CONFIG" "refusing to uninstall item:$name: $d/$p/stm is a symlink"
+    if [ -e "$d/$p/stm" ] && [ ! -d "$d/$p/stm" ]; then
+      die "$EX_CONFIG" "refusing to uninstall item:$name: $d/$p/stm is not a directory"
+    fi
+  done
+  for f in "$d/items/stm/$name.lua" "$d/plugins/stm/$name.sh"; do
+    [ -L "$f" ] && die "$EX_CONFIG" "refusing to remove a symlink: $f"
+    if [ -e "$f" ] && [ ! -f "$f" ]; then
+      die "$EX_CONFIG" "refusing to remove $f: not a regular file"
+    fi
+  done
+
+  # The loader stays even with no items left, so require("items_generated")
+  # keeps working.
+  if [ -f "$d/items_generated.lua" ]; then
+    names=$(stm_item_names | awk -v n="$name" '$0 != n')
+    loader=$(stm_items_loader_render "$names" "$(stm_current_palette_records)")
+  fi
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    for f in "$d/items/stm/$name.lua" "$d/plugins/stm/$name.sh"; do
+      [ -e "$f" ] && info "would remove $f"
+    done
+    info "would drop item:$name from $(stm_item_ledger_file)"
+    [ -f "$d/items_generated.lua" ] && info "would write $d/items_generated.lua"
+    return 0
+  fi
+
+  ledger=$(stm_item_ledger_file)
+  stm_ledger_stage "$ledger" "$name"
+  led_tmp="$STM_TMP"
+  if [ -f "$d/items_generated.lua" ]; then
+    mktemp_in "$d"
+    gen_tmp="$STM_TMP"
+    printf '%s\n' "$loader" >"$gen_tmp"
+  fi
+
+  rm -f "$d/items/stm/$name.lua" "$d/plugins/stm/$name.sh"
+  stm_ledger_commit "$led_tmp" "$ledger"
+  [ -z "$gen_tmp" ] || commit_tmp "$gen_tmp" "$d/items_generated.lua"
+  info "removed item:$name"
 }
 
 # cmd_install <spec> — fetch one HTTPS .toml, lint, atomic write + ledger.

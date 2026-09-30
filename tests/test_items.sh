@@ -605,4 +605,106 @@ assert_status 0
 assert_file_absent "$O/items_generated.lua" "apply must not write a loader for items this config lacks"
 done_it
 
+# --- uninstall item: --------------------------------------------------------
+
+it "uninstall item: removes only its files and ledger row, keeps other items (V11, V19)"
+reset_items
+ship_ok_as two
+run_stm --dir "$D" --no-reload install item:ok
+assert_status 0
+run_stm --dir "$D" --no-reload install item:two
+assert_status 0
+mkdir -p "$XDG_CONFIG_HOME/stm"
+printf 'nord\thttps://example.com/nord.toml\t%064d\tmain\t2026-01-01T00:00:00Z\n' 0 >"$PALETTE_LEDGER"
+before=$(snapshot)
+reset_fetch_log
+run_stm --dir "$D" --no-reload uninstall item:ok
+assert_status 0
+expected=$(printf '%s\n' "$D/items/stm/ok.lua" "$D/plugins/stm/ok.sh" "$LOADER" "$ITEM_LEDGER" | LC_ALL=C sort)
+assert_eq "$expected" "$(changed_paths "$before" "$(snapshot)")" "uninstall item:ok touched other paths"
+assert_file_absent "$D/items/stm/ok.lua"
+assert_file_absent "$D/plugins/stm/ok.sh"
+assert_file_exists "$D/items/stm/two.lua"
+assert_file_not_contains "$ITEM_LEDGER" "ok	"
+assert_file_contains "$ITEM_LEDGER" "two	bundled	"
+assert_file_not_contains "$LOADER" 'stm_item("ok"'
+assert_file_contains "$LOADER" 'stm_item("two"'
+assert_eq "" "$(fetch_log)" "uninstall item: must not call STM_FETCH"
+assert_eq "" "$(tmp_leftovers)" "no temp files may be left behind"
+done_it
+
+it "uninstall item: not installed is EX_NOTFOUND, writes nothing"
+before=$(snapshot)
+run_stm --dir "$D" --no-reload uninstall item:ok
+assert_status 3
+assert_contains "$STM_ERR" "not installed"
+assert_eq "$before" "$(snapshot)" "nothing written"
+done_it
+
+it "uninstall item: the last item drops the ledger, keeps a loader that still loads"
+run_stm --dir "$D" --no-reload remove item:two
+assert_status 0
+assert_file_absent "$ITEM_LEDGER" "an empty item ledger is removed"
+assert_file_exists "$LOADER" "require(\"items_generated\") must keep working"
+assert_file_not_contains "$LOADER" 'stm_item("'
+if [ -n "$LUA_BIN" ]; then
+  lua_out=$(cd -- "$D" && "$LUA_BIN" -e "package.path = '$SANDBOX/lua/?.lua;./?.lua;' .. package.path" \
+    -e 'require("items_generated")' 2>&1)
+  assert_eq "" "$lua_out" "an empty loader must load cleanly"
+fi
+done_it
+
+# uninstall_refused <needle> — uninstall item:ok fails naming <needle> and
+# writes nothing. The snapshot does not follow symlinks: callers check targets.
+uninstall_refused() {
+  local before
+  before=$(snapshot)
+  run_stm --dir "$D" --no-reload uninstall item:ok
+  assert_ne 0 "$STM_STATUS" "uninstall item:ok must be refused"
+  assert_contains "$STM_ERR" "$1"
+  assert_eq "$before" "$(snapshot)" "a refused uninstall must write nothing"
+}
+
+it "uninstall item: refuses a symlinked item file, leaves its target alone (V11)"
+run_stm --dir "$D" --no-reload install item:ok
+assert_status 0
+printf 'keep me\n' >"$SANDBOX/outside.lua"
+rm "$D/items/stm/ok.lua"
+ln -s "$SANDBOX/outside.lua" "$D/items/stm/ok.lua"
+uninstall_refused "symlink"
+assert_eq "keep me" "$(cat "$SANDBOX/outside.lua")" "symlink target must survive"
+done_it
+
+it "uninstall item: refuses a symlinked plugins/stm and a non-regular target (V11)"
+run_stm --dir "$D" --no-reload --force install item:ok
+assert_status 0
+mv "$D/plugins/stm" "$SANDBOX/plugins-elsewhere"
+ln -s "$SANDBOX/plugins-elsewhere" "$D/plugins/stm"
+uninstall_refused "symlink"
+assert_file_exists "$SANDBOX/plugins-elsewhere/ok.sh" "nothing removed through the symlink"
+rm "$D/plugins/stm"
+mv "$SANDBOX/plugins-elsewhere" "$D/plugins/stm"
+rm "$D/plugins/stm/ok.sh"
+mkdir "$D/plugins/stm/ok.sh"
+uninstall_refused "not a regular file"
+rmdir "$D/plugins/stm/ok.sh"
+done_it
+
+it "uninstall item: --dry-run reports and writes nothing"
+before=$(snapshot)
+run_stm --dir "$D" --no-reload --dry-run uninstall item:ok
+assert_status 0
+assert_contains "$STM_OUT$STM_ERR" "would remove"
+assert_eq "$before" "$(snapshot)" "--dry-run must write nothing"
+done_it
+
+it "uninstall item: works for an item no longer in the stm release"
+rm -rf "${BUNDLES:?}/ok"
+run_stm --dir "$D" --no-reload uninstall item:ok
+assert_status 0
+assert_file_absent "$D/items/stm/ok.lua"
+assert_file_absent "$ITEM_LEDGER"
+ship_ok_as ok
+done_it
+
 finish
