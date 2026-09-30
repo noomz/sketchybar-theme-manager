@@ -40,7 +40,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
   - `$RESOLVED_DIR/items_generated.lua` ("DO NOT EDIT" header)
   - ledger `${XDG_CONFIG_HOME:-~/.config}/stm/items` TSV `name  source  tree-sha256  ref  iso8601`; bundled → `source=bundled`, `ref=<STM_VERSION>`
 - I.wire user add once: `require("items_generated")`
-- I.ts CLI lookup: `$STM_TAILSCALE` if set (override, no fallback) → `/usr/local/bin/tailscale` → `/Applications/Tailscale.app/Contents/MacOS/Tailscale` → `/opt/homebrew/bin/tailscale` → `tailscale` on PATH. `status --json` fields: `BackendState`, `Self.TailscaleIPs`, `Peer{}.HostName/.Online/.TailscaleIPs`, `ExitNodeStatus` (optional)
+- I.ts CLI lookup: `$STM_TAILSCALE` if set (override, no fallback) → `/usr/local/bin/tailscale` → `/Applications/Tailscale.app/Contents/MacOS/Tailscale` → `/opt/homebrew/bin/tailscale` → `tailscale` on PATH. `status --json` fields: `BackendState`, `Self.TailscaleIPs`, `Peer{}.DNSName/.HostName/.Online/.TailscaleIPs`, `ExitNodeStatus` (optional)
 - I.tsopt tailscale options: `exit_node` `peers` `ip` ∈ `on|off` (default all `on`); `click` ∈ `popup|app` (default `popup`)
 
 ## §V invariants
@@ -68,6 +68,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V21 bundled item dir resolve only: `$STM_ROOT/bundles/items` → `script_dir/../bundles/items` → `script_dir/../share/stm/bundles/items` (script_dir symlink-resolved). no absolute brew prefix probe (brew share link may be symlink? → V4 refuse).
 - V22 `lint item:<name>` write nothing: config dir, item ledger, palette ledger byte-identical. valid → exit 0.
 - V23 `doctor` key coverage ! skip stm-owned item code: `items/stm/`, `items_generated.lua`, `.stm-backups/`. item colour need checked only via manifest `colors` (V4).
+- V24 tailscale peer name = first label of `Peer{}.DNSName` (MagicDNS name, as Tailscale app show). `HostName` only when `DNSName` empty. iOS report `HostName` = `localhost`. jq + plutil paths same.
 
 ## §T tasks
 
@@ -88,9 +89,11 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T13 | x | CI: `stm lint item:<name>` every bundled item, shellcheck plugins | V20,V22 |
 | T14 | x | real-bar smoke: install, wire, `stm apply gruvbox`, switch theme → recolour | V10,V17 |
 | T15 | x | Formula + `install.sh` ship `bundles/items/` (known files only) to `share/stm/bundles/items` | C3,V21 |
+| T16 | . | tailscale peer name from `DNSName` first label, fallback `HostName`; fixture iOS peer `HostName=localhost`; jq + plutil | V24,I.ts |
 
 ## §B bugs
 
 | id | date | cause | fix |
 |----|------|-------|-----|
 | B1 | 2026-09-30 | `config_used_keys` scan every `*.lua` under config dir incl `items/stm/` + `.stm-backups/` → tailscale `item.lua` probe `colors.popup` → false `USED BUT MISSING popup`, doctor exit 1 | V23 |
+| B2 | 2026-09-30 | tailscale plugin read `Peer{}.HostName`; iOS peer report `localhost` → popup show `localhost`, app show `iphone171` (`DNSName` first label) | V24 |
