@@ -278,4 +278,132 @@ assert_file_contains "$ITEM_LEDGER" "ok	bundled	"
 assert_eq "" "$(fetch_log)" "install item:ok must not call STM_FETCH"
 done_it
 
+# --- install item: write path ----------------------------------------------
+
+# reset_items — no item installed: stm-owned item paths and the ledger gone.
+reset_items() {
+  chmod -R u+w "$D/items" "$D/plugins" 2>/dev/null
+  rm -rf "$D/items" "$D/plugins" "$ITEM_LEDGER"
+}
+
+# changed_paths <before> <after> — paths whose snapshot line differs.
+changed_paths() {
+  { printf '%s\n' "$1"; printf '%s\n' "$2"; } | LC_ALL=C sort | uniq -u |
+    awk '{ print $NF }' | LC_ALL=C sort -u
+}
+
+# tmp_leftovers — any stm temp file left behind anywhere we write.
+tmp_leftovers() {
+  find "$D" "$XDG_CONFIG_HOME" -name '.stm-tmp.*' 2>/dev/null
+}
+
+PALETTE_LEDGER="$XDG_CONFIG_HOME/stm/installed"
+
+it "install item: writes only its item, plugin and ledger row (V5, V19)"
+reset_items
+mkdir -p "$XDG_CONFIG_HOME/stm"
+printf 'nord\thttps://example.com/nord.toml\t%064d\tmain\t2026-01-01T00:00:00Z\n' 0 >"$PALETTE_LEDGER"
+palette_ledger_before=$(cksum <"$PALETTE_LEDGER")
+before=$(snapshot)
+run_stm --dir "$D" --no-reload install item:ok
+assert_status 0
+expected=$(printf '%s\n' "$D/items" "$D/items/stm" "$D/items/stm/ok.lua" \
+  "$D/plugins" "$D/plugins/stm" "$D/plugins/stm/ok.sh" "$ITEM_LEDGER" | LC_ALL=C sort)
+assert_eq "$expected" "$(changed_paths "$before" "$(snapshot)")" "install item:ok touched other paths"
+assert_eq "$palette_ledger_before" "$(cksum <"$PALETTE_LEDGER")" "palette ledger must be untouched"
+assert_eq "" "$(tmp_leftovers)" "no temp files may be left behind"
+done_it
+
+it "install item: copies the bundle files, plugin executable (I.fs)"
+assert_files_equal "$BUNDLES/ok/item.lua" "$D/items/stm/ok.lua"
+assert_files_equal "$BUNDLES/ok/plugin.sh" "$D/plugins/stm/ok.sh"
+assert_eq "-rwxr-xr-x" "$(stat -f %Sp "$D/plugins/stm/ok.sh")" "plugin mode"
+assert_eq "-rw-r--r--" "$(stat -f %Sp "$D/items/stm/ok.lua")" "item mode"
+stm_version=$(awk -F'"' '/^STM_VERSION=/ { print $2; exit }' "$STM_BIN")
+row=$(cat "$ITEM_LEDGER")
+case "$row" in
+  "ok	bundled	"*"	$stm_version	"????-??-??T??:??:??Z) : ;;
+  *) _note_fail "ledger row shape: name bundled sha ref iso8601" "row: $row" ;;
+esac
+sha=$(printf '%s\n' "$row" | awk -F'\t' '{ print $3 }')
+case "$sha" in
+  *[!0-9a-f]* | "") _note_fail "tree sha is not hex: $sha" ;;
+  *) assert_eq 64 "${#sha}" "tree sha length" ;;
+esac
+done_it
+
+it "install item: already installed without --force is EX_EXISTS, writes nothing (V8)"
+before=$(snapshot)
+run_stm --dir "$D" --no-reload install item:ok
+assert_status 4
+assert_contains "$STM_ERR" "--force"
+assert_eq "$before" "$(snapshot)" "refused reinstall must write nothing"
+done_it
+
+it "install item: --force replaces files and the ledger row, never duplicates it (V8)"
+old_sha=$(awk -F'\t' '{ print $3 }' "$ITEM_LEDGER")
+printf -- '-- changed\n' >>"$BUNDLES/ok/item.lua"
+run_stm --dir "$D" --no-reload --force install item:ok
+assert_status 0
+assert_files_equal "$BUNDLES/ok/item.lua" "$D/items/stm/ok.lua"
+assert_eq 1 "$(grep -c '^ok	' "$ITEM_LEDGER")" "one ledger row per item"
+assert_ne "$old_sha" "$(awk -F'\t' '{ print $3 }' "$ITEM_LEDGER")" "bundle change must change the tree sha"
+done_it
+
+it "install item: failure mid-install leaves the prior install intact (V6)"
+ship_ok_as ok
+run_stm --dir "$D" --no-reload --force install item:ok
+assert_status 0
+printf -- '-- newer\n' >>"$BUNDLES/ok/item.lua"
+chmod 555 "$D/plugins/stm"
+before=$(snapshot)
+run_stm --dir "$D" --no-reload --force install item:ok
+chmod 755 "$D/plugins/stm"
+assert_ne 0 "$STM_STATUS" "install must fail when plugins/stm is read-only"
+assert_eq "$before" "$(snapshot)" "a failed install must leave every file as it was"
+assert_eq "" "$(tmp_leftovers)" "no temp files may be left behind"
+ship_ok_as ok
+done_it
+
+it "install item: refuses a non-Lua config or a bundle without the lua dialect (V7)"
+B="$SANDBOX/bashcfg"
+make_bash_config "$B"
+reset_items
+before=$(snapshot)
+bash_before=$(find "$B" -exec cksum {} + 2>/dev/null | LC_ALL=C sort)
+run_stm --dir "$B" --no-reload install item:ok
+assert_ne 0 "$STM_STATUS" "item install into a bash config must fail"
+assert_contains "$STM_ERR" "lua"
+assert_eq "$bash_before" "$(find "$B" -exec cksum {} + 2>/dev/null | LC_ALL=C sort)" "bash config must be untouched"
+assert_eq "$before" "$(snapshot)" "nothing written"
+ship_ok_as nolua
+sed 's/^dialects = .*/dialects = ["bash"]/' "$BUNDLES/nolua/item.toml" >"$SANDBOX/nolua.toml"
+mv "$SANDBOX/nolua.toml" "$BUNDLES/nolua/item.toml"
+run_stm --dir "$D" --no-reload install item:nolua
+assert_ne 0 "$STM_STATUS" "a bundle without the lua dialect must be refused"
+assert_contains "$STM_ERR" "lua"
+assert_eq "$before" "$(snapshot)" "nothing written"
+done_it
+
+it "install item: refuses a symlinked items/stm, writes nothing through it"
+reset_items
+mkdir -p "$D/items" "$SANDBOX/elsewhere"
+ln -s "$SANDBOX/elsewhere" "$D/items/stm"
+before=$(snapshot)
+run_stm --dir "$D" --no-reload install item:ok
+assert_ne 0 "$STM_STATUS" "symlinked items/stm must be refused"
+assert_contains "$STM_ERR" "symlink"
+assert_eq "" "$(ls -A "$SANDBOX/elsewhere")" "nothing may be written through the symlink"
+assert_eq "$before" "$(snapshot)" "nothing written"
+reset_items
+done_it
+
+it "install item: --dry-run reports and writes nothing"
+before=$(snapshot)
+run_stm --dir "$D" --no-reload --dry-run install item:ok
+assert_status 0
+assert_contains "$STM_OUT$STM_ERR" "would install item:ok"
+assert_eq "$before" "$(snapshot)" "--dry-run must write nothing"
+done_it
+
 finish

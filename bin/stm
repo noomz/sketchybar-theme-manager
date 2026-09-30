@@ -132,12 +132,13 @@ assert_writable_target() {
   [ -w "$dir" ] || die "$EX_CONFIG" "directory is not writable: $dir"
 }
 
-# commit_tmp <tmpfile> <target> — atomically move tmp over target, preserving a
-# sensible mode (mktemp gives 0600; config files should be readable).
+# commit_tmp <tmpfile> <target> [mode] — atomically move tmp over target,
+# preserving a sensible mode (mktemp gives 0600; config files should be
+# readable). mode defaults to 644.
 commit_tmp() {
-  local tmp="$1" target="$2" f old_ifs kept=""
+  local tmp="$1" target="$2" mode="${3:-644}" f old_ifs kept=""
   assert_writable_target "$target"
-  chmod 644 "$tmp"
+  chmod "$mode" "$tmp"
   mv -f "$tmp" "$target"
   # Drop it from the cleanup list: it no longer exists under the temp name.
   old_ifs="$IFS"
@@ -1255,8 +1256,21 @@ END {
 }
 '
 
-# Set by stm_item_load: the validated records.
+# Set by stm_item_load: the validated records and the bundle directory.
 STM_ITEM_RECORDS=""
+STM_ITEM_DIR=""
+
+# stm_item_files — the bundle files the loaded manifest lists, one per line.
+stm_item_files() {
+  printf '%s\n' "$STM_ITEM_RECORDS" | awk -F'\t' '$1=="file" { print $2 }'
+}
+
+# stm_item_has <kind> <value> — true if the loaded manifest has that record,
+# e.g. `stm_item_has dialect lua`.
+stm_item_has() {
+  printf '%s\n' "$STM_ITEM_RECORDS" | awk -F'\t' -v k="$1" -v v="$2" \
+    '$1==k && $2==v { found=1; exit } END { exit !found }'
+}
 
 # stm_item_load <name> — resolve item:<name> against the bundled items only and
 # validate the manifest and every file it lists. Any defect is a hard error.
@@ -1274,11 +1288,40 @@ stm_item_load() {
   STM_ITEM_RECORDS=$(awk -v prog="$PROGNAME" -v bundle="$name" -v required="$STM_REQUIRED_KEYS" \
     "$STM_ITEM_TOML_AWK" "$f") || die "$EX_INVALID" "invalid item bundle: item:$name"
 
-  for f in $(printf '%s\n' "$STM_ITEM_RECORDS" | awk -F'\t' '$1=="file" { print $2 }'); do
+  for f in $(stm_item_files); do
     [ -L "$dir/$f" ] && die "$EX_INVALID" "item:$name: bundle file $f is a symlink"
     [ -e "$dir/$f" ] || die "$EX_INVALID" "item:$name: bundle file $f is missing"
     [ -f "$dir/$f" ] || die "$EX_INVALID" "item:$name: bundle file $f is not a regular file"
   done
+  STM_ITEM_DIR="$dir"
+}
+
+# ---------------------------------------------------------------------------
+# item ledger — $XDG_CONFIG_HOME/stm/items
+# Format (one row per item; validated fields only):
+#   name<TAB>source<TAB>tree-sha256<TAB>ref<TAB>iso8601
+# Bundled items: source=bundled, ref=STM_VERSION. Separate from the palette
+# ledger, which item commands never touch.
+# ---------------------------------------------------------------------------
+
+stm_item_ledger_file() {
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/stm/items"
+}
+
+# stm_item_installed <name> — true if the item ledger has a row for <name>.
+stm_item_installed() {
+  local file
+  file=$(stm_item_ledger_file)
+  [ -f "$file" ] && awk -F'\t' -v n="$1" '$1==n { found=1; exit } END { exit !found }' "$file"
+}
+
+# stm_item_tree_sha — sha256 over item.toml and every listed file of the loaded
+# bundle, in a fixed order: any byte change in the bundle changes the hash.
+stm_item_tree_sha() {
+  local f
+  for f in item.toml $(stm_item_files | LC_ALL=C sort); do
+    printf '%s  %s\n' "$(stm_sha256 "$STM_ITEM_DIR/$f")" "$f"
+  done | stm_sha256 /dev/stdin
 }
 
 # ---------------------------------------------------------------------------
@@ -2610,22 +2653,27 @@ stm_iso8601() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
-stm_ledger_put() {
-  local slug="$1" url="$2" hash="$3" ref="$4" ts="$5"
-  local file dir tmp
-  validate_slug "$slug"
-  file=$(stm_ledger_file)
+# stm_ledger_stage <file> <key> <row> — the ledger with <key>'s row replaced
+# by <row>, staged in STM_TMP next to <file>. The caller commits it.
+stm_ledger_stage() {
+  local file="$1" key="$2" row="$3" dir
   dir=$(dirname "$file")
   mkdir -p "$dir"
   mktemp_in "$dir"
-  tmp="$STM_TMP"
   if [ -f "$file" ]; then
-    awk -F '\t' -v s="$slug" '$1 != s { print }' "$file" >"$tmp"
+    awk -F '\t' -v s="$key" '$1 != s { print }' "$file" >"$STM_TMP"
   else
-    : >"$tmp"
+    : >"$STM_TMP"
   fi
-  printf '%s\t%s\t%s\t%s\t%s\n' "$slug" "$url" "$hash" "$ref" "$ts" >>"$tmp"
-  commit_tmp "$tmp" "$file"
+  printf '%s\n' "$row" >>"$STM_TMP"
+}
+
+stm_ledger_put() {
+  local slug="$1" url="$2" hash="$3" ref="$4" ts="$5" file
+  validate_slug "$slug"
+  file=$(stm_ledger_file)
+  stm_ledger_stage "$file" "$slug" "$(printf '%s\t%s\t%s\t%s\t%s' "$slug" "$url" "$hash" "$ref" "$ts")"
+  commit_tmp "$STM_TMP" "$file"
 }
 
 stm_ledger_drop() {
@@ -5117,11 +5165,63 @@ $work"
 }
 
 # cmd_install_item <name> — install item:<name> from the bundled items only.
-# Offline: nothing here fetches.
+# Offline: nothing here fetches. Writes only items/stm/<name>.lua,
+# plugins/stm/<name>.sh and the item ledger row. Every file is staged before
+# any is committed, so a failure while staging leaves the prior install as is.
 cmd_install_item() {
-  stm_item_load "$1"
-  err "install item:$1: not implemented yet"
-  return "$EX_USAGE"
+  local name="$1" d ledger p lua_dest sh_dest="" lua_tmp sh_tmp="" row
+
+  stm_item_load "$name"
+  d="$RESOLVED_DIR"
+  [ -d "$d" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $d"
+  resolve_format
+  [ "$RESOLVED_FORMAT" = "lua" ] ||
+    die "$EX_CONFIG" "item:$name needs the lua config format (found: $RESOLVED_FORMAT)"
+  stm_item_has dialect lua || die "$EX_INVALID" "item:$name does not support the lua dialect"
+
+  if [ "$OPT_FORCE" -eq 0 ] && stm_item_installed "$name"; then
+    die "$EX_EXISTS" "item:$name is already installed (use --force to reinstall)"
+  fi
+
+  # items/stm and plugins/stm are stm-owned: real directories or absent.
+  for p in items plugins; do
+    if [ -e "$d/$p" ] && [ ! -d "$d/$p" ]; then
+      die "$EX_CONFIG" "refusing to install item:$name: $d/$p is not a directory"
+    fi
+    [ -L "$d/$p/stm" ] && die "$EX_CONFIG" "refusing to install item:$name: $d/$p/stm is a symlink"
+    if [ -e "$d/$p/stm" ] && [ ! -d "$d/$p/stm" ]; then
+      die "$EX_CONFIG" "refusing to install item:$name: $d/$p/stm is not a directory"
+    fi
+  done
+
+  lua_dest="$d/items/stm/$name.lua"
+  stm_item_has file plugin.sh && sh_dest="$d/plugins/stm/$name.sh"
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "would install item:$name -> $lua_dest"
+    [ -n "$sh_dest" ] && info "would install item:$name -> $sh_dest"
+    return 0
+  fi
+
+  ledger=$(stm_item_ledger_file)
+  row=$(printf '%s\tbundled\t%s\t%s\t%s' "$name" "$(stm_item_tree_sha)" "$STM_VERSION" "$(stm_iso8601)")
+
+  mkdir -p "$d/items/stm"
+  mktemp_in "$d/items/stm"
+  lua_tmp="$STM_TMP"
+  cat "$STM_ITEM_DIR/item.lua" >"$lua_tmp"
+  if [ -n "$sh_dest" ]; then
+    mkdir -p "$d/plugins/stm"
+    mktemp_in "$d/plugins/stm"
+    sh_tmp="$STM_TMP"
+    cat "$STM_ITEM_DIR/plugin.sh" >"$sh_tmp"
+  fi
+  stm_ledger_stage "$ledger" "$name" "$row"
+
+  commit_tmp "$lua_tmp" "$lua_dest"
+  [ -n "$sh_tmp" ] && commit_tmp "$sh_tmp" "$sh_dest" 755
+  commit_tmp "$STM_TMP" "$ledger"
+  info "installed item:$name -> $lua_dest"
 }
 
 # cmd_uninstall_item <name> — remove an installed item:<name>.
