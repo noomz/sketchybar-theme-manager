@@ -1,6 +1,6 @@
-name = "file-missing"
+name = "dialect-unknown"
 version = "0.1.0"
-dialects = ["lua"]
+dialects = ["lua", "python"]
 files = ["item.lua", "plugin.sh"]
 colors = ["green", "yellow", "red", "grey"]
 default_position = "right"
