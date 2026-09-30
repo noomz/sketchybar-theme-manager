@@ -23,6 +23,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
   - `stm uninstall item:<name>` (alias `remove`)
   - `stm apply` → also regen `items_generated.lua`
   - `stm doctor` → item checks
+  - `stm lint item:<name>` → validate bundled bundle only (manifest + files). offline. write nothing
   - `stm help` → lists `item:` forms
 - I.bundle `bundles/items/<name>/`
   - `item.toml` closed fields: `name` `version` `dialects` `files` `colors` `default_position` `update_freq` `events` `[options.<key>]` (`values`, `default`)
@@ -45,10 +46,10 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V1 every `item:` command → zero `STM_FETCH` calls.
 - V2 `item:` spec routed in `cmd_install`/`cmd_uninstall` before `stm_parse_install_spec`. palette spec never yield item files.
 - V3 `item:<name>` name ! match `[a-z][a-z0-9_-]*` + exist under bundled `bundles/items/`. contain `/` `@` `..` `:` or scheme → hard error, nothing written.
-- V4 manifest closed set. unknown field | colour ∉ `STM_REQUIRED_KEYS` | option `default` ∉ `values` | `files` entry w/ `/` `..` abs path | file missing | symlink | non-regular → hard error, nothing written, exit ≠ 0.
+- V4 manifest closed set. unknown field | manifest `name` ≠ bundle dir name | `dialects` value ∉ `lua|bash|config-sh` | colour ∉ `STM_REQUIRED_KEYS` | option `default` ∉ `values` | `files` entry w/ `/` `..` abs path | `files` ∌ `item.lua` or entry ∉ `item.lua|plugin.sh` | `default_position` ∉ `left|right|center` | file missing | symlink | non-regular → hard error, nothing written, exit ≠ 0.
 - V5 install touch only: `items/stm/<name>.lua`, `plugins/stm/<name>.sh`, `items_generated.lua`, ledger row. every other file in config dir byte-identical.
 - V6 all writes `mktemp_in` + `commit_tmp`. fail mid-install → prior state intact.
-- V7 `RESOLVED_FORMAT != lua` → refuse, nothing written.
+- V7 `RESOLVED_FORMAT != lua` | manifest `dialects` ∌ `lua` → refuse, nothing written.
 - V8 ledger row exists w/o `--force` → `EX_EXISTS`, nothing written.
 - V9 `[item.<name>]` value ∉ manifest `values` → hard error. unknown option key → hard error. generated Lua hold only validated enum values as string literals.
 - V10 SketchyBar item name always `stm.<name>`.
@@ -62,13 +63,15 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V18 `doctor` warn missing `require("items_generated")` only when ≥1 item installed.
 - V19 palette ledger `~/.config/stm/installed` untouched by item commands.
 - V20 `tests/run.sh` green bash 3.2 + 5. shellcheck silent incl `bundles/items/*/plugin.sh`.
+- V21 bundled item dir resolve only: `$STM_ROOT/bundles/items` → `script_dir/../bundles/items` → `script_dir/../share/stm/bundles/items` (script_dir symlink-resolved). no absolute brew prefix probe (brew share link may be symlink? → V4 refuse).
+- V22 `lint item:<name>` write nothing: config dir, item ledger, palette ledger byte-identical. valid → exit 0.
 
 ## §T tasks
 
 | id | status | task | cites |
 |----|--------|------|-------|
 | T1 | x | `tests/fixtures/bad-items/*` + `tests/test_items.sh` skeleton (red) | V3,V4 |
-| T2 | . | awk manifest parser + validator, closed field set | V4,I.bundle |
+| T2 | . | awk manifest parser + validator, closed field set; bundled lookup; reachable via `stm lint item:<name>` | V1,V3,V4,V21,V22,I.bundle,I.cli |
 | T3 | . | `bundles/items/tailscale/` item.toml + item.lua + plugin.sh | I.ts,I.tsopt,V14,V15,V16,V17 |
 | T4 | . | plugin tests: fake `tailscale` (Running, Running+exit node, Stopped, NeedsLogin, Starting, hang, absent) + fake `sketchybar` log; jq + plutil paths | V15,V16,V17 |
 | T5 | . | `item:` routing in `cmd_install`/`cmd_uninstall` before spec parse | V1,V2,V3 |
@@ -79,8 +82,9 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T10 | . | manifest / backup / verify exclusion lists (`bin/stm` ~3006, 3929, 4037, 5111) | V12 |
 | T11 | . | `doctor`: installed items, version drift, wiring (`lua_file_is_wired`), CLI note | V18,I.wire |
 | T12 | . | `stm help`, README Items section, rewrite trust paras (README ~446, AGENTS.md ~68-76, CONTRIBUTING.md) | C2,I.cli |
-| T13 | . | CI: validate bundled item manifests, shellcheck plugins | V20 |
+| T13 | . | CI: `stm lint item:<name>` every bundled item, shellcheck plugins | V20,V22 |
 | T14 | . | real-bar smoke: install, wire, `stm apply gruvbox`, switch theme → recolour | V10,V17 |
+| T15 | . | Formula + `install.sh` ship `bundles/items/` (known files only) to `share/stm/bundles/items` | C3,V21 |
 
 ## §B bugs
 
