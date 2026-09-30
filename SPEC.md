@@ -41,7 +41,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
   - ledger `${XDG_CONFIG_HOME:-~/.config}/stm/items` TSV `name  source  tree-sha256  ref  iso8601`; bundled → `source=bundled`, `ref=<STM_VERSION>`
 - I.wire user add once: `require("items_generated")`
 - I.ts CLI lookup: `$STM_TAILSCALE` if set (override, no fallback) → `/usr/local/bin/tailscale` → `/Applications/Tailscale.app/Contents/MacOS/Tailscale` → `/opt/homebrew/bin/tailscale` → `tailscale` on PATH. `status --json` fields: `BackendState`, `Self.TailscaleIPs`, `Peer{}.DNSName/.HostName/.Online/.TailscaleIPs`, `ExitNodeStatus` (optional)
-- I.tsopt tailscale options: `exit_node` `peers` `ip` ∈ `on|off` (default all `on`); `click` ∈ `popup|app` (default `popup`)
+- I.tsopt tailscale options: `exit_node` `peers` `ip` ∈ `on|off` (default all `on`); `click` ∈ `popup|app` (default `popup`); `icon` ∈ `text|nerd|app` (default `text`)
 
 ## §V invariants
 
@@ -69,6 +69,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V22 `lint item:<name>` write nothing: config dir, item ledger, palette ledger byte-identical. valid → exit 0.
 - V23 `doctor` key coverage ! skip stm-owned item code: `items/stm/`, `items_generated.lua`, `.stm-backups/`. item colour need checked only via manifest `colors` (V4).
 - V24 tailscale peer name = first label of `Peer{}.DNSName` (MagicDNS name, as Tailscale app show). `HostName` only when `DNSName` empty. iOS report `HostName` = `localhost`. jq + plutil paths same.
+- V25 tailscale `icon`: `text` → `TS`; `nerd` → nf-md-dots_grid U+F15FC (Nerd Fonts lack Tailscale brand glyph); `app` → `background.image` = `app.<id>`, id = first of `io.tailscale.ipn.macsys`, `io.tailscale.ipn.macos` sketchybar resolve; none → `TS` text. image never tinted → `app` mode state colour (V17) on `label.color`, not `icon.color`. no image file shipped (V4 files set; trademark).
 
 ## §T tasks
 
@@ -90,6 +91,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T14 | x | real-bar smoke: install, wire, `stm apply gruvbox`, switch theme → recolour | V10,V17 |
 | T15 | x | Formula + `install.sh` ship `bundles/items/` (known files only) to `share/stm/bundles/items` | C3,V21 |
 | T16 | x | tailscale peer name from `DNSName` first label, fallback `HostName`; fixture iOS peer `HostName=localhost`; jq + plutil | V24,I.ts |
+| T17 | . | tailscale `icon` option (`text` `nerd` `app`; manifest + item.lua + plugin.sh + tests + README) | V25,V17,V14,I.tsopt |
 
 ## §B bugs
 
