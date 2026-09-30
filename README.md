@@ -1001,7 +1001,7 @@ STM_BASH="$(brew --prefix)/bin/bash" tests/run.sh   # against bash 5.x
 tests/run.sh test_apply_bash.sh                 # a single file
 
 shellcheck -s bash bin/stm tests/*.sh
-shellcheck -s sh install.sh
+shellcheck -s sh install.sh bundles/items/*/plugin.sh
 ```
 
 Every test runs in a `mktemp -d` sandbox with `HOME` redirected inside it, so
