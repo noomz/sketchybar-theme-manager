@@ -71,7 +71,8 @@ STM_ROOT="$PWD" bin/stm preview my-theme
   an alias). `--allow-host <host>` may widen the HTTPS host allowlist for
   `install` only (still HTTPS-only). Fetch / host failures exit `5`
   (`EX_NETWORK`). The only commands that may make an outbound request are
-  `install`, `search`, `login`, `logout`, `publish`, and `update`. Everything
+  `install`, `search`, `login`, `logout`, `publish`, and `update`, and
+  `install item:<name>` never does. Everything
   else (`apply`, `preview`, `list`, `doctor`, `verify`, `adopt`, `backup`,
   `restore`, `import`, `export`, `add`, `lint`, `uninstall`, `remove`) is
   offline. Tests stub `STM_FETCH` and must not talk to the internet. `stm lint`
@@ -129,7 +130,8 @@ Layout scrape is data only; item files are never edited.
 ## Templates and the trust boundary
 
 The rule that shapes most of the design: **a palette is untrusted data, a
-template is trusted code.**
+template is trusted code.** Bundled items are the one other kind of code — see
+below.
 
 A palette may be downloaded from anywhere, so the only thing it ever
 contributes to generated output is a value already validated as
@@ -148,6 +150,18 @@ They must never contain Lua, shell, or paths. `stm` writes a generated overlay
 (`layout_generated.lua` / `layout.sh`); it never rewrites the user's item files.
 `adopt` may scrape `--bar` / `--add item` / `sbar.bar` / `sbar.add` into those
 tables using the same allowlist; it still never edits item scripts.
+
+Bundled items (`stm install item:<name>`) are code, so they get their own path
+instead of a palette field. Item code comes only from `bundles/items/<name>/`
+inside the stm release — never from a palette, the catalog, or the network.
+`item:` is routed before any palette spec is parsed, and the name must be a
+bare `[a-z][a-z0-9_-]*` (no `/`, `@`, `..`, `:` or scheme). The manifest
+(`item.toml`) is a closed field set parsed by awk; `item.lua` and `plugin.sh`
+are copied as-is into stm-owned `items/stm/` and `plugins/stm/` and must take
+colours only from the palette's `colors` table, never hard-coded hex. User
+options in `[item.<name>]` are enum values checked against the manifest before
+they reach `items_generated.lua`. A new bundled item is reviewed like any other
+code change to `bin/stm`, and `stm lint item:<name>` must pass.
 
 The template substituter treats only `{{identifier}}` as a placeholder.
 `{{1,2},{3,4}}` is ordinary Lua and must survive untouched, so anything after

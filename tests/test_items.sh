@@ -861,4 +861,12 @@ assert_contains "$STM_OUT" "not in the item ledger"
 rm -f "$DC/items/stm/stray.lua"
 done_it
 
+it "help lists the item: forms (I.cli)"
+run_stm help
+assert_status 0
+assert_contains "$STM_OUT" "install item:<name>"
+assert_contains "$STM_OUT" "uninstall item:<name>"
+assert_contains "$STM_OUT" "lint item:<name>"
+done_it
+
 finish

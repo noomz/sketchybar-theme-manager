@@ -6274,13 +6274,16 @@ COMMANDS
   add <theme> <palette-file>    Install a local palette file into your palette directory
   preview <theme>               Print a theme's colour table (writes nothing)
   lint [<file>|<slug>]          Validate a palette (writes nothing)
+  lint item:<name>              Validate a bundled item (writes nothing)
   install <spec>                Fetch one HTTPS .toml, lint, and store it (no apply)
+  install item:<name>           Install a bundled bar item (code shipped with stm; offline)
   search [query]                Search the theme catalog (metadata only)
   login                         Store a catalog token (0600; never printed)
   logout                        Remove stored catalog credentials
   publish <spec>                Register a palette URL with the catalog (not an upload)
   uninstall <slug>              Remove a user-installed palette
   remove <slug>                 Alias for uninstall
+  uninstall item:<name>         Remove an installed item (remove item:<name> also works)
   doctor [theme]                Diagnose the config: format, dialect, key coverage
   verify                        Check that stm touched only the files it owns
   import [<file>]               Turn an existing colours file into a palette

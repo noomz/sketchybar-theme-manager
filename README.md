@@ -78,12 +78,15 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `stm add <theme> <palette-file>` | Install a local palette file into your palette directory |
 | `stm preview <theme>` | Print a theme's colour table — writes nothing |
 | `stm lint [<file>|<slug>]` | Validate a palette — writes nothing |
+| `stm lint item:<name>` | Validate a bundled item — writes nothing |
 | `stm install <spec>` | Fetch one HTTPS `.toml`, lint it, and store it — does not apply |
+| `stm install item:<name>` | Install a bar item bundled with stm — offline (see [Items](#items)) |
 | `stm search [query]` | Search the theme catalog (metadata only; does not fetch palettes) |
 | `stm login` | Store a catalog token (`0600`; never printed) |
 | `stm logout` | Remove stored catalog credentials |
 | `stm publish <spec>` | Register a palette URL with the catalog (not an upload) |
 | `stm uninstall <slug>` | Remove a user-installed palette (`remove` is an alias) |
+| `stm uninstall item:<name>` | Remove an installed item (`remove item:<name>` also works) |
 | `stm doctor [theme]` | Diagnose the config: format, dialect, key coverage |
 | `stm verify` | Check that stm touched only the files it owns |
 | `stm import [<file>]` | Turn an existing colours file into a palette |
@@ -445,6 +448,11 @@ like. A palette is not trusted, and the only thing it contributes to a render
 is a value already validated as eight hex digits. `stm` never installs a
 template from a palette or fetches one from the network.
 
+The one other kind of code `stm` writes is an [item](#items). Items come only
+from the bundles shipped inside `stm` itself, and only through an explicit
+`stm install item:<name>`. A palette, the catalog and `stm install <url>` can
+never carry item code.
+
 ### Proving it didn't touch anything else
 
 ```console
@@ -527,6 +535,76 @@ sbar.add("item", "clock", { position = pos("clock", "right") })
 Bash configs get `layout.sh` (`BAR_POSITION`, `ITEM_CLOCK`, `ITEM_ORDER_LEFT`,
 …). Applying a colour-only theme leaves an existing overlay in place;
 `stm apply --reset-layout <theme>` deletes it.
+
+### Items
+
+`stm` also ships ready-made bar items. They are code, not data, so they live
+inside the `stm` release (`bundles/items/`) and are never downloaded. There is
+one so far: `tailscale`, which shows whether Tailscale is up, your IP and exit
+node, and lists peers in a popup.
+
+```console
+$ stm install item:tailscale
+installed item:tailscale -> ~/.config/sketchybar/items/stm/tailscale.lua
+```
+
+Then load stm's items once from your own config (for example at the end of
+`items/init.lua`):
+
+```lua
+require("items_generated")
+```
+
+`stm doctor` warns while that line is missing and an item is installed.
+
+`install item:<name>` takes a bundled name only — no path, URL or `@ref` — and
+never touches the network. It writes only stm-owned files:
+
+| File | What it is |
+| --- | --- |
+| `items/stm/<name>.lua` | the item |
+| `plugins/stm/<name>.sh` | its plugin script (`0755`), if it has one |
+| `items_generated.lua` | loader for every installed item — do not edit |
+| `~/.config/stm/items` | item ledger (`$XDG_CONFIG_HOME/stm/items`) |
+
+Your own items, plugins, `init.lua` and `sketchybarrc` are left alone. Items
+need a Lua config; a shell bar is refused. The SketchyBar item is always
+named `stm.<name>`. These files are kept out of the `verify` baseline and go
+into the owned `backup`.
+
+**Colours** come from the active palette, so `stm apply <theme>` recolours the
+item on reload. `apply` also regenerates `items_generated.lua`.
+
+**Options** go in `stm.config.toml`, one key per option. An unknown key or
+value is an error.
+
+```toml
+[item.tailscale]
+exit_node = "on"   # on | off  — show the exit node
+peers = "on"       # on | off  — show online/total peers
+ip = "on"          # on | off  — show this machine's Tailscale IP
+click = "popup"    # popup | app
+```
+
+**Position** is the palette's `[items]` slot for `stm.<name>`, else the item's
+default (`tailscale`: `right`):
+
+```toml
+[items]
+stm.tailscale = "left"
+```
+
+The tailscale icon is green when Running, yellow when Starting or NeedsLogin,
+red when Stopped, and grey when the CLI is missing or `tailscale status` does
+not answer within about three seconds. It looks for the CLI in
+`/usr/local/bin`, the Tailscale app, `/opt/homebrew/bin`, then `PATH`;
+`$STM_TAILSCALE` overrides that. `jq` is used when present, else `plutil`.
+
+| Command | What it does |
+| --- | --- |
+| `stm lint item:<name>` | Check a bundled item — writes nothing |
+| `stm install --force item:<name>` | Reinstall, e.g. after `doctor` says an update is available |
+| `stm uninstall item:<name>` | Remove its files and ledger row, regenerate the loader |
 
 ### Config formats
 
@@ -910,8 +988,8 @@ Fetch failures exit `5`. `stm add` stays the local-file command.
 No Node, no Python, no Lua, no extra runtime. A palette may arrive over the
 network (`stm install`). It is still untrusted data: parsed by awk, never
 `eval`'d, never `source`d. The only commands that may make an outbound request
-are `install`, `search`, `login`, `logout`, `publish`, and `update`. Everything
-else is offline. Tests stub `STM_FETCH` and must not talk to the internet.
+are `install`, `search`, `login`, `logout`, `publish`, and `update` —
+and `install item:<name>` is not one of them. Everything else is offline. Tests stub `STM_FETCH` and must not talk to the internet.
 
 ---
 
