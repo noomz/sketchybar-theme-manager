@@ -28,7 +28,9 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - I.bundle `bundles/items/<name>/`
   - `item.toml` closed fields: `name` `version` `dialects` `files` `colors` `default_position` `update_freq` `events` `[options.<key>]` (`values`, `default`)
   - `item.lua` → `return function(sbar, opts, colors)`
-  - `plugin.sh` → run by SketchyBar, colours via env from `item.lua`
+    - `opts = { name = "stm.<name>", position, plugin_dir (abs, validated), update_freq, events = {…}, options = { <key> = "<value>" } }`. `update_freq` + `events` from manifest. `options` nested → option key never collide w/ reserved field
+    - `colors` = user `colors` module, flat or nested dialect (`popup_bg` | `popup.bg`)
+  - `plugin.sh` → run via `sbar.exec` from `item.lua` callbacks (`routine` `forced` + manifest `events`). env prefix: `NAME` `SENDER`, colours (`0xAARRGGBB` from `colors`), options
 - I.cfg
   - `[item.<name>]` in `stm.config.toml`: one string key per option
   - position: palette `[items] stm.<name> = "<pos>"` slot, else manifest `default_position`
@@ -38,7 +40,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
   - `$RESOLVED_DIR/items_generated.lua` ("DO NOT EDIT" header)
   - ledger `${XDG_CONFIG_HOME:-~/.config}/stm/items` TSV `name  source  tree-sha256  ref  iso8601`; bundled → `source=bundled`, `ref=<STM_VERSION>`
 - I.wire user add once: `require("items_generated")`
-- I.ts tailscale CLI `status --json` fields: `BackendState`, `Self.TailscaleIPs`, `Peer{}.HostName/.Online/.TailscaleIPs`, `ExitNodeStatus` (optional)
+- I.ts CLI lookup: `$STM_TAILSCALE` if set (override, no fallback) → `/usr/local/bin/tailscale` → `/Applications/Tailscale.app/Contents/MacOS/Tailscale` → `/opt/homebrew/bin/tailscale` → `tailscale` on PATH. `status --json` fields: `BackendState`, `Self.TailscaleIPs`, `Peer{}.HostName/.Online/.TailscaleIPs`, `ExitNodeStatus` (optional)
 - I.tsopt tailscale options: `exit_node` `peers` `ip` ∈ `on|off` (default all `on`); `click` ∈ `popup|app` (default `popup`)
 
 ## §V invariants
