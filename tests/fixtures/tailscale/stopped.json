@@ -1,0 +1,6 @@
+{
+  "BackendState": "Stopped",
+  "Self": { "HostName": "mac", "Online": false, "TailscaleIPs": ["100.64.0.1"] },
+  "Health": ["Tailscale is stopped."],
+  "Peer": {}
+}

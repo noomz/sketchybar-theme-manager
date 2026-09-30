@@ -1,0 +1,7 @@
+{
+  "BackendState": "Starting",
+  "Self": { "HostName": "mac", "Online": false, "TailscaleIPs": ["100.64.0.1"] },
+  "Peer": {
+    "nodekey:aa01": { "HostName": "laptop", "Online": false, "TailscaleIPs": ["100.64.0.2"] }
+  }
+}
