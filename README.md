@@ -596,6 +596,34 @@ default (`tailscale`: `right`):
 stm.tailscale = "left"
 ```
 
+**Themes can set options too.** A palette may carry the same `[item.<name>]`
+tables, so switching theme can change how an item looks, not just its colours:
+
+```toml
+# ~/.config/stm/palettes/my-kanagawa.toml
+name = "My Kanagawa"
+slug = "my-kanagawa"
+base = "kanagawa-wave"
+
+[colors]
+red = "#e46876"
+
+[item.tailscale]
+icon = "nerd"
+```
+
+For each option, `stm.config.toml` wins, then the theme, then the item's
+default — so leave an option out of your config if you want themes to decide
+it. A theme without the option falls back to the default; the previous theme's
+choice never lingers. `base =` inherits a parent's item options key by key.
+
+A theme is someone else's file, so its options are checked the same way but
+fail softly: an unknown key or value is a warning and is ignored, and `apply`
+still succeeds. A theme never installs an item. If it names one you have not
+installed, `apply` says so — `note: item:tailscale not installed (stm install
+item:tailscale)` — and does nothing else; an item stm does not ship is noted as
+such. Bundled palettes carry no item options.
+
 The tailscale icon is green when Running, yellow when Starting or NeedsLogin,
 red when Stopped, and grey when the CLI is missing or `tailscale status` does
 not answer within about three seconds. It looks for the CLI in
@@ -762,8 +790,8 @@ rather than guessed at. `0xAARRGGBB` is SketchyBar's own colour format. `bar_bg`
 transparent bar; popups typically use `c0`.
 
 Palettes are parsed by a deliberately small TOML reader: top-level strings,
-`[colors]` / `[extras]` / `[layout]` / `[items]`, `key = "value"` and comments.
-Arrays, nested tables, multi-line strings and unquoted values are rejected
+`[colors]` / `[extras]` / `[layout]` / `[items]` / `[item.<name>]`, `key = "value"`
+and comments. Arrays, other nested tables, multi-line strings and unquoted values are rejected
 rather than ignored, so a typo is an error instead of a silently missing colour.
 
 ---

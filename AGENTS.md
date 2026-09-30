@@ -8,7 +8,7 @@ Operating rules for AI agents (and humans) working in this repo.
 
 ```
 bin/stm                          # the whole product: one bash file (~4k lines), bash 3.2
-palettes/*.toml                  # bundled themes (8); filename must equal slug
+palettes/*.toml                  # bundled themes (9); filename must equal slug
 bundles/items/<name>/            # bundled item bundles (code): item.toml, item.lua, plugin.sh
 tests/                           # plain-bash suite (no bats); run via tests/run.sh
 tests/test_*.sh                  # one file per area, sources tests/helpers.sh
@@ -66,7 +66,7 @@ STM_ROOT="$PWD" bin/stm lint --porcelain item:<name>   # every bundles/items/<na
 **A palette is untrusted data. A template is trusted code. A bundled item is trusted code shipped with stm.**
 
 - Palettes are downloaded from the internet. They are parsed by awk only — **never `eval`'d, never `source`d**. Every key and value is validated against an allowlist before reaching generated output.
-- The only things a palette may contribute to generated code: `^0x[0-9a-f]{8}$` colour literals, allowlisted layout enums (`top`/`bottom`, `on`/`off`, `left`/`right`/`center`), small integers, and ASCII labels in comments.
+- The only things a palette may contribute to generated code: `^0x[0-9a-f]{8}$` colour literals, allowlisted layout enums (`top`/`bottom`, `on`/`off`, `left`/`right`/`center`), small integers, ASCII labels in comments, and `[item.<name>]` option values — lower-case enum strings that reach `items_generated.lua` only when they are in the installed item's manifest `values` (otherwise warned and ignored; `apply` never installs an item from a palette).
 - **Never make generated output depend on palette content.** If you're tempted to let a palette carry a function, snippet, or "escape hatch" field — stop. That converts "install a theme" into "run a stranger's Lua/shell". Route such needs through the user's own template instead.
 - `STM_WITH_ALPHA` and `STM_ADOPT_WRAPPER` are fixed trusted constants in `bin/stm`. Keep them constant.
 - **Items are code, so they have their own path.** Item code (`item.lua`, `plugin.sh`) enters a config only via `stm install item:<name>`, and only from the `bundles/items/` shipped in the stm release (`$STM_ROOT/bundles/items`, else relative to the symlink-resolved script). `item:` is routed in `cmd_install` / `cmd_uninstall` before any palette spec parse, so it never fetches, never touches the catalog, and a palette spec can never yield item files. The name must match `[a-z][a-z0-9_-]*` — no `/`, `@`, `..`, `:` or scheme. `item.toml` is a closed field set parsed by awk (never `source`d); a symlink or non-regular bundle file is refused. Item options in `[item.<name>]` are enum values checked against the manifest before they reach `items_generated.lua`. Item code writes only `items/stm/`, `plugins/stm/`, `items_generated.lua` and the item ledger `~/.config/stm/items`; never the palette ledger or a user file.

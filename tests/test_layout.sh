@@ -91,6 +91,17 @@ reject layout-lua-injection  "a hostile [layout] value"             "invalid lay
 reject item-path             "a path-like item name"                ""
 reject item-slot-invalid     "an item slot that is not left/right/center" "invalid item slot"
 reject layout-negative       "a negative bar height"                "invalid layout value"
+reject itemopt-bad-name       "an [item.<name>] header with a bad name" "unsupported table"
+reject itemopt-bad-key        "an upper-case [item.<name>] key"      "invalid item option key"
+reject itemopt-lua-injection  "a hostile [item.<name>] value"        "invalid item option value"
+reject itemopt-long-value     "an [item.<name>] value over 32 chars" "invalid item option value"
+reject itemopt-dup-table      "a duplicate [item.<name>] table"      "duplicate [item.tailscale] table"
+reject itemopt-dup-key        "a duplicate [item.<name>] key"        "duplicate item option"
+reject itemopt-nested         "a nested [item.<name>.x] table"       "unsupported table"
+reject dotted-table           "a dotted table other than [item.<name>]" "unsupported table"
+reject itemopt-empty-value    "an empty [item.<name>] value"         "invalid item option value"
+reject itemopt-dotted-key     "a dotted key inside [item.<name>]"    "invalid item option key"
+reject itemopt-long-name      "an [item.<name>] name over 32 chars"  "too long"
 
 it "a rejected layout palette writes nothing"
 d="$SANDBOX/rej"
@@ -217,6 +228,55 @@ run_stm export nord
 assert_status 0
 assert_not_contains "$STM_OUT" "[layout]"
 assert_not_contains "$STM_OUT" "[items]"
+assert_not_contains "$STM_OUT" "[item."
+done_it
+
+# --- [item.<name>] option values (#19) --------------------------------------
+
+it "a palette may carry [item.<name>] option values (V27, I.palopt)"
+make_layout_palette "$P" shaped '[item.tailscale]' 'shape = "pill"' 'icon = "nerd"' \
+  '' '[item.my-clock_2]' 'style = "a-b_c"'
+run_stm --palette-dir "$P" lint shaped
+assert_status 0
+run_stm --palette-dir "$P" preview --porcelain shaped
+assert_status 0
+bad=$(printf '%s\n' "$STM_OUT" | awk -F'\t' 'NF != 2 { n++ } END { print n+0 }')
+assert_eq 0 "$bad" "porcelain must stay key<TAB>value colour rows"
+done_it
+
+it "export emits [item.<name>] tables (V31)"
+run_stm --palette-dir "$P" export shaped
+assert_status 0
+assert_contains "$STM_OUT" "[item.tailscale]"
+assert_contains "$STM_OUT" 'shape = "pill"'
+assert_contains "$STM_OUT" 'icon = "nerd"'
+assert_contains "$STM_OUT" "[item.my-clock_2]"
+assert_contains "$STM_OUT" 'style = "a-b_c"'
+done_it
+
+it "export -> add -> export is byte-stable with [item.<name>] (V31)"
+P2="$SANDBOX/pal2"
+mkdir -p "$P2"
+run_stm --palette-dir "$P" --out "$SANDBOX/shaped.toml" export shaped
+assert_status 0
+run_stm --palette-dir "$P2" add shaped "$SANDBOX/shaped.toml"
+assert_status 0
+run_stm --palette-dir "$P2" export shaped
+assert_status 0
+assert_eq "$(cat "$SANDBOX/shaped.toml")" "$STM_OUT" "second export must match the first"
+done_it
+
+it "base = merges [item.<name>] per key, child wins (V29)"
+make_layout_palette "$P" shape-parent '[item.tailscale]' 'shape = "split"' 'icon = "nerd"' \
+  '' '[item.clock]' 'shape = "plain"'
+printf '%s\n' 'name = "shape-child"' 'slug = "shape-child"' 'base = "shape-parent"' '' \
+  '[colors]' 'red = "0xffff0000"' '' '[item.tailscale]' 'shape = "pill"' >"$P/shape-child.toml"
+run_stm --palette-dir "$P" export shape-child
+assert_status 0
+ts=$(printf '%s\n' "$STM_OUT" | awk '/^\[/ { sec = $0; next } sec == "[item.tailscale]" && NF' | sort | tr '\n' ' ')
+assert_eq 'icon = "nerd" shape = "pill" ' "$ts" "child shape wins, parent icon inherited"
+assert_contains "$STM_OUT" "[item.clock]"
+assert_contains "$STM_OUT" 'shape = "plain"'
 done_it
 
 # --- templates --------------------------------------------------------------
