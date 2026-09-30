@@ -130,6 +130,27 @@ for P in $PARSERS; do
     stm.tailscale.row.exit 'label=exit node: bravo'
   done_it
 
+  it "[$P] peer name is the MagicDNS name, HostName only without DNSName (V24)"
+  # iOS and Android report HostName "localhost"; the Tailscale app shows the
+  # first label of DNSName.
+  run_state "$P" mobile
+  expected=$(argv_of \
+    --set stm.tailscale label.drawing=on 'label=exit pixel7  2/4  100.64.0.1' icon.color=$GREEN \
+    --remove "$ROWS_RE" \
+    --add item stm.tailscale.row.exit popup.stm.tailscale \
+    --set stm.tailscale.row.exit icon.drawing=off 'label=exit node: pixel7' \
+    --add item stm.tailscale.row.1 popup.stm.tailscale \
+    --set stm.tailscale.row.1 icon=● 'label=iphone171  100.64.0.2' icon.color=$GREEN \
+    --add item stm.tailscale.row.2 popup.stm.tailscale \
+    --set stm.tailscale.row.2 icon=● 'label=pixel7  100.64.0.3' icon.color=$GREEN \
+    --add item stm.tailscale.row.3 popup.stm.tailscale \
+    --set stm.tailscale.row.3 icon=● 'label=nodns  100.64.0.5' icon.color=$GREY \
+    --add item stm.tailscale.row.4 popup.stm.tailscale \
+    --set stm.tailscale.row.4 icon=● 'label=oldbox  100.64.0.4' icon.color=$GREY)
+  assert_eq "$expected" "$SB" "mobile argv"
+  sb_lacks 'label=localhost  100.64.0.2'
+  done_it
+
   it "[$P] Starting: yellow, label starting (V17)"
   run_state "$P" starting
   sb_has label=starting icon.color=$YELLOW 'label=tailscale: starting'
