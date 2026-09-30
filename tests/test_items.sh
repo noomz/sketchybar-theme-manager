@@ -258,6 +258,14 @@ it "install item: rejects symlinked and non-regular bundle files"
 check_bad_files install
 done_it
 
+it "install item:<palette slug> never falls through to a palette install (V2)"
+assert_item_rejected install tokyo-night "tokyo-night"
+done_it
+
+it "uninstall item: rejects names that are not a bare bundled name"
+check_bad_names uninstall
+done_it
+
 # --- positive control: the baseline every bad case differs from ------------
 
 it "installs the valid baseline bundle"
