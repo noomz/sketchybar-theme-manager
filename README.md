@@ -585,6 +585,7 @@ exit_node = "on"   # on | off  — show the exit node
 peers = "on"       # on | off  — show online/total peers
 ip = "on"          # on | off  — show this machine's Tailscale IP
 click = "popup"    # popup | app
+icon = "text"      # text | nerd | app
 ```
 
 **Position** is the palette's `[items]` slot for `stm.<name>`, else the item's
@@ -600,6 +601,13 @@ red when Stopped, and grey when the CLI is missing or `tailscale status` does
 not answer within about three seconds. It looks for the CLI in
 `/usr/local/bin`, the Tailscale app, `/opt/homebrew/bin`, then `PATH`;
 `$STM_TAILSCALE` overrides that. `jq` is used when present, else `plutil`.
+
+`icon` picks the icon: `text` is `TS`; `nerd` is the Nerd Font glyph
+nf-md-dots_grid (Nerd Fonts have no Tailscale logo, so it needs a Nerd Font as
+the icon font); `app` shows the Tailscale app's own icon, from the standalone
+build or the App Store one, and falls back to `TS` when neither is installed.
+The app icon keeps its colours, so with `icon = "app"` the state colour goes on
+the label; with every label field off, a Running item has no label to colour.
 
 | Command | What it does |
 | --- | --- |
