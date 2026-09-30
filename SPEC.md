@@ -59,7 +59,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V12 `items_generated.lua`, `items/stm/`, `plugins/stm/` excluded from `.stm-manifest` baseline + `verify` drift; included in owned backup.
 - V13 `apply` regen `items_generated.lua` from ledger + config; stay offline; no ledger → no loader change.
 - V14 `plugin.sh` + `item.lua` never hard-code hex. colours only from `colors` table (palette keys).
-- V15 `tailscale status --json` bounded ~3s (bg job + kill). hang → treat as unknown: grey icon, label `timeout`?
+- V15 `tailscale status --json` bounded ~3s wall clock (bg job + watchdog `sleep 3` then kill; never count short sleeps — fork cost stretch them). hang → treat as unknown: grey icon, label `timeout`.
 - V16 absent `ExitNodeStatus` ok. no CLI found → grey icon, label `not installed`, popup say same.
 - V17 state→colour: Running=`green`, Starting|NeedsLogin=`yellow`, Stopped=`red`, not installed|unknown=`grey`.
 - V18 `doctor` warn missing `require("items_generated")` only when ≥1 item installed.
@@ -95,6 +95,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T17 | x | tailscale `icon` option (`text` `nerd` `app`; manifest + item.lua + plugin.sh + tests + README) | V25,V17,V14,I.tsopt |
 | T18 | x | tailscale count self in `online/total` + popup self row `(this device)`; fixtures + jq/plutil tests + README | V26,V24,I.ts |
 | T19 | x | tailscale review fixes: app-mode `label.color` always, strip control chars, non-empty label join, probe cache, transparent icon bg + scale; sparse-self fixture, Lua text/nerd/app test, generic fixture name | V24,V25,V26,V14 |
+| T20 | . | tailscale `status` bound by watchdog `sleep 3` not tick loop; CI bash 3.2 hang test green | V15 |
 
 ## §B bugs
 
@@ -104,3 +105,4 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | B2 | 2026-09-30 | tailscale plugin read `Peer{}.HostName`; iOS peer report `localhost` → popup show `localhost`, app show `iphone171` (`DNSName` first label) | V24 |
 | B3 | 2026-09-30 | tailscale `icon=app` fallback set `icon.color` only; prior resolved run left `label.color` = old state → red `TS` beside green `stopped` | V25 |
 | B4 | 2026-09-30 | tailscale parsers emit TAB/newline records; peer `HostName` w/ `\n` + `\t` forge extra online peer row + inflate count (display spoof) | V24 |
+| B5 | 2026-09-30 | tailscale hang bound = 30 x `/bin/sleep 0.1` loop; fork cost on loaded CI runner stretch ~3s → 7s, hang test fail (bash 3.2 job) | V15 |
