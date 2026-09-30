@@ -81,7 +81,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T7 | x | `items_generated.lua` writer + `[item.<name>]` read + slot/default position | V9,V10,I.cfg |
 | T8 | x | `apply` hook: regen loader + reload | V13 |
 | T9 | x | `uninstall item:` | V11 |
-| T10 | . | manifest / backup / verify exclusion lists (`bin/stm` ~3006, 3929, 4037, 5111) | V12 |
+| T10 | x | manifest / backup / verify exclusion lists (`bin/stm` ~3006, 3929, 4037, 5111) | V12 |
 | T11 | . | `doctor`: installed items, version drift, wiring (`lua_file_is_wired`), CLI note | V18,I.wire |
 | T12 | . | `stm help`, README Items section, rewrite trust paras (README ~446, AGENTS.md ~68-76, CONTRIBUTING.md) | C2,I.cli |
 | T13 | . | CI: `stm lint item:<name>` every bundled item, shellcheck plugins | V20,V22 |
