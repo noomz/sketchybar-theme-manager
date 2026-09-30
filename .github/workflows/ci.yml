@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Confirm the system bash really is 3.2
         run: /bin/bash --version | head -n 1
+      - name: Install lua (runs items_generated.lua end to end)
+        run: brew install lua
       - name: Run the suite
         run: tests/run.sh
 
@@ -38,8 +40,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install bash 5
-        run: brew install bash
+      - name: Install bash 5 and lua (lua runs items_generated.lua end to end)
+        run: brew install bash lua
       - name: Run the suite
         run: STM_BASH="$(brew --prefix)/bin/bash" tests/run.sh
 

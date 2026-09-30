@@ -78,7 +78,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T4 | x | plugin tests: fake `tailscale` (Running, Running+exit node, Stopped, NeedsLogin, Starting, hang, absent) + fake `sketchybar` log; jq + plutil paths | V15,V16,V17 |
 | T5 | x | `item:` routing in `cmd_install`/`cmd_uninstall` before spec parse | V1,V2,V3 |
 | T6 | x | install write path + ledger `stm/items` | V5,V6,V7,V8,V19,I.fs |
-| T7 | . | `items_generated.lua` writer + `[item.<name>]` read + slot/default position | V9,V10,I.cfg |
+| T7 | x | `items_generated.lua` writer + `[item.<name>]` read + slot/default position | V9,V10,I.cfg |
 | T8 | . | `apply` hook: regen loader + reload | V13 |
 | T9 | . | `uninstall item:` | V11 |
 | T10 | . | manifest / backup / verify exclusion lists (`bin/stm` ~3006, 3929, 4037, 5111) | V12 |
