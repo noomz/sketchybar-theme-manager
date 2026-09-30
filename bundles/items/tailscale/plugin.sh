@@ -63,7 +63,10 @@ run_status() {
 
 # Both parsers emit the same records:
 #   state<TAB>Running    self_ip<TAB>100.x    exit_ip<TAB>100.y (or empty)
-#   peer<TAB>1|0<TAB>hostname<TAB>100.z
+#   peer<TAB>1|0<TAB>name<TAB>100.z
+# A peer's name is the first label of its DNSName (the MagicDNS name the
+# Tailscale app shows); iOS and Android report HostName "localhost". HostName
+# is used only when DNSName is empty.
 parse_jq() {
   jq -r '
     "state\t" + (.BackendState // ""),
@@ -71,7 +74,9 @@ parse_jq() {
     "exit_ip\t" + (((.ExitNodeStatus // {}).TailscaleIPs // [])[0] // "" | sub("/.*$"; "")),
     ((.Peer // {}) | to_entries[] | .value |
       "peer\t" + (if .Online then "1" else "0" end) + "\t" +
-      (.HostName // "") + "\t" + ((.TailscaleIPs // [])[0] // ""))
+      (((.DNSName // "") | sub("\\..*$"; "")) as $d |
+        if $d != "" then $d else (.HostName // "") end) +
+      "\t" + ((.TailscaleIPs // [])[0] // ""))
   ' "$WORK/status.json" 2>/dev/null
 }
 
@@ -90,7 +95,10 @@ parse_plutil() {
     case "$k" in "" | *.*) continue ;; esac
     on=0
     [ "$(px "Peer.$k.Online")" = true ] && on=1
-    printf 'peer\t%s\t%s\t%s\n' "$on" "$(px "Peer.$k.HostName")" "$(px "Peer.$k.TailscaleIPs.0")"
+    name=$(px "Peer.$k.DNSName")
+    name=${name%%.*}
+    [ -n "$name" ] || name=$(px "Peer.$k.HostName")
+    printf 'peer\t%s\t%s\t%s\n' "$on" "$name" "$(px "Peer.$k.TailscaleIPs.0")"
   done <"$WORK/keys"
 }
 

@@ -1,0 +1,42 @@
+{
+  "Version": "1.76.1",
+  "BackendState": "Running",
+  "Self": {
+    "HostName": "mac",
+    "DNSName": "mac.tail0000.ts.net.",
+    "Online": true,
+    "TailscaleIPs": ["100.64.0.1", "fd7a:115c:a1e0::1"]
+  },
+  "Peer": {
+    "nodekey:bb01": {
+      "HostName": "localhost",
+      "DNSName": "iphone171.tail0000.ts.net.",
+      "OS": "iOS",
+      "Online": true,
+      "TailscaleIPs": ["100.64.0.2", "fd7a:115c:a1e0::2"]
+    },
+    "nodekey:bb02": {
+      "HostName": "localhost",
+      "DNSName": "pixel7.tail0000.ts.net.",
+      "OS": "android",
+      "Online": true,
+      "TailscaleIPs": ["100.64.0.3", "fd7a:115c:a1e0::3"]
+    },
+    "nodekey:bb03": {
+      "HostName": "oldbox",
+      "DNSName": "",
+      "Online": false,
+      "TailscaleIPs": ["100.64.0.4", "fd7a:115c:a1e0::4"]
+    },
+    "nodekey:bb04": {
+      "HostName": "nodns",
+      "Online": false,
+      "TailscaleIPs": ["100.64.0.5", "fd7a:115c:a1e0::5"]
+    }
+  },
+  "ExitNodeStatus": {
+    "ID": "n2",
+    "Online": true,
+    "TailscaleIPs": ["100.64.0.3/32", "fd7a:115c:a1e0::3/128"]
+  }
+}

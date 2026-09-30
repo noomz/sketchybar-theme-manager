@@ -89,7 +89,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T13 | x | CI: `stm lint item:<name>` every bundled item, shellcheck plugins | V20,V22 |
 | T14 | x | real-bar smoke: install, wire, `stm apply gruvbox`, switch theme → recolour | V10,V17 |
 | T15 | x | Formula + `install.sh` ship `bundles/items/` (known files only) to `share/stm/bundles/items` | C3,V21 |
-| T16 | . | tailscale peer name from `DNSName` first label, fallback `HostName`; fixture iOS peer `HostName=localhost`; jq + plutil | V24,I.ts |
+| T16 | x | tailscale peer name from `DNSName` first label, fallback `HostName`; fixture iOS peer `HostName=localhost`; jq + plutil | V24,I.ts |
 
 ## §B bugs
 
