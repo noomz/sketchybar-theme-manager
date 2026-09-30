@@ -15,7 +15,7 @@
 # from PATH; jq is optional (plutil fallback).
 
 NAME=${NAME:-stm.tailscale}
-TIMEOUT_TICKS=30 # x 0.1s: `tailscale status` gets ~3s, then it is killed
+TIMEOUT_SECS=3 # `tailscale status` gets this much wall clock, then it is killed
 MAX_PEERS=20
 tab=$(printf '\t')
 
@@ -41,24 +41,29 @@ find_cli() {
 }
 
 # run_status <cli> — status JSON into $WORK/status.json. macOS has no
-# `timeout`, so the CLI runs in the background and is killed after ~3s.
+# `timeout`, so the CLI runs in the background and a watchdog kills it after
+# TIMEOUT_SECS of wall clock. One long sleep, not a loop of short ones: each
+# /bin/sleep costs a fork, and on a loaded machine 30 x 0.1s ran ~7s (B5).
+# The watchdog kills its own sleep when stopped, so nothing is left running.
 # Returns 2 on timeout, else 0 (the JSON decides the state).
 run_status() {
   "$1" status --json >"$WORK/status.json" 2>/dev/null &
   pid=$!
-  ticks=0
-  while kill -0 "$pid" 2>/dev/null; do
-    if [ "$ticks" -ge "$TIMEOUT_TICKS" ]; then
-      kill "$pid" 2>/dev/null
-      /bin/sleep 0.1
-      kill -9 "$pid" 2>/dev/null
-      wait "$pid" 2>/dev/null
-      return 2
-    fi
-    /bin/sleep 0.1
-    ticks=$((ticks + 1))
-  done
+  (
+    trap 'kill "$s" 2>/dev/null; exit 0' TERM
+    /bin/sleep "$TIMEOUT_SECS" &
+    s=$!
+    wait "$s"
+    : >"$WORK/timed-out"
+    kill "$pid" 2>/dev/null
+    /bin/sleep 0.2
+    kill -9 "$pid" 2>/dev/null
+  ) &
+  dog=$!
   wait "$pid" 2>/dev/null
+  kill "$dog" 2>/dev/null
+  wait "$dog" 2>/dev/null
+  [ -f "$WORK/timed-out" ] && return 2
   return 0
 }
 
