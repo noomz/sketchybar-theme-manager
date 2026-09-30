@@ -283,7 +283,7 @@ done_it
 # reset_items — no item installed: stm-owned item paths and the ledger gone.
 reset_items() {
   chmod -R u+w "$D/items" "$D/plugins" 2>/dev/null
-  rm -rf "$D/items" "$D/plugins" "$ITEM_LEDGER"
+  rm -rf "$D/items" "$D/plugins" "$D/items_generated.lua" "$ITEM_LEDGER"
 }
 
 # changed_paths <before> <after> — paths whose snapshot line differs.
@@ -299,7 +299,7 @@ tmp_leftovers() {
 
 PALETTE_LEDGER="$XDG_CONFIG_HOME/stm/installed"
 
-it "install item: writes only its item, plugin and ledger row (V5, V19)"
+it "install item: writes only its item, plugin, loader and ledger row (V5, V19)"
 reset_items
 mkdir -p "$XDG_CONFIG_HOME/stm"
 printf 'nord\thttps://example.com/nord.toml\t%064d\tmain\t2026-01-01T00:00:00Z\n' 0 >"$PALETTE_LEDGER"
@@ -308,7 +308,8 @@ before=$(snapshot)
 run_stm --dir "$D" --no-reload install item:ok
 assert_status 0
 expected=$(printf '%s\n' "$D/items" "$D/items/stm" "$D/items/stm/ok.lua" \
-  "$D/plugins" "$D/plugins/stm" "$D/plugins/stm/ok.sh" "$ITEM_LEDGER" | LC_ALL=C sort)
+  "$D/plugins" "$D/plugins/stm" "$D/plugins/stm/ok.sh" "$D/items_generated.lua" \
+  "$ITEM_LEDGER" | LC_ALL=C sort)
 assert_eq "$expected" "$(changed_paths "$before" "$(snapshot)")" "install item:ok touched other paths"
 assert_eq "$palette_ledger_before" "$(cksum <"$PALETTE_LEDGER")" "palette ledger must be untouched"
 assert_eq "" "$(tmp_leftovers)" "no temp files may be left behind"
@@ -405,5 +406,123 @@ assert_status 0
 assert_contains "$STM_OUT$STM_ERR" "would install item:ok"
 assert_eq "$before" "$(snapshot)" "--dry-run must write nothing"
 done_it
+
+# --- items_generated.lua: options, position, name --------------------------
+
+LOADER="$D/items_generated.lua"
+CFG="$D/stm.config.toml"
+D_ABS=$(cd -- "$D" && pwd)
+
+it "install item: writes items_generated.lua with the item's opts (V10, I.bundle)"
+reset_items
+rm -f "$CFG"
+run_stm --dir "$D" --no-reload install item:ok
+assert_status 0
+assert_file_contains "$LOADER" "DO NOT EDIT"
+assert_file_contains "$LOADER" 'require("items_generated")'
+assert_file_contains "$LOADER" "local dir = \"$D_ABS\""
+assert_file_contains "$LOADER" 'stm_item("ok", {'
+assert_file_contains "$LOADER" 'name = "stm.ok",'
+assert_file_contains "$LOADER" 'position = "right",'
+assert_file_contains "$LOADER" 'plugin_dir = dir .. "/plugins/stm",'
+assert_file_contains "$LOADER" 'update_freq = 30,'
+assert_file_contains "$LOADER" 'events = { "system_woke" },'
+assert_file_contains "$LOADER" '["label"] = "on",'
+done_it
+
+it "install item: [item.<name>] options reach the loader (I.cfg)"
+printf '[item.ok]\nlabel = "off"\n' >"$CFG"
+run_stm --dir "$D" --no-reload --force install item:ok
+assert_status 0
+assert_file_contains "$LOADER" '["label"] = "off",'
+assert_file_not_contains "$LOADER" '["label"] = "on",'
+done_it
+
+it "install item: bad [item.<name>] values or keys are hard errors, nothing written (V9)"
+for bad in \
+  'label = "maybe"' \
+  'label = "on; os.execute(1)"' \
+  'label = "$(touch '"$PWN"')"' \
+  'colour = "on"'
+do
+  printf '[item.ok]\n%s\n' "$bad" >"$CFG"
+  before=$(snapshot)
+  run_stm --dir "$D" --no-reload --force install item:ok
+  assert_ne 0 "$STM_STATUS" "[item.ok] $bad must fail"
+  assert_contains "$STM_ERR" "item.ok"
+  assert_eq "$before" "$(snapshot)" "[item.ok] $bad must write nothing"
+done
+assert_file_absent "$PWN" "no config value may execute"
+assert_file_not_contains "$LOADER" "os.execute"
+rm -f "$CFG"
+done_it
+
+it "install item: --dry-run still rejects bad [item.<name>] options (V9)"
+printf '[item.ok]\nlabel = "maybe"\n' >"$CFG"
+run_stm --dir "$D" --no-reload --force --dry-run install item:ok
+assert_ne 0 "$STM_STATUS" "--dry-run must validate options"
+rm -f "$CFG"
+done_it
+
+it "install item: palette [items] slot beats the manifest default_position (I.cfg)"
+P="$SANDBOX/pal"
+mkdir -p "$P"
+{
+  sed 's/^slug = .*/slug = "slotted"/;s/^name = .*/name = "slotted"/' "$REPO_ROOT/palettes/nord.toml"
+  printf '\n[items]\nstm.ok = "left"\n'
+} >"$P/slotted.toml"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply slotted
+assert_status 0
+run_stm --dir "$D" --palette-dir "$P" --no-reload --force install item:ok
+assert_status 0
+assert_file_contains "$LOADER" 'position = "left",'
+done_it
+
+it "install item: refuses a config dir path that cannot be a Lua string"
+W="$SANDBOX/we\"ird"
+make_lua_config "$W"
+run_stm --dir "$W" --no-reload --force install item:ok
+assert_ne 0 "$STM_STATUS" "a config dir containing \" must be refused"
+assert_contains "$STM_ERR" "quote"
+assert_file_absent "$W/items_generated.lua"
+assert_file_absent "$W/items/stm/ok.lua"
+done_it
+
+# The loader and the real tailscale item.lua, run under Lua with a fake
+# `sketchybar` module: the opts shape reaches the item end to end.
+LUA_BIN=$(command -v lua 2>/dev/null || true)
+if [ -n "$LUA_BIN" ]; then
+  it "items_generated.lua runs under Lua and hands tailscale its opts (V10, I.bundle)"
+  L="$SANDBOX/luacfg"
+  make_lua_config "$L"
+  L_ABS=$(cd -- "$L" && pwd)
+  printf '[item.tailscale]\nclick = "app"\n' >"$L/stm.config.toml"
+  STM_ROOT="$REPO_ROOT" run_stm --dir "$L" --no-reload install item:tailscale
+  assert_status 0
+  mkdir -p "$SANDBOX/lua"
+  cat >"$SANDBOX/lua/sketchybar.lua" <<'EOF'
+local sbar = {}
+function sbar.add(kind, name, props)
+  print("add " .. kind .. " " .. name .. " " .. tostring(props.position) .. " " .. tostring(props.update_freq))
+  return { subscribe = function() end, set = function() end }
+end
+function sbar.exec(cmd) print("exec " .. cmd) end
+return sbar
+EOF
+  lua_out=$(cd -- "$L" && "$LUA_BIN" -e "package.path = '$SANDBOX/lua/?.lua;./?.lua;' .. package.path" \
+    -e 'require("items_generated")' 2>&1)
+  assert_contains "$lua_out" "add item stm.tailscale right 30"
+  assert_contains "$lua_out" "'$L_ABS/plugins/stm/tailscale.sh'"
+  assert_contains "$lua_out" "STM_TS_CLICK='app'"
+  assert_contains "$lua_out" "STM_GREEN='0xffa6da95'"
+  assert_not_contains "$lua_out" "stm: item"
+  done_it
+elif [ -n "${CI:-}" ]; then
+  it "lua is available to run items_generated.lua"
+  _note_fail "lua not found; CI must run the loader end to end"
+  done_it
+else
+  printf '# note: lua not found, items_generated.lua not run end to end\n'
+fi
 
 finish
