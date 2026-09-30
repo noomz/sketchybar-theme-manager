@@ -1,0 +1,29 @@
+# stm.tailscale — Tailscale status in the bar (#16).
+# Installed with `stm install item:tailscale`; options go in stm.config.toml
+# under [item.tailscale], one key per option below.
+name = "tailscale"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["green", "yellow", "red", "grey", "popup_bg", "popup_border"]
+default_position = "right"
+update_freq = 30
+events = ["system_woke", "wifi_change"]
+
+# Label fields.
+[options.exit_node]
+values = ["on", "off"]
+default = "on"
+
+[options.peers]
+values = ["on", "off"]
+default = "on"
+
+[options.ip]
+values = ["on", "off"]
+default = "on"
+
+# What a click does: list peers in a popup, or open the Tailscale app.
+[options.click]
+values = ["popup", "app"]
+default = "popup"
