@@ -1,4 +1,4 @@
-name = "file-missing"
+name = "other"
 version = "0.1.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]

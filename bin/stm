@@ -221,6 +221,26 @@ bundled_palette_dir() {
   return 1
 }
 
+# bundled_item_dir — where the item bundles shipped with stm live. Item bundles
+# are code, so unlike palettes there is no absolute Homebrew-prefix probe: only
+# STM_ROOT or paths relative to the symlink-resolved script, which are the real
+# files and never a linked-prefix symlink (symlinked bundle files are refused).
+bundled_item_dir() {
+  local sd c
+  if [ -n "${STM_ROOT:-}" ] && [ -d "$STM_ROOT/bundles/items" ]; then
+    printf '%s\n' "$STM_ROOT/bundles/items"
+    return 0
+  fi
+  sd=$(script_dir)
+  for c in "$sd/../bundles/items" "$sd/../share/stm/bundles/items"; do
+    if [ -d "$c" ]; then
+      (cd -- "$c" && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------------------
 # TOML parsing
 #
@@ -1001,6 +1021,264 @@ validate_slug() {
     [a-z0-9]*) : ;;
     *) die "$EX_NOTFOUND" "theme name must start with a letter or digit: \"$s\"" ;;
   esac
+}
+
+# ---------------------------------------------------------------------------
+# Item bundles
+#
+# An item bundle is code: item.lua runs inside the user's bar and plugin.sh is
+# executed by SketchyBar. It is therefore never taken from a palette, the
+# catalog or the network -- only from bundles/items/<name>/ in the stm release.
+# item.toml is still parsed like untrusted data (awk, closed field set), and
+# stm_item_load emits a validated record stream:
+#
+#   meta<TAB>name<TAB>tailscale
+#   meta<TAB>version<TAB>0.1.0
+#   meta<TAB>default_position<TAB>right
+#   meta<TAB>update_freq<TAB>30
+#   dialect<TAB>lua
+#   file<TAB>item.lua
+#   color<TAB>green
+#   event<TAB>system_woke
+#   value<TAB>click<TAB>popup      (declaration order)
+#   option<TAB>click<TAB>popup     (the default)
+# ---------------------------------------------------------------------------
+
+# Item names become the SketchyBar item `stm.<name>`, which must still fit the
+# 32-character [items] slot key a palette may declare for it.
+STM_ITEM_NAME_MAX=28
+
+# validate_item_name <name> — the part after `item:`. A bare bundled name only:
+# no path, ref, scheme or URL can reach a lookup.
+validate_item_name() {
+  local s="$1"
+  [ -n "$s" ] || die "$EX_USAGE" "item: needs a bundled item name (item:<name>)"
+  if [ "${#s}" -gt "$STM_ITEM_NAME_MAX" ]; then
+    die "$EX_USAGE" "item name is too long (max $STM_ITEM_NAME_MAX): \"item:$s\""
+  fi
+  case "$s" in
+    *[!a-z0-9_-]* | [!a-z]*)
+      die "$EX_USAGE" "invalid item name \"item:$s\" (want [a-z][a-z0-9_-]*; only bundled items can be installed)"
+      ;;
+  esac
+}
+
+# shellcheck disable=SC2016  # this is awk source; $ and " are awk syntax, not shell
+STM_ITEM_TOML_AWK='
+function fail(msg) {
+  printf("%s: %s: line %d: %s\n", prog, FILENAME, FNR, msg) > "/dev/stderr"
+  bad = 1
+  exit 1
+}
+function fail_end(msg) {
+  printf("%s: %s: %s\n", prog, FILENAME, msg) > "/dev/stderr"
+  bad = 1
+  exit 1
+}
+function want(type) {
+  if (vtype != type) fail("field \"" key "\" must be " type)
+}
+# parse_array — split the "[...]" in rest into elem[1..n]; returns n.
+function parse_array(   s, n) {
+  n = 0
+  s = rest
+  sub(/^\[/, "", s)
+  while (match(s, /"[^"]*"/)) {
+    elem[++n] = substr(s, RSTART + 1, RLENGTH - 2)
+    s = substr(s, RSTART + RLENGTH)
+  }
+  return n
+}
+BEGIN {
+  bad = 0
+  section = ""
+  nreq = split(required, reqlist, " ")
+  for (i = 1; i <= nreq; i++) isreq[reqlist[i]] = 1
+}
+{
+  line = $0
+  sub(/\r$/, "", line)
+  if (line ~ /^[ \t]*$/) next
+  if (line ~ /^[ \t]*#/) next
+
+  if (line ~ /^[ \t]*\[/) {
+    if (line !~ /^[ \t]*\[[ \t]*[A-Za-z0-9_.-]+[ \t]*\][ \t]*(#.*)?$/)
+      fail("unsupported table syntax (only [options.<key>] tables are allowed)")
+    sec = line
+    sub(/^[ \t]*\[[ \t]*/, "", sec)
+    sub(/[ \t]*\].*$/, "", sec)
+    if (sec !~ /^options\.[a-z][a-z0-9_]*$/)
+      fail("unknown table [" sec "] (only [options.<key>] tables are allowed)")
+    opt = substr(sec, 9)
+    if (opt in isopt)
+      fail("duplicate table [" sec "]")
+    isopt[opt] = 1
+    opt_order[++nopt] = opt
+    section = "options"
+    next
+  }
+
+  # key = "string" | integer | ["string", ...] -- single line. A string may not
+  # contain a double quote or a backslash, so nothing can be smuggled through.
+  if (line !~ /^[ \t]*[a-z_][a-z0-9_]*[ \t]*=[ \t]*/)
+    fail("unsupported or malformed line (expected: key = value)")
+  key = line
+  sub(/^[ \t]*/, "", key)
+  sub(/[ \t]*=.*$/, "", key)
+  rest = line
+  sub(/^[^=]*=[ \t]*/, "", rest)
+  if (rest ~ /^"[^"\\]*"[ \t]*(#.*)?$/) {
+    vtype = "a string"
+    val = rest
+    sub(/^"/, "", val)
+    sub(/".*$/, "", val)
+  } else if (rest ~ /^[0-9]+[ \t]*(#.*)?$/) {
+    vtype = "an integer"
+    val = rest
+    sub(/[^0-9].*$/, "", val)
+  } else if (rest ~ /^\[[ \t]*("[^"\\]*"[ \t]*,[ \t]*)*("[^"\\]*"[ \t]*)?\][ \t]*(#.*)?$/) {
+    vtype = "an array of strings"
+  } else {
+    fail("unsupported value for \"" key "\" (want \"string\", integer or [\"string\", ...] on one line)")
+  }
+
+  if (section == "options") {
+    k = opt SUBSEP key
+    if (k in seen) fail("duplicate field \"" key "\" in [options." opt "]")
+    seen[k] = 1
+    if (key == "values") {
+      want("an array of strings")
+      n = parse_array()
+      if (n == 0) fail("option \"" opt "\" has no values")
+      for (i = 1; i <= n; i++) {
+        if (elem[i] !~ /^[a-z0-9][a-z0-9_-]*$/ || length(elem[i]) > 32)
+          fail("invalid value \"" elem[i] "\" for option \"" opt "\" (want [a-z0-9][a-z0-9_-]*, max 32)")
+        if ((opt SUBSEP elem[i]) in isval)
+          fail("duplicate value \"" elem[i] "\" for option \"" opt "\"")
+        isval[opt SUBSEP elem[i]] = 1
+        values[opt] = values[opt] "value\t" opt "\t" elem[i] "\n"
+      }
+    } else if (key == "default") {
+      want("a string")
+      dflt[opt] = val
+    } else {
+      fail("unknown option field \"" key "\" in [options." opt "] (want values, default)")
+    }
+    next
+  }
+
+  if (key in seen) fail("duplicate field \"" key "\"")
+  seen[key] = 1
+
+  if (key == "name") {
+    want("a string")
+    if (val != bundle)
+      fail("manifest name \"" val "\" does not match bundle directory \"" bundle "\"")
+    meta = meta "meta\tname\t" val "\n"
+  } else if (key == "version") {
+    want("a string")
+    if (val !~ /^[0-9]+\.[0-9]+\.[0-9]+$/)
+      fail("invalid version \"" val "\" (want MAJOR.MINOR.PATCH)")
+    meta = meta "meta\tversion\t" val "\n"
+  } else if (key == "default_position") {
+    want("a string")
+    if (val != "left" && val != "right" && val != "center")
+      fail("invalid default_position \"" val "\" (want left, right or center)")
+    meta = meta "meta\tdefault_position\t" val "\n"
+  } else if (key == "update_freq") {
+    want("an integer")
+    if (length(val) > 4 || val + 0 > 3600)
+      fail("update_freq " val " is out of range (0-3600 seconds)")
+    meta = meta "meta\tupdate_freq\t" (val + 0) "\n"
+  } else if (key == "dialects") {
+    want("an array of strings")
+    n = parse_array()
+    if (n == 0) fail("dialects is empty")
+    for (i = 1; i <= n; i++) {
+      if (elem[i] != "lua" && elem[i] != "bash" && elem[i] != "config-sh")
+        fail("unknown dialect \"" elem[i] "\" (want lua, bash or config-sh)")
+      lists = lists "dialect\t" elem[i] "\n"
+    }
+  } else if (key == "files") {
+    want("an array of strings")
+    n = parse_array()
+    for (i = 1; i <= n; i++) {
+      f = elem[i]
+      if (f ~ /^\//) fail("files entry \"" f "\" is an absolute path")
+      if (f ~ /\.\./) fail("files entry \"" f "\" may not contain ..")
+      if (f ~ /\//) fail("files entry \"" f "\" may not contain /")
+      if (f != "item.lua" && f != "plugin.sh")
+        fail("unknown files entry \"" f "\" (want item.lua, plugin.sh)")
+      if (f in isfile) fail("duplicate files entry \"" f "\"")
+      isfile[f] = 1
+      lists = lists "file\t" f "\n"
+    }
+  } else if (key == "colors") {
+    want("an array of strings")
+    n = parse_array()
+    for (i = 1; i <= n; i++) {
+      if (!(elem[i] in isreq))
+        fail("colour \"" elem[i] "\" is not a required palette key (want one of: " required ")")
+      lists = lists "color\t" elem[i] "\n"
+    }
+  } else if (key == "events") {
+    want("an array of strings")
+    n = parse_array()
+    for (i = 1; i <= n; i++) {
+      if (elem[i] !~ /^[a-z][a-z0-9_]*$/ || length(elem[i]) > 32)
+        fail("invalid event \"" elem[i] "\" (want [a-z][a-z0-9_]*, max 32)")
+      lists = lists "event\t" elem[i] "\n"
+    }
+  } else {
+    fail("unknown field \"" key "\" (want name, version, dialects, files, colors, default_position, update_freq, events, [options.<key>])")
+  }
+}
+END {
+  if (bad) exit 1
+  if (!("name" in seen)) fail_end("missing field \"name\"")
+  if (!("version" in seen)) fail_end("missing field \"version\"")
+  if (!("dialects" in seen)) fail_end("missing field \"dialects\"")
+  if (!("default_position" in seen)) fail_end("missing field \"default_position\"")
+  if (!("item.lua" in isfile)) fail_end("files must list item.lua")
+  for (i = 1; i <= nopt; i++) {
+    o = opt_order[i]
+    if (values[o] == "") fail_end("option \"" o "\" has no values")
+    if (!(o in dflt)) fail_end("option \"" o "\" has no default")
+    if (!((o SUBSEP dflt[o]) in isval))
+      fail_end("default \"" dflt[o] "\" for option \"" o "\" is not one of its values")
+  }
+  printf("%s%s", meta, lists)
+  for (i = 1; i <= nopt; i++) {
+    o = opt_order[i]
+    printf("%soption\t%s\t%s\n", values[o], o, dflt[o])
+  }
+}
+'
+
+# Set by stm_item_load: the validated records.
+STM_ITEM_RECORDS=""
+
+# stm_item_load <name> — resolve item:<name> against the bundled items only and
+# validate the manifest and every file it lists. Any defect is a hard error.
+stm_item_load() {
+  local name="$1" root dir f
+  validate_item_name "$name"
+  root=$(bundled_item_dir) || die "$EX_NOTFOUND" "no bundled items found (item:$name)"
+  dir="$root/$name"
+  [ -L "$dir" ] && die "$EX_INVALID" "item bundle \"$name\" is a symlink: $dir"
+  [ -d "$dir" ] || die "$EX_NOTFOUND" "item not bundled: \"$name\" (only items shipped with stm can be installed)"
+  f="$dir/item.toml"
+  [ -L "$f" ] && die "$EX_INVALID" "item:$name: item.toml is a symlink"
+  [ -f "$f" ] || die "$EX_INVALID" "item:$name: item.toml is missing or not a regular file"
+
+  STM_ITEM_RECORDS=$(awk -v prog="$PROGNAME" -v bundle="$name" -v required="$STM_REQUIRED_KEYS" \
+    "$STM_ITEM_TOML_AWK" "$f") || die "$EX_INVALID" "invalid item bundle: item:$name"
+
+  for f in $(printf '%s\n' "$STM_ITEM_RECORDS" | awk -F'\t' '$1=="file" { print $2 }'); do
+    [ -L "$dir/$f" ] && die "$EX_INVALID" "item:$name: bundle file $f is a symlink"
+    [ -e "$dir/$f" ] || die "$EX_INVALID" "item:$name: bundle file $f is missing"
+    [ -f "$dir/$f" ] || die "$EX_INVALID" "item:$name: bundle file $f is not a regular file"
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -3549,6 +3827,19 @@ cmd_lint() {
   local spec="$1" file=""
 
   [ -n "$spec" ] || die "$EX_USAGE" "lint needs a palette file or theme name"
+
+  # item:<name> is a bundled item, never a palette file or slug.
+  case "$spec" in
+    item:*)
+      stm_item_load "${spec#item:}"
+      if [ "$OPT_PORCELAIN" -eq 1 ]; then
+        printf 'ok\t%s\n' "$spec"
+      else
+        info "ok $spec"
+      fi
+      return 0
+      ;;
+  esac
 
   # Existing file, a path, or a .toml name → file. Otherwise a slug.
   case "$spec" in

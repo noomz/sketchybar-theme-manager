@@ -1,7 +1,7 @@
-name = "file-missing"
+name = "files-unknown"
 version = "0.1.0"
 dialects = ["lua"]
-files = ["item.lua", "plugin.sh"]
+files = ["item.lua", "plugin.sh", "extra.sh"]
 colors = ["green", "yellow", "red", "grey"]
 default_position = "right"
 update_freq = 30
