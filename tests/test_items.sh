@@ -779,4 +779,86 @@ assert_eq "$before" "$(snapshot)" "nothing written"
 rm -f "$CFG"
 done_it
 
+# --- doctor ------------------------------------------------------------------
+
+# Fresh config + empty ledger for the doctor cases.
+DC="$SANDBOX/doccfg"
+make_lua_config "$DC"
+rm -f "$ITEM_LEDGER"
+printf '#!/bin/sh\nexit 0\n' >"$SANDBOX/tailscale"
+chmod 755 "$SANDBOX/tailscale"
+
+it "doctor: no items installed, no Items section and no wiring warning (V18)"
+run_stm --dir "$DC" doctor
+assert_status 0
+assert_not_contains "$STM_OUT" "Items"
+assert_not_contains "$STM_OUT" "items_generated"
+done_it
+
+it "doctor: key coverage ignores stm item code and backups (V23, B1)"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" --no-reload install item:tailscale
+assert_status 0
+run_stm --dir "$DC" --no-reload backup withitems
+assert_status 0
+printf 'require("items_generated")\n' >>"$DC/init.lua"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
+assert_status 0
+assert_not_contains "$STM_OUT" "USED BUT MISSING"
+assert_not_contains "$STM_OUT" "popup "
+done_it
+
+it "doctor: lists installed items, loader and wiring; tailscale CLI note (V18, I.ts)"
+assert_contains "$STM_OUT" "Items"
+assert_contains "$STM_OUT" "tailscale"
+assert_contains "$STM_OUT" "0.1.0"
+assert_contains "$STM_OUT" "init.lua"
+assert_contains "$STM_OUT" "$SANDBOX/tailscale"
+STM_TAILSCALE="$SANDBOX/no-such-cli" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
+assert_status 0
+assert_contains "$STM_OUT" "not found"
+done_it
+
+it "doctor: installed item without require(\"items_generated\") is a problem (V18)"
+make_lua_config "$DC"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
+assert_status 1
+assert_contains "$STM_OUT" "NOT WIRED"
+assert_contains "$STM_OUT" 'require("items_generated")'
+printf 'require("items_generated")\n' >>"$DC/init.lua"
+done_it
+
+it "doctor: bundle changed since install -> update available, still OK"
+T_ROOT="$SANDBOX/troot"
+mkdir -p "$T_ROOT/bundles/items"
+cp -R "$REPO_ROOT/bundles/items/tailscale" "$T_ROOT/bundles/items/tailscale"
+ln -s "$REPO_ROOT/palettes" "$T_ROOT/palettes"
+printf -- '-- newer\n' >>"$T_ROOT/bundles/items/tailscale/item.lua"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$T_ROOT" run_stm --dir "$DC" doctor
+assert_status 0
+assert_contains "$STM_OUT" "update available"
+assert_contains "$STM_OUT" "install --force item:tailscale"
+done_it
+
+it "doctor: installed item no longer bundled is reported, still OK"
+rm -rf "$T_ROOT/bundles/items/tailscale"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$T_ROOT" run_stm --dir "$DC" doctor
+assert_status 0
+assert_contains "$STM_OUT" "no longer bundled"
+done_it
+
+it "doctor: ledger row without files, or files without a row, is a problem"
+mv "$DC/items/stm/tailscale.lua" "$SANDBOX/ts.lua.away"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
+assert_status 1
+assert_contains "$STM_OUT" "MISSING"
+assert_contains "$STM_OUT" "items/stm/tailscale.lua"
+mv "$SANDBOX/ts.lua.away" "$DC/items/stm/tailscale.lua"
+printf 'return function() end\n' >"$DC/items/stm/stray.lua"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
+assert_status 1
+assert_contains "$STM_OUT" "items/stm/stray.lua"
+assert_contains "$STM_OUT" "not in the item ledger"
+rm -f "$DC/items/stm/stray.lua"
+done_it
+
 finish
