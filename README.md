@@ -770,7 +770,7 @@ rather than ignored, so a typo is an error instead of a silently missing colour.
 
 ## Themes
 
-Eight palettes ship with `stm`. Run `stm preview <theme>` to see them rendered
+Nine palettes ship with `stm`. Run `stm preview <theme>` to see them rendered
 as true-colour swatches in your terminal.
 
 ### Tokyo Night — `tokyo-night`
@@ -890,10 +890,27 @@ dark text colour. The slot names describe roles, not brightness.
 
 Rosé Pine has no dedicated green; `foam` fills that slot and `rose` fills orange.
 
+### Kanagawa Wave — `kanagawa-wave`
+
+| key | value |
+| --- | --- |
+| black | `0xff1f1f28` |
+| white | `0xffdcd7ba` |
+| red | `0xffe46876` |
+| green | `0xff98bb6c` |
+| blue | `0xff7e9cd8` |
+| yellow | `0xffe6c384` |
+| orange | `0xffffa066` |
+| magenta | `0xff957fb8` |
+| grey | `0xff727169` |
+
+`red` is `waveRed`: Kanagawa's ANSI red (`autumnRed`) is too dark to read as a
+status colour on the bar.
+
 ### Screenshots
 
 There are no per-theme screenshots in this repo. A real one would mean booting
-SketchyBar seven times and capturing the menu bar, which isn't reproducible from
+SketchyBar once per theme and capturing the menu bar, which isn't reproducible from
 a checkout. `stm preview <theme>` renders each palette as true-colour swatches
 in your terminal, which is the closer thing to a preview anyway.
 

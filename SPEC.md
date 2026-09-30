@@ -1,8 +1,10 @@
-# SPEC — item bundles, step 1 (#16, epic #15)
+# SPEC — item bundles (epic #15): step 1 (#16), step 1b theme-driven items (#19)
 
 ## §G goal
 
 stm install bundled SketchyBar item bundles via `stm install item:<name>`. first bundle = `tailscale` status item. theme switch recolour item. no item code cross network in step 1.
+
+step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]` option values (enum, checked vs bundled manifest); item code still only from stm release. shape = per-item option `plain|pill|split` (c|a|b). ship bundled `kanagawa-wave` palette. port author's split items (battery, calendar, net, spotify) to bundles so theme can reshape them.
 
 ## §C constraints
 
@@ -15,6 +17,11 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - C7 no new hard runtime dep. `jq` optional; fallback `/usr/bin/plutil`. no `timeout` binary (macOS lack it).
 - C8 `stm.config.toml` parser string-only → one key per option, no arrays.
 - C9 commits + PR mention `#16`.
+- C10 step 1b: palette `[item.<name>]` = enum strings only. never code, path, install, fetch. C2 hold.
+- C11 no global `[style]` section. shape + any geometry = per-item manifest option.
+- C12 ported bundles generic: no personal path, no hard-coded hex, stock macOS only. user own items/plugins untouched (C4); user delete own copy by hand.
+- C13 bundled palettes stay colour-only: no `[layout]` `[items]` `[item.<name>]`. theme shape live in user palette via `base =`.
+- C14 step 1b commits + PR mention `#19` + epic #15.
 
 ## §I interfaces
 
@@ -34,6 +41,11 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - I.cfg
   - `[item.<name>]` in `stm.config.toml`: one string key per option
   - position: palette `[items] stm.<name> = "<pos>"` slot, else manifest `default_position`
+  - option value per key: `stm.config.toml [item.<name>]` > palette `[item.<name>]` (after `base =` merge) > manifest `default`
+- I.palopt palette table `[item.<name>]`, `key = "value"` strings. eg `[item.tailscale]` `shape = "pill"`
+- I.shape manifest `[options.shape]` values ⊆ `plain|pill|split`. plain = c `<ic> <text>` no bg; pill = a `[ <ic> <text> ]`; split = b `[<ic>] [<text>]`
+- I.kw `palettes/kanagawa-wave.toml`, slug `kanagawa-wave`, name `Kanagawa Wave`. source rebelot/kanagawa.nvim wave palette
+- I.port bundles `battery` `calendar` `net` `spotify` ? data source + options fixed per task at build (read author plugins first)
 - I.fs
   - `$RESOLVED_DIR/items/stm/<name>.lua`
   - `$RESOLVED_DIR/plugins/stm/<name>.sh` (0755)
@@ -41,7 +53,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
   - ledger `${XDG_CONFIG_HOME:-~/.config}/stm/items` TSV `name  source  tree-sha256  ref  iso8601`; bundled → `source=bundled`, `ref=<STM_VERSION>`
 - I.wire user add once: `require("items_generated")`
 - I.ts CLI lookup: `$STM_TAILSCALE` if set (override, no fallback) → `/usr/local/bin/tailscale` → `/Applications/Tailscale.app/Contents/MacOS/Tailscale` → `/opt/homebrew/bin/tailscale` → `tailscale` on PATH. `status --json` fields: `BackendState`, `Self.TailscaleIPs/.DNSName/.HostName`, `Peer{}.DNSName/.HostName/.Online/.TailscaleIPs`, `ExitNodeStatus` (optional)
-- I.tsopt tailscale options: `exit_node` `peers` `ip` ∈ `on|off` (default all `on`); `click` ∈ `popup|app` (default `popup`); `icon` ∈ `text|nerd|app` (default `text`)
+- I.tsopt tailscale options: `exit_node` `peers` `ip` ∈ `on|off` (default all `on`); `click` ∈ `popup|app` (default `popup`); `icon` ∈ `text|nerd|app` (default `text`); `shape` ∈ `plain|pill|split` (default `plain`)
 
 ## §V invariants
 
@@ -54,7 +66,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V7 `RESOLVED_FORMAT != lua` | manifest `dialects` ∌ `lua` → refuse, nothing written.
 - V8 ledger row exists w/o `--force` → `EX_EXISTS`, nothing written.
 - V9 `[item.<name>]` value ∉ manifest `values` → hard error. unknown option key → hard error. generated Lua hold only validated enum values as string literals.
-- V10 SketchyBar item name always `stm.<name>`.
+- V10 SketchyBar item name always `stm.<name>`. only other names: split icon sub-item `stm.<name>.icon` (V33), popup rows `stm.<name>.row.*`.
 - V11 uninstall remove only files under `items/stm/` + `plugins/stm/` + ledger row. refuse symlink / path outside. regen loader.
 - V12 `items_generated.lua`, `items/stm/`, `plugins/stm/` excluded from `.stm-manifest` baseline + `verify` drift; included in owned backup.
 - V13 `apply` regen `items_generated.lua` from ledger + config; stay offline; no ledger → no loader change.
@@ -71,6 +83,15 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 - V24 tailscale peer name = first label of `Peer{}.DNSName` (MagicDNS name, as Tailscale app show). `HostName` only when `DNSName` empty. iOS report `HostName` = `localhost`. control chars (tab, newline…) stripped from `DNSName` + `HostName` before use → peer-set name never forge record / row. jq + plutil paths same.
 - V25 tailscale `icon`: `text` → `TS`; `nerd` → nf-md-dots_grid U+F15FC (Nerd Fonts lack Tailscale brand glyph); `app` → `icon.background.image` = `app.<id>` (icon slot size to image; item `background.image` draw behind label), id = first of `io.tailscale.ipn.macsys`, `io.tailscale.ipn.macos` sketchybar resolve; none → `TS` text. image never tinted → `app` mode state colour (V17) always on `label.color` (resolved or fallback; fallback add `icon.color` too) → no stale label colour. `app` icon: `icon.background.color` = 0 (transparent, no palette colour → no pill from user defaults), `icon.background.image.scale` = 0.625 (32pt app image → 20pt). probe only when `SENDER` ∈ `forced|system_woke` or no valid cache; cache `${TMPDIR:-/tmp}/stm-tailscale-icon.<NAME>` = resolved id | `none`, written `mktemp` + `mv`, other content → probe. no image file shipped (V4 files set; trademark).
 - V26 tailscale peer count include self: Running → label `online/total` = peers + this device (self always online). popup row `<NAME>.row.self` after exit row, before peers: `<self name>  <self ip>  (this device)`, green dot. self name same rule as V24 (`Self.DNSName` first label, else `HostName`). self never in peer rows, never counted twice. row + bar label join only non-empty parts (no name / no IP → no double gap). jq + plutil same.
+- V27 palette `[item.<name>]` header: `<name>` ! match `[a-z][a-z0-9_-]*`; key ! `[a-z][a-z0-9_]*`; value ! `[a-z0-9][a-z0-9_-]{0,31}`. other dotted header | dup header | bad key/value → palette invalid (parse fail, same as bad `[layout]`).
+- V28 palette option reach generated Lua only when value ∈ installed bundled item manifest `values`. unknown key | value ∉ `values` → stderr warning (palette slug + item + key), option ignored, fall through, `apply` exit 0. (≠ V9: config = user own → hard error; palette = foreign, may target other item version.)
+- V29 option precedence per key: config > palette (`base =` merged, child win per key) > manifest `default`. loader bytes = f(ledger, config, active palette) — same whether written by `install`, `uninstall` or `apply`.
+- V30 palette `[item.<name>]` never install | uninstall | fetch item. named item not installed → `apply` stderr `note: item:<name> not installed (stm install item:<name>)` once per item, exit 0, no extra write.
+- V31 `export` emit merged `[item.<name>]` tables; `add` | `import` round-trip byte-stable.
+- V32 manifest `shape` values ⊄ `plain|pill|split` → V4 hard error. semantics fixed all bundles: plain = no item bg; pill = one item, `background.color` = `bg1`; split = `stm.<name>.icon` (icon only, bg = accent|state colour, icon colour `black`) + `stm.<name>` (label only, bg `bg1`). colours only palette keys (V14); manifest `colors` ∋ every key used.
+- V33 split: icon sub-item visually left of label every position (`right` → add main then icon; `left|center` → icon then main). popup + click on main; icon sub-item `click_script` = main.
+- V34 tailscale `shape` default `plain` → render identical to 0.6.0. pill: text|nerd → `icon.color` = state colour (V17); app → V25 rule (state on `label.color`). split: icon sub-item bg = state colour; app image draw over it.
+- V35 bundled palettes colour-only (C13); CI fail if any carry `[layout]` `[items]` `[item.<name>]`. `kanagawa-wave` key set ⊇ `tokyo-night.toml` key set (canonical + bash 26-name + semantic); `stm lint` pass.
 
 ## §T tasks
 
@@ -96,6 +117,21 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T18 | x | tailscale count self in `online/total` + popup self row `(this device)`; fixtures + jq/plutil tests + README | V26,V24,I.ts |
 | T19 | x | tailscale review fixes: app-mode `label.color` always, strip control chars, non-empty label join, probe cache, transparent icon bg + scale; sparse-self fixture, Lua text/nerd/app test, generic fixture name | V24,V25,V26,V14 |
 | T20 | x | tailscale `status` bound by watchdog `sleep 3` not tick loop; CI bash 3.2 hang test green | V15 |
+| T21 | x | `palettes/kanagawa-wave.toml` (cite upstream) + tests: bundled count 8→9 (`test_cli.sh:175`), dialect/backup/verify loops, README theme list | V35,I.kw |
+| T22 | . | red tests: palette `[item.<name>]` fixtures good + bad (header, key, value, other dotted, dup) | V27 |
+| T23 | . | palette parser: `[item.<name>]` header → `itemopt` records; `base =` merge child win per key | V27,V29 |
+| T24 | . | loader: palette opts into `STM_ITEM_OPTIONS_AWK` between config + default; warn + ignore bad | V28,V29,V9 |
+| T25 | . | `apply` note for palette-named uninstalled items | V30 |
+| T26 | . | `export` emit `[item.<name>]`; round-trip test | V31 |
+| T27 | . | manifest lint: `shape` values ⊆ vocab; CI bundled palettes colour-only check | V32,V35,V4 |
+| T28 | . | tailscale `shape`: manifest (+ `bg1` `black` colours) + item.lua + plugin.sh; tests plain = 0.6.0, pill, split left/right order, app+split | V32,V33,V34,V10,V14,I.tsopt |
+| T29 | . | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
+| T30 | . | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |
+| T31 | . | bundle `battery` (`shape` default `split`) ? source author `plugins/power.sh` | C12,V32,I.port |
+| T32 | . | bundle `calendar` (`shape` default `split`) ? date + clock = 1 or 2 items | C12,V32,I.port |
+| T33 | . | bundle `net` (`shape` default `split`) ? | C12,V32,I.port |
+| T34 | . | bundle `spotify` ? popup + cover art; maybe drop | C12,V32,I.port |
+| T35 | . | Formula + `install.sh` ship new bundles (known files only) | C3,V21 |
 
 ## §B bugs
 

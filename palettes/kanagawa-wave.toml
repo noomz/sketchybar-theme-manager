@@ -1,0 +1,63 @@
+# Kanagawa Wave — https://github.com/rebelot/kanagawa.nvim (lua/kanagawa/colors.lua)
+# sumiInk0 #16161d · sumiInk2 #1a1a22 · sumiInk3 #1f1f28 · sumiInk4 #2a2a37
+# sumiInk5 #363646 · sumiInk6 #54546d · fujiWhite #dcd7ba · oldWhite #c8c093
+# fujiGray #727169 · waveRed #e46876 · springGreen #98bb6c · crystalBlue #7e9cd8
+# carpYellow #e6c384 · surimiOrange #ffa066 · oniViolet #957fb8
+#
+# red is waveRed, not autumnRed (#c34043, Kanagawa's ANSI red): autumnRed is
+# too dark to read as a status colour on the sumiInk bar.
+
+name = "Kanagawa Wave"
+slug = "kanagawa-wave"
+variant_label = "Kanagawa Wave"
+
+[colors]
+black = "0xff1f1f28"
+white = "0xffdcd7ba"
+red = "0xffe46876"
+green = "0xff98bb6c"
+blue = "0xff7e9cd8"
+yellow = "0xffe6c384"
+orange = "0xffffa066"
+magenta = "0xff957fb8"
+grey = "0xff727169"
+bg1 = "0xff2a2a37"
+bg2 = "0xff363646"
+bar_bg = "0x001f1f28"
+bar_border = "0xff363646"
+popup_bg = "0xc02a2a37"
+popup_border = "0xff54546d"
+
+# --- bash dialect: Catppuccin 26-colour naming ------------------------------
+# AwesomeAdil/dotfiles has no Kanagawa palette, so stm maps these from the
+# kanagawa.nvim names. A colors.sh naming its variables this way gets them
+# swapped automatically.
+# Not repeated here (the canonical key above already defines them): red yellow green blue
+rosewater = "0xffd27e99"
+flamingo = "0xffd27e99"
+pink = "0xffd27e99"
+mauve = "0xff957fb8"
+maroon = "0xffff5d62"
+peach = "0xffffa066"
+teal = "0xff7aa89f"
+sky = "0xff7fb4ca"
+sapphire = "0xffa3d4d5"
+lavender = "0xff9cabca"
+text = "0xffdcd7ba"
+subtext1 = "0xffc8c093"
+subtext0 = "0xff938aa9"
+overlay2 = "0xff717c7c"
+overlay1 = "0xff727169"
+overlay0 = "0xff54546d"
+surface2 = "0xff54546d"
+surface1 = "0xff363646"
+surface0 = "0xff2a2a37"
+base = "0xff1f1f28"
+mantle = "0xff1a1a22"
+crust = "0xff16161d"
+
+# Semantic keys that carry a literal 0x value in colors.sh. Reference lines
+# such as 'export ITEM_BG_COLOR=$SURFACE0' are preserved untouched and need
+# no palette key.
+bar_color = "0xcc2a2a37"
+bar_border_color = "0x00000000"
