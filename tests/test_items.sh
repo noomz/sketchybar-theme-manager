@@ -525,4 +525,84 @@ else
   printf '# note: lua not found, items_generated.lua not run end to end\n'
 fi
 
+# --- apply: regenerate items_generated.lua ---------------------------------
+
+# A sketchybar stub that keeps the loader as it was at reload time.
+RB="$SANDBOX/bin-reload"
+mkdir -p "$RB"
+cat >"$RB/sketchybar" <<EOF
+#!/bin/sh
+cp "$LOADER" "$SANDBOX/at-reload.lua" 2>/dev/null
+printf '%s\n' "\$*" >>"\$STM_TEST_RELOAD_LOG"
+EOF
+chmod 755 "$RB/sketchybar"
+
+it "apply regenerates items_generated.lua for the new palette, before reload, offline (V13)"
+reset_items
+rm -f "$CFG" "$SANDBOX/at-reload.lua"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 0
+run_stm --dir "$D" --palette-dir "$P" --no-reload install item:ok
+assert_status 0
+assert_file_contains "$LOADER" 'position = "right",'
+reset_fetch_log
+PATH="$RB:$PATH" run_stm --dir "$D" --palette-dir "$P" apply slotted
+assert_status 0
+assert_file_contains "$LOADER" 'position = "left",'
+assert_file_contains "$SANDBOX/at-reload.lua" 'position = "left",'
+assert_eq "" "$(fetch_log)" "apply must not call STM_FETCH"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 0
+assert_file_contains "$LOADER" 'position = "right",'
+done_it
+
+it "apply picks up [item.<name>] changes"
+printf '[item.ok]\nlabel = "off"\n' >"$CFG"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 0
+assert_file_contains "$LOADER" '["label"] = "off",'
+rm -f "$CFG"
+done_it
+
+it "apply with a bad [item.<name>] option fails before writing anything (V9, V13)"
+printf '[item.ok]\nlabel = "maybe"\n' >"$CFG"
+before=$(snapshot)
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply slotted
+assert_ne 0 "$STM_STATUS" "apply must fail on a bad item option"
+assert_contains "$STM_ERR" "item.ok"
+assert_eq "$before" "$(snapshot)" "a refused apply must write nothing"
+rm -f "$CFG"
+done_it
+
+it "apply --dry-run mentions the loader and writes nothing"
+before=$(snapshot)
+run_stm --dir "$D" --palette-dir "$P" --no-reload --dry-run apply slotted
+assert_status 0
+assert_contains "$STM_OUT$STM_ERR" "items_generated.lua"
+assert_eq "$before" "$(snapshot)" "--dry-run must write nothing"
+done_it
+
+it "apply with no items installed leaves items_generated.lua alone (V13)"
+reset_items
+printf -- '-- hand-made\n' >"$LOADER"
+loader_before=$(cksum <"$LOADER")
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply slotted
+assert_status 0
+assert_eq "$loader_before" "$(cksum <"$LOADER")" "no ledger: loader must not change"
+rm -f "$LOADER"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 0
+assert_file_absent "$LOADER" "no ledger: apply must not create a loader"
+done_it
+
+it "apply never creates a loader in a config that has none"
+run_stm --dir "$D" --palette-dir "$P" --no-reload install item:ok
+assert_status 0
+O="$SANDBOX/othercfg"
+make_lua_config "$O"
+run_stm --dir "$O" --palette-dir "$P" --no-reload apply slotted
+assert_status 0
+assert_file_absent "$O/items_generated.lua" "apply must not write a loader for items this config lacks"
+done_it
+
 finish
