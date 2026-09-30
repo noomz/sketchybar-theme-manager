@@ -526,6 +526,36 @@ EOF
   assert_contains "$lua_out" "STM_GREEN='0xffa6da95'"
   assert_not_contains "$lua_out" "stm: item"
   done_it
+
+  it "tailscale item.lua sets the initial icon for text, nerd and app (V25, V14)"
+  cat >"$SANDBOX/lua/icon_probe.lua" <<'EOF'
+-- Runs item.lua with one icon mode and prints the icon it creates.
+local mode, item_lua = ...
+local sbar = {}
+function sbar.add(_, _, props)
+  local i, bg = props.icon, props.icon.background or {}
+  print(string.format("string=%s color=%s bg.drawing=%s bg.color=%s scale=%s",
+    i.string, tostring(i.color), tostring(bg.drawing), tostring(bg.color),
+    tostring(bg.image and bg.image.scale)))
+  return { subscribe = function() end, set = function() end }
+end
+function sbar.exec() end
+local opts = { name = "stm.tailscale", position = "right", update_freq = 30,
+  plugin_dir = "/p", events = {},
+  options = { exit_node = "on", peers = "on", ip = "on", click = "popup", icon = mode } }
+dofile(item_lua)(sbar, opts, { grey = 7, green = 1 })
+EOF
+  ITEM_LUA="$REPO_ROOT/bundles/items/tailscale/item.lua"
+  icon_of() {
+    "$LUA_BIN" "$SANDBOX/lua/icon_probe.lua" "$1" "$ITEM_LUA" 2>&1
+  }
+  assert_eq "string=TS color=7 bg.drawing=nil bg.color=nil scale=nil" "$(icon_of text)" "text icon"
+  assert_eq "string=$(printf '\363\261\227\274') color=7 bg.drawing=nil bg.color=nil scale=nil" \
+    "$(icon_of nerd)" "nerd icon"
+  # Transparent background (no pill from the user's icon defaults), 32pt app
+  # image drawn at 20pt.
+  assert_eq "string= color=nil bg.drawing=true bg.color=0 scale=0.625" "$(icon_of app)" "app icon"
+  done_it
 elif [ -n "${CI:-}" ]; then
   it "lua is available to run items_generated.lua"
   _note_fail "lua not found; CI must run the loader end to end"

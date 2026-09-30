@@ -76,14 +76,17 @@ fi
 
 # run_plugin <parser> <cli> [VAR=value...] — one plugin run with a clean env.
 # The argv sketchybar received lands in $SB, one arg per line.
-# The app ids it probed land in $PROBES, one per line.
+# The app ids it probed land in $PROBES, one per line. The icon=app lookup
+# cache is cleared first unless KEEP_ICON_CACHE is set.
 SB=""
 PROBES=""
+ICON_CACHE="$SANDBOX/stm-tailscale-icon.stm.tailscale"
 run_plugin() {
   local parser="$1" cli="$2" path="$FAKE_BIN:/bin"
   shift 2
   [ "$parser" = jq ] && path="$JQ_BIN:$path"
   rm -f "$SB_LOG" "$SB_LOG.probe"
+  [ -n "${KEEP_ICON_CACHE:-}" ] || rm -f "$ICON_CACHE"
   env -i HOME="$HOME" TMPDIR="$SANDBOX" PATH="$path" SB_LOG="$SB_LOG" \
     NAME=stm.tailscale SENDER=routine STM_TAILSCALE="$cli" \
     STM_GREEN=$GREEN STM_YELLOW=$YELLOW STM_RED=$RED STM_GREY=$GREY \
@@ -169,7 +172,7 @@ for P in $PARSERS; do
     --add item stm.tailscale.row.4 popup.stm.tailscale \
     --set stm.tailscale.row.4 icon=● 'label=oldbox  100.64.0.4' icon.color=$GREY)
   assert_eq "$expected" "$SB" "mobile argv"
-  sb_lacks 'label=localhost  100.64.0.2' "label=Siriwat's MacBook Pro  100.64.0.1  (this device)"
+  sb_lacks 'label=localhost  100.64.0.2' "label=Alex's MacBook Pro  100.64.0.1  (this device)"
   done_it
 
   it "[$P] Starting: yellow, label starting (V17)"
@@ -211,11 +214,50 @@ for P in $PARSERS; do
   assert_eq "$expected" "$(printf '%s\n' "$SB" | head -n 8)" "app icon argv"
   done_it
 
-  it "[$P] icon=app, no Tailscale app: TS text icon coloured as usual (V25)"
+  it "[$P] icon=app, no Tailscale app: TS text icon, state colour on icon and label (V25, B3)"
   run_state "$P" starting STM_TS_ICON=app
   assert_eq "$(argv_of io.tailscale.ipn.macsys io.tailscale.ipn.macos)" "$PROBES" "probe order"
-  sb_has icon=TS icon.background.drawing=off icon.color=$YELLOW
-  sb_lacks label.color=$YELLOW icon.background.drawing=on
+  # label.color too: a run that did resolve the app icon left it coloured.
+  sb_has icon=TS icon.background.drawing=off label.color=$YELLOW icon.color=$YELLOW
+  sb_lacks icon.background.drawing=on
+  done_it
+
+  it "[$P] icon=app, all label fields off: bare app icon (V25)"
+  run_state "$P" running STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys \
+    STM_TS_EXIT_NODE=off STM_TS_PEERS=off STM_TS_IP=off STM_TS_CLICK=app
+  assert_eq "$(argv_of --set stm.tailscale label.drawing=off icon= icon.background.drawing=on \
+    label.color=$GREEN)" "$SB" "bare app icon argv"
+  done_it
+
+  it "[$P] no Self, no own IP: count still includes this device, no stray gaps (V26)"
+  run_state "$P" self-sparse
+  expected=$(argv_of \
+    --set stm.tailscale label.drawing=on label=2/2 icon.color=$GREEN \
+    --remove "$ROWS_RE" \
+    --add item stm.tailscale.row.self popup.stm.tailscale \
+    --set stm.tailscale.row.self icon=● 'label=(this device)' icon.color=$GREEN \
+    --add item stm.tailscale.row.1 popup.stm.tailscale \
+    --set stm.tailscale.row.1 icon=● 'label=laptop  100.64.0.2' icon.color=$GREEN)
+  assert_eq "$expected" "$SB" "self-sparse argv"
+  done_it
+
+  it "[$P] empty green palette colour: rows drawn without icon.color (V14, V26)"
+  run_state "$P" self-sparse STM_GREEN=
+  sb_has stm.tailscale.row.self 'label=(this device)' 'label=laptop  100.64.0.2'
+  printf '%s\n' "$SB" | grep -q '^icon\.color=$' && _note_fail "empty icon.color passed" "argv:" "$SB"
+  sb_lacks icon.color=$GREEN
+  done_it
+
+  it "[$P] control characters in names cannot forge peer rows (V24, B4)"
+  run_state "$P" spoof
+  expected=$(argv_of \
+    --set stm.tailscale label.drawing=on 'label=1/2  100.64.0.1' icon.color=$GREEN \
+    --remove "$ROWS_RE" \
+    --add item stm.tailscale.row.self popup.stm.tailscale \
+    --set stm.tailscale.row.self icon=● 'label=mac  100.64.0.1  (this device)' icon.color=$GREEN \
+    --add item stm.tailscale.row.1 popup.stm.tailscale \
+    --set stm.tailscale.row.1 icon=● 'label=xpeer1evil6.6.6.6  100.64.0.2' icon.color=$GREY)
+  assert_eq "$expected" "$SB" "spoof argv"
   done_it
 
   it "[$P] icon=text|nerd: no app probe, icon string left to item.lua (V25)"
@@ -228,6 +270,35 @@ for P in $PARSERS; do
   done_it
 
 done
+
+it "icon=app lookup cached between routine runs, redone on forced / system_woke (V25)"
+run_state plutil running STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys
+assert_eq io.tailscale.ipn.macsys "$(cat "$ICON_CACHE" 2>/dev/null)" "cache after lookup"
+# Routine run: the cached id is used as is, even though the app is now gone.
+KEEP_ICON_CACHE=1 run_state plutil running STM_TS_ICON=app
+assert_eq "" "$PROBES" "routine run with cache probes nothing"
+sb_has icon.background.drawing=on label.color=$GREEN
+# forced (a reload, `sketchybar --update`) looks again and caches the miss.
+KEEP_ICON_CACHE=1 run_state plutil running STM_TS_ICON=app SENDER=forced
+assert_eq "$(argv_of io.tailscale.ipn.macsys io.tailscale.ipn.macos)" "$PROBES" "forced probes"
+assert_eq none "$(cat "$ICON_CACHE" 2>/dev/null)" "cache after miss"
+KEEP_ICON_CACHE=1 run_state plutil running STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys
+assert_eq "" "$PROBES" "cached miss probes nothing"
+sb_has icon=TS icon.background.drawing=off
+KEEP_ICON_CACHE=1 run_state plutil running STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macos SENDER=system_woke
+assert_eq "$(argv_of io.tailscale.ipn.macsys io.tailscale.ipn.macos)" "$PROBES" "wake probes"
+assert_eq io.tailscale.ipn.macos "$(cat "$ICON_CACHE" 2>/dev/null)" "cache after wake"
+# Anything else in the cache is ignored and looked up again.
+printf 'app.evil\n' >"$ICON_CACHE"
+KEEP_ICON_CACHE=1 run_state plutil running STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys
+assert_eq io.tailscale.ipn.macsys "$PROBES" "bad cache probes"
+sb_lacks icon.background.image=app.app.evil
+done_it
+
+it "icon=text: no lookup, no cache file (V25)"
+run_state plutil running STM_TS_ICON=text SENDER=forced
+assert_file_absent "$ICON_CACHE"
+done_it
 
 it "no tailscale CLI: grey, label and popup say not installed, no fallback (V16, I.ts)"
 run_plugin plutil "$SANDBOX/no-such-tailscale"

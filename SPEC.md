@@ -94,7 +94,7 @@ stm install bundled SketchyBar item bundles via `stm install item:<name>`. first
 | T16 | x | tailscale peer name from `DNSName` first label, fallback `HostName`; fixture iOS peer `HostName=localhost`; jq + plutil | V24,I.ts |
 | T17 | x | tailscale `icon` option (`text` `nerd` `app`; manifest + item.lua + plugin.sh + tests + README) | V25,V17,V14,I.tsopt |
 | T18 | x | tailscale count self in `online/total` + popup self row `(this device)`; fixtures + jq/plutil tests + README | V26,V24,I.ts |
-| T19 | . | tailscale review fixes: app-mode `label.color` always, strip control chars, non-empty label join, probe cache, transparent icon bg + scale; sparse-self fixture, Lua text/nerd/app test, generic fixture name | V24,V25,V26,V14 |
+| T19 | x | tailscale review fixes: app-mode `label.color` always, strip control chars, non-empty label join, probe cache, transparent icon bg + scale; sparse-self fixture, Lua text/nerd/app test, generic fixture name | V24,V25,V26,V14 |
 
 ## §B bugs
 

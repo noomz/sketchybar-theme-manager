@@ -40,13 +40,15 @@ return function(sbar, opts, colors)
   end
 
   -- icon=app: plugin.sh points icon.background.image at the Tailscale app and
-  -- falls back to "TS" when SketchyBar cannot find it. nerd: nf-md-dots_grid
-  -- (Nerd Fonts have no Tailscale glyph).
+  -- falls back to "TS" when SketchyBar cannot find it. The background is
+  -- transparent (0, not a palette colour) so icon defaults draw no pill behind
+  -- it, and the 32pt app image is drawn at 20pt. nerd: nf-md-dots_grid (Nerd
+  -- Fonts have no Tailscale glyph).
   local icon = { string = "TS", color = colors.grey }
   if o.icon == "nerd" then
     icon.string = "\u{F15FC}"
   elseif o.icon == "app" then
-    icon = { string = "", background = { drawing = true } }
+    icon = { string = "", background = { drawing = true, color = 0, image = { scale = 0.625 } } }
   end
 
   local item = sbar.add("item", opts.name, {
