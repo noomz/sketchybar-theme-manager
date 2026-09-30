@@ -118,7 +118,7 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `--dry-run` | Show what would change; write nothing |
 | `--force` | Let `add` / `import` / `adopt` / `install` overwrite |
 | `--allow-host <host>` | Permit one extra HTTPS host for `install` |
-| `--registry <url>` | Catalog base URL (`https` only; default `https://stm.noomz.dev`) |
+| `--registry <url>` | Catalog base URL (`https` only; default `https://stm.noomz.space`) |
 | `--append-missing` | (bash) Append palette keys that `colors.sh` doesn't have |
 | `--porcelain` | Machine-readable output for `list`, `preview`, `lint` and `search` |
 | `-v, --verbose` | Extra detail on stderr |
@@ -857,7 +857,7 @@ the author URL so you can `stm install` that URL yourself. A successful slug
 install then `POST`s `/v1/stats/install` (failures are ignored). Direct
 `owner/repo/path` installs do not.
 
-The default catalog is `https://stm.noomz.dev`. Override with `--registry`,
+The default catalog is `https://stm.noomz.space`. Override with `--registry`,
 `$STM_REGISTRY`, or `registry = "https://…"` in `stm.config.toml` (https only).
 
 To list a palette you already host (a link, not an upload):

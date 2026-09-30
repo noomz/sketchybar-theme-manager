@@ -34,7 +34,7 @@ PROGNAME="stm"
 
 # Default catalog. Override with --registry, $STM_REGISTRY, or registry = in
 # stm.config.toml. The portal lists author URLs; it does not host palettes.
-STM_REGISTRY_DEFAULT="https://stm.noomz.dev"
+STM_REGISTRY_DEFAULT="https://stm.noomz.space"
 
 # Every palette must define these. Order here is documentation only; output is
 # always sorted alphabetically.
