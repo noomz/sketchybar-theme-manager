@@ -1,0 +1,6 @@
+{
+  "BackendState": "NeedsLogin",
+  "Self": { "HostName": "mac", "Online": false, "TailscaleIPs": null },
+  "AuthURL": "",
+  "Peer": null
+}

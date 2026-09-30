@@ -1,0 +1,51 @@
+{
+  "Version": "1.76.1",
+  "BackendState": "Running",
+  "Self": {
+    "HostName": "mac",
+    "Online": true,
+    "TailscaleIPs": [
+      "100.64.0.1",
+      "fd7a:115c:a1e0::1"
+    ]
+  },
+  "Health": null,
+  "CurrentTailnet": null,
+  "Peer": {
+    "nodekey:aa01": {
+      "HostName": "laptop",
+      "Online": true,
+      "TailscaleIPs": [
+        "100.64.0.2",
+        "fd7a:115c:a1e0::2"
+      ],
+      "PrimaryRoutes": null
+    },
+    "nodekey:aa02": {
+      "HostName": "archive",
+      "Online": false,
+      "TailscaleIPs": [
+        "100.64.0.3",
+        "fd7a:115c:a1e0::3"
+      ],
+      "PrimaryRoutes": null
+    },
+    "nodekey:aa03": {
+      "HostName": "bravo",
+      "Online": true,
+      "TailscaleIPs": [
+        "100.64.0.4",
+        "fd7a:115c:a1e0::4"
+      ],
+      "PrimaryRoutes": null
+    }
+  },
+  "ExitNodeStatus": {
+    "ID": "n4",
+    "Online": true,
+    "TailscaleIPs": [
+      "100.64.0.4/32",
+      "fd7a:115c:a1e0::4/128"
+    ]
+  }
+}
