@@ -80,8 +80,9 @@ STM_ROOT="$PWD" bin/stm preview my-theme
 - **Writes are atomic.** Write to a temp file in the destination directory, then
   `mv` it into place. Never edit a user file in a way that can leave it half
   written.
-- `shellcheck -s bash bin/stm tests/*.sh` and `shellcheck -s sh install.sh` must
-  produce **no output**. If a warning is genuinely wrong, add a targeted
+- `shellcheck -s bash bin/stm tests/*.sh` and
+  `shellcheck -s sh install.sh bundles/items/*/plugin.sh` must produce **no
+  output**. If a warning is genuinely wrong, add a targeted
   `# shellcheck disable=SCxxxx` with a comment saying why.
 - Keep `LC_ALL=C` in force. Glob ranges like `[!a-z0-9._-]` match upper-case
   letters under `en_US.UTF-8`, which silently defeats validation.
@@ -207,7 +208,8 @@ validation rule, add the fixture that trips it.
 - [ ] `tests/run.sh` passes
 - [ ] `STM_BASH="$(brew --prefix)/bin/bash" tests/run.sh` passes
 - [ ] `shellcheck -s bash bin/stm tests/*.sh` is silent
-- [ ] `shellcheck -s sh install.sh` is silent
+- [ ] `shellcheck -s sh install.sh bundles/items/*/plugin.sh` is silent
+- [ ] Bundled items: `STM_ROOT="$PWD" bin/stm lint item:<name>` passes
 - [ ] New behaviour has a test; bug fixes have a regression test
 - [ ] `stm help` and `README.md` describe any new flag or command
 - [ ] No new dependency

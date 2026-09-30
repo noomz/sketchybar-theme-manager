@@ -222,14 +222,19 @@ done_it
 
 # --- the bundles shipped in this repo -------------------------------------
 
-it "every bundled item passes lint item:"
+it "every bundled item passes lint item:, offline and write-free (V22)"
 n=0
 for b in "$REPO_ROOT"/bundles/items/*/; do
   [ -d "$b" ] || continue
   n=$((n + 1))
   name=$(basename "$b")
-  STM_ROOT="$REPO_ROOT" run_stm --dir "$D" lint "item:$name"
+  before=$(snapshot)
+  reset_fetch_log
+  STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --porcelain lint "item:$name"
   assert_status 0 "bundled item:$name must lint clean"
+  assert_eq "ok	item:$name" "$STM_OUT"
+  assert_eq "$before" "$(snapshot)" "lint item:$name must write nothing"
+  assert_eq "" "$(fetch_log)" "lint item:$name must not call STM_FETCH"
 done
 [ "$n" -gt 0 ] || _note_fail "no bundled items found under bundles/items/"
 done_it

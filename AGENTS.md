@@ -16,7 +16,7 @@ Formula/sketchybar-theme-manager.rb   # Homebrew formula
 install.sh                       # POSIX sh installer (linted with `sh -n`)
 README.md                        # user docs — authoritative for commands/flags/behaviour
 CONTRIBUTING.md                  # contributor rules — read before touching bin/stm
-.github/workflows/ci.yml         # shellcheck + tests on bash 3.2 and 5 + palette validation
+.github/workflows/ci.yml         # shellcheck + tests on bash 3.2 and 5 + palette and item validation
 ```
 
 Version lives in `STM_VERSION` near the top of `bin/stm`.
@@ -41,12 +41,13 @@ tests/run.sh test_toml.sh                           # a single file
 
 # Lint — must produce ZERO output:
 shellcheck -s bash bin/stm tests/*.sh
-shellcheck -s sh install.sh
+shellcheck -s sh install.sh bundles/items/*/plugin.sh
 sh -n install.sh
 
 # Palette validation (what CI does):
 STM_ROOT="$PWD" bin/stm preview --porcelain <slug>
 STM_ROOT="$PWD" bin/stm lint --porcelain <slug>
+STM_ROOT="$PWD" bin/stm lint --porcelain item:<name>   # every bundles/items/<name>/
 ```
 
 ## Hard constraints (do not violate)
@@ -114,5 +115,5 @@ STM_ROOT="$PWD" bin/stm lint --porcelain <slug>
 - New flag or command → update `stm help` text **and** README in the same change.
 - Don't commit runtime artifacts (already gitignored): `.stm-state`, `colors_generated.lua`, `*.stm-backup`, `*.stm-tmp.*`. Also leave `layout_generated.lua`, `layout.sh`, `.stm-manifest`, and `.stm-backups/` out of commits — they are live outputs.
 - `.omc/`, `.claude/`, and `.pi/` are agent-tool scratch state — ignore, don't edit, don't commit.
-- Pre-merge gate (the PR checklist in CONTRIBUTING.md): both test runs pass, both shellcheck runs silent, `sh -n install.sh` passes, all bundled palettes validate, name/slug match, `stm doctor` shows full coverage, `stm verify` clean after an apply in a populated config dir.
+- Pre-merge gate (the PR checklist in CONTRIBUTING.md): both test runs pass, both shellcheck runs silent, `sh -n install.sh` passes, all bundled palettes and items validate, name/slug match, `stm doctor` shows full coverage, `stm verify` clean after an apply in a populated config dir.
 - README.md is the user-facing spec: if behaviour changes, README is stale — fix it in the same commit.

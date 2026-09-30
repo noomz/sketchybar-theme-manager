@@ -18,6 +18,8 @@ jobs:
         run: brew install shellcheck
       - name: Lint bash scripts
         run: shellcheck -s bash bin/stm tests/*.sh
+      - name: Lint bundled item plugins (POSIX sh, run by SketchyBar)
+        run: shellcheck -s sh bundles/items/*/plugin.sh
       - name: Lint the POSIX installer
         run: shellcheck -s sh install.sh
       - name: Check the installer parses under /bin/sh
@@ -77,4 +79,31 @@ jobs:
               fail=1
             fi
           done
+          exit "$fail"
+
+  items:
+    name: validate bundled items
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every bundled item must pass `stm lint item:<name>`
+        run: |
+          set -eu
+          fail=0
+          n=0
+          for d in bundles/items/*/; do
+            [ -d "$d" ] || continue
+            n=$((n + 1))
+            name=$(basename "$d")
+            if STM_ROOT="$PWD" bin/stm lint --porcelain "item:$name"; then
+              :
+            else
+              echo "FAIL item:$name"
+              fail=1
+            fi
+          done
+          if [ "$n" -eq 0 ]; then
+            echo "FAIL no bundled items under bundles/items/"
+            fail=1
+          fi
           exit "$fail"
