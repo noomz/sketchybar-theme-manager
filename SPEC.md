@@ -45,10 +45,11 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - I.palopt palette table `[item.<name>]`, `key = "value"` strings. eg `[item.tailscale]` `shape = "pill"`
 - I.shape manifest `[options.shape]` values ⊆ `plain|pill|split`. plain = c `<ic> <text>` no bg; pill = a `[ <ic> <text> ]`; split = b `[<ic>] [<text>]`
 - I.kw `palettes/kanagawa-wave.toml`, slug `kanagawa-wave`, name `Kanagawa Wave`. source rebelot/kanagawa.nvim wave palette
-- I.port bundles `battery` (→ I.bat) `clock` (→ I.clk) `date` (→ I.date) `net` `spotify` ? data source + options fixed per task at build (read author plugins first). author `calendar.lua` = 2 split pieces → 2 bundles (one item each, V10)
+- I.port bundles `battery` (→ I.bat) `clock` (→ I.clk) `date` (→ I.date) `net` (→ I.net) `spotify` ? data source + options fixed per task at build (read author plugins first). author `calendar.lua` = 2 split pieces → 2 bundles (one item each, V10)
 - I.bat `battery`: data `/usr/bin/pmset -g batt` (one call/run) → `NN%` of `InternalBattery` line only (UPS line ignored; desktop + UPS = no battery) + `AC Power`. label `NN%`. glyph nf-md by %: 90-100 U+F008E, 60-89 U+F0091, 30-59 U+F0093, 10-29 U+F0096, 0-9 U+F0097; AC Power → U+F0E7. options `shape` ∈ `plain|pill|split` default `split`. events `power_source_change` `system_woke`, `update_freq` 120, `default_position` `right`
 - I.clk `clock`: files `item.lua` only, label via Lua `os.date`. `hours` 24 → `%H:%M`, 12 → `%I:%M %p`; `seconds` on → `:%S` after `%M`. glyph nf-fa-clock_o U+F017, accent `yellow`. options `shape` ∈ `plain|pill|split` default `split`; `hours` ∈ `24|12` default `24`; `seconds` ∈ `off|on` default `off`. `update_freq` 1, events `system_woke`, `default_position` `right`
 - I.date `date`: files `item.lua` only, label via Lua `os.date`. `format` iso → `%Y-%m-%d`, short → `%a %d %b`. glyph nf-oct-calendar U+F455, accent `blue`. options `shape` ∈ `plain|pill|split` default `split`; `format` ∈ `iso|short` default `iso`. `update_freq` 60, events `system_woke`, `default_position` `right`
+- I.net `net`: SSID unreadable stock (macOS redact w/o Location Services) → show link, not SSID. primary if = first `PrimaryInterface` of one `/usr/sbin/scutil` run: `show State:/Network/Global/IPv4` then `…/IPv6` (IPv6-only link stay online; both absent → offline). split-tunnel VPN keep primary on physical if → show that link, not `VPN`. type: if `utun*|ipsec*|ppp*` → `VPN` nf-md-vpn U+F0582 (PPPoE also `VPN`, accepted); else `/usr/sbin/ipconfig getsummary <if>` `InterfaceType` `WiFi` → `Wi-Fi` nf-fa-wifi U+F1EB, `Ethernet` → `Ethernet` nf-md-ethernet U+F0200, other → `<if>` nf-md-lan U+F0318; offline → `offline` nf-md-wifi_off U+F05AA. options `shape` ∈ `plain|pill|split` default `split`; `label` ∈ `type|ip` default `type` (ip → first `inet` of `/sbin/ifconfig <if>` — `ipconfig getifaddr` fail on `utun*`; none → type label). events `wifi_change` `system_woke`, `update_freq` 10, `default_position` `right`
 - I.fs
   - `$RESOLVED_DIR/items/stm/<name>.lua`
   - `$RESOLVED_DIR/plugins/stm/<name>.sh` (0755)
@@ -99,6 +100,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - V37 palette w/ `base =` may carry zero colours (empty or absent `[colors]`); required keys checked on merged chain only. no `base` + no colours → still invalid (`no [colors] table found`).
 - V38 battery state colour: AC Power → `green`; else % ≤ 15 → `red`, ≤ 30 → `yellow`, else `green`. colour on `icon.color` (plain|pill) or icon sub-item bg (split, V32). no `%` in pmset (no battery) → item + icon sub-item `drawing=off`; `%` present → `drawing=on`. manifest `colors` = `green yellow red bg1 black`.
 - V39 clock + date: label from `os.date` inside `item.lua`; no `plugin.sh`, no `sbar.exec` / fork per tick. item `set` label only when string change (1s tick + seconds off → ≤ 1 redraw/min). `os.date` format only from fixed table keyed by validated option (V9) → option value never reach `os.date`. accent fixed (clock `yellow`, date `blue`), not state: plain|pill → `icon.color` = accent; split → icon sub-item bg = accent, icon `black` (V32). manifest `colors` = accent + `bg1 black`.
+- V40 net state colour: online → `magenta`, offline → `red`; on `icon.color` (plain|pill) or icon sub-item bg (split, V32). `<if>` ! match `[a-z][a-z0-9]*` else offline (never reach argv / label unchecked); ip label ! match `[0-9.]+` else type label. plugin run `LC_ALL=C` → glob / awk classes byte-wise, never locale ranges (B8). one `scutil`, ≤ 1 `ipconfig`, ≤ 1 `ifconfig`, one `sketchybar` call / run. `STM_SCUTIL` `STM_IPCONFIG` `STM_IFCONFIG` override paths (tests). manifest `colors` = `magenta red bg1 black`.
 
 ## §T tasks
 
@@ -136,7 +138,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T30 | x | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |
 | T31 | x | bundle `battery` (`shape` default `split`) from author `plugins/power.sh`; tests plain/pill/split, levels, charging, no battery | C12,V32,V33,V38,I.bat |
 | T32 | x | bundles `clock` + `date` (`shape` default `split`, item.lua only) from author `items/calendar.lua`; tests plain/pill/split order, hours, seconds, format, set only on change | C12,V32,V33,V39,I.clk,I.date,I.port |
-| T33 | . | bundle `net` (`shape` default `split`) ? | C12,V32,I.port |
+| T33 | x | bundle `net` (`shape` default `split`) from author `items/net.lua`; fake scutil/ipconfig/ifconfig: Wi-Fi, Ethernet, VPN, other, no type, IPv6-only, offline, bad if name (UTF-8 locale), ip mode incl VPN; lint + install | C12,V32,V33,V40,I.net,I.port |
 | T34 | . | bundle `spotify` ? popup + cover art; maybe drop | C12,V32,I.port |
 | T35 | . | Formula + `install.sh` ship new bundles (known files only) | C3,V21 |
 
@@ -151,3 +153,4 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | B5 | 2026-09-30 | tailscale hang bound = 30 x `/bin/sleep 0.1` loop; fork cost on loaded CI runner stretch ~3s → 7s, hang test fail (bash 3.2 job) | V15 |
 | B6 | 2026-09-30 | `apply_mapping` final awk keyed every non-meta record by `$2` (3 fields) → any `stm.config.toml` present: 4-field `itemopt` rows lose value + collapse per item (palette options → warning, default); also pre-existing: palette `[items] red = "left"` replace colour `red` after required-key check | V36 |
 | B7 | 2026-10-01 | per-link palette parse `fail_end("no [colors] table found")` when ncolors=0 even w/ `base =` → shape-only child (`base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`, C13 route) refused; base-child tests all carried dummy colour | V37 |
+| B8 | 2026-10-01 | net `plugin.sh` if-name check `[!a-z]` / `*[!a-z0-9]*` locale-dependent: SketchyBar inherit `LANG=*.UTF-8` → bash 3.2 `sh` accept `EN0` `é0` → V40 boundary hold only in C locale; tests ran `env -i` (C) → miss. found in review pre-commit | V40 |
