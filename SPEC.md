@@ -126,7 +126,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T26 | x | `export` emit `[item.<name>]`; round-trip test | V31 |
 | T27 | x | manifest lint: `shape` values ⊆ vocab; CI bundled palettes colour-only check | V32,V35,V4 |
 | T28 | x | tailscale `shape`: manifest (+ `bg1` `black` colours) + item.lua + plugin.sh; tests plain = 0.6.0, pill, split left/right order, app+split | V32,V33,V34,V10,V14,I.tsopt |
-| T29 | . | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
+| T29 | x | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
 | T30 | . | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |
 | T31 | . | bundle `battery` (`shape` default `split`) ? source author `plugins/power.sh` | C12,V32,I.port |
 | T32 | . | bundle `calendar` (`shape` default `split`) ? date + clock = 1 or 2 items | C12,V32,I.port |

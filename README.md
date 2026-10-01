@@ -586,6 +586,7 @@ peers = "on"       # on | off  — show online/total devices, this one included
 ip = "on"          # on | off  — show this machine's Tailscale IP
 click = "popup"    # popup | app
 icon = "text"      # text | nerd | app
+# shape = "plain" # plain | pill | split — leave out to let the theme decide
 ```
 
 **Position** is the palette's `[items]` slot for `stm.<name>`, else the item's
@@ -600,7 +601,7 @@ stm.tailscale = "left"
 tables, so switching theme can change how an item looks, not just its colours:
 
 ```toml
-# ~/.config/stm/palettes/my-kanagawa.toml
+# ~/.config/sketchybar/palettes/my-kanagawa.toml
 name = "My Kanagawa"
 slug = "my-kanagawa"
 base = "kanagawa-wave"
@@ -610,6 +611,7 @@ red = "#e46876"
 
 [item.tailscale]
 icon = "nerd"
+shape = "pill"
 ```
 
 For each option, `stm.config.toml` wins, then the theme, then the item's
@@ -622,11 +624,30 @@ fail softly: an unknown key or value is a warning and is ignored, and `apply`
 still succeeds. A theme never installs an item. If it names one you have not
 installed, `apply` says so — `note: item:tailscale not installed (stm install
 item:tailscale)` — and does nothing else; an item stm does not ship is noted as
-such. Bundled palettes carry no item options.
+such.
 
-The tailscale icon is green when Running, yellow when Starting or NeedsLogin,
-red when Stopped, and grey when the CLI is missing or `tailscale status` does
-not answer within about three seconds. It looks for the CLI in
+Bundled palettes stay colour-only — no `[layout]`, `[items]` or
+`[item.<name>]` — so a theme that reshapes items is your own palette that
+inherits one with `base =`, as above.
+
+**Shape** is how an item is drawn. Every bundled item that offers a `shape`
+option means the same three things by it, so one theme can reshape them all:
+
+| `shape` | Looks like | Drawn as |
+| --- | --- | --- |
+| `plain` | `<icon> <text>` | stm adds no background (your `sbar.default` applies) |
+| `pill` | `[ <icon> <text> ]` | one item on `bg1` |
+| `split` | `[<icon>] [<text>]` | the icon on its own sub-item, `stm.<name>.icon`, filled with the item's accent or state colour, icon in `black`; the text on `bg1` |
+
+The icon part of `split` is always left of the text, and clicking either part
+does the same thing. Corner radius, height and padding come from your own
+`sbar.default`, except that `split` zeroes the text part's left background
+padding so the two parts sit one icon padding apart. `tailscale` defaults to
+`plain`, which draws exactly what it did before shapes existed.
+
+The tailscale state colour is green when Running, yellow when Starting or
+NeedsLogin, red when Stopped, and grey when the CLI is missing or `tailscale
+status` does not answer within about three seconds. It looks for the CLI in
 `/usr/local/bin`, the Tailscale app, `/opt/homebrew/bin`, then `PATH`;
 `$STM_TAILSCALE` overrides that. `jq` is used when present, else `plutil`.
 
@@ -636,6 +657,8 @@ the icon font); `app` shows the Tailscale app's own icon, from the standalone
 build or the App Store one, and falls back to `TS` when neither is installed.
 The app icon keeps its colours, so with `icon = "app"` the state colour goes on
 the label; with every label field off, a Running item has no label to colour.
+With `shape = "split"` the state colour is the icon part's background instead,
+for every `icon`, and an empty label hides the text part.
 
 | Command | What it does |
 | --- | --- |
