@@ -540,9 +540,16 @@ Bash configs get `layout.sh` (`BAR_POSITION`, `ITEM_CLOCK`, `ITEM_ORDER_LEFT`,
 ### Items
 
 `stm` also ships ready-made bar items. They are code, not data, so they live
-inside the `stm` release (`bundles/items/`) and are never downloaded. There is
-one so far: `tailscale`, which shows whether Tailscale is up, your IP and exit
-node, and lists this device and its peers in a popup.
+inside the `stm` release (`bundles/items/`) and are never downloaded:
+
+| Item | Shows | Position |
+| --- | --- | --- |
+| `battery` | battery level, coloured by level; a bolt on power | `right` |
+| `clock` | the time | `right` |
+| `date` | the date | `right` |
+| `net` | the network link: Wi-Fi, Ethernet, VPN or offline | `right` |
+| `spotify` | what Spotify is playing; a popup with the cover and playback controls | `center` |
+| `tailscale` | whether Tailscale is up, your IP and exit node; a popup listing this device and its peers | `right` |
 
 ```console
 $ stm install item:tailscale
@@ -590,7 +597,7 @@ icon = "text"      # text | nerd | app
 ```
 
 **Position** is the palette's `[items]` slot for `stm.<name>`, else the item's
-default (`tailscale`: `right`):
+default (the table above):
 
 ```toml
 [items]
@@ -643,7 +650,8 @@ The icon part of `split` is always left of the text, and clicking either part
 does the same thing. Corner radius, height and padding come from your own
 `sbar.default`, except that `split` zeroes the text part's left background
 padding so the two parts sit one icon padding apart. `tailscale` defaults to
-`plain`, which draws exactly what it did before shapes existed.
+`plain`, which draws exactly what it did before shapes existed; every other
+item defaults to `split`.
 
 The tailscale state colour is green when Running, yellow when Starting or
 NeedsLogin, red when Stopped, and grey when the CLI is missing or `tailscale
@@ -659,6 +667,43 @@ The app icon keeps its colours, so with `icon = "app"` the state colour goes on
 the label; with every label field off, a Running item has no label to colour.
 With `shape = "split"` the state colour is the icon part's background instead,
 for every `icon`, and an empty label hides the text part.
+
+The other items' options, besides `shape`:
+
+```toml
+[item.clock]
+hours = "24"     # 24 | 12  — 14:05 or 02:05 PM
+seconds = "off"  # off | on — 14:05:09
+
+[item.date]
+format = "iso"   # iso | short — 2026-10-01 or Thu 01 Oct
+
+[item.net]
+label = "type"   # type | ip — Wi-Fi, Ethernet, VPN, offline; or the local IPv4 address
+
+[item.spotify]
+cover = "on"     # on | off — download the album cover for the popup
+```
+
+`battery` reads `pmset`: green, yellow at 30% and below, red at 15% and below,
+green with a bolt on power. Only the Mac's own battery counts, so on a desktop
+(with or without a UPS) the item hides.
+
+`clock` and `date` are drawn by the bar's own Lua, with no plugin script, and
+redraw only when the text changes. Their accents are `yellow` and `blue`.
+
+`net` cannot show the Wi-Fi name: macOS hides it from processes without
+Location Services, which bar scripts are. It shows the link carrying the
+default route instead — `magenta` while online, `red` offline. A VPN shows only
+when it takes the default route (a full tunnel, such as a Tailscale exit node);
+a split tunnel shows the physical link.
+
+`spotify` updates when Spotify reports a change, and every 10 seconds. It never
+starts Spotify, and hides while nothing is playing or paused. Click it for the
+popup: cover, title, artist, album, and shuffle, back, play/pause, next and
+repeat. The cover is downloaded only from Spotify's image host
+(`i.scdn.co`), into your own temp folder; `cover = "off"` never downloads.
+Its control glyphs are Nerd Font glyphs.
 
 | Command | What it does |
 | --- | --- |
