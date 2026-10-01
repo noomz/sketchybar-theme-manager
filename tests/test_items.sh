@@ -121,6 +121,7 @@ check_bad_manifests() {
     'dialect-unknown:python' \
     'color-not-required:rosewater' \
     'default-not-in-values:menu' \
+    'shape-not-in-vocab:invalid shape "round"' \
     'position-invalid:top' \
     'files-slash:sub/plugin.sh' \
     'files-dotdot:../plugin.sh' \
@@ -217,6 +218,18 @@ values = ["on", "off"]
 default = "off"
 EOF
 run_stm --dir "$D" lint item:shapes
+assert_status 0
+done_it
+
+it "lint item: accepts a shape option offering a subset of plain|pill|split (V32)"
+ship_ok_as shaped
+cat >>"$BUNDLES/shaped/item.toml" <<'EOF'
+
+[options.shape]
+values = ["split", "pill"]
+default = "split"
+EOF
+run_stm --dir "$D" lint item:shaped
 assert_status 0
 done_it
 

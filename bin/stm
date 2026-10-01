@@ -1203,6 +1203,10 @@ BEGIN {
       for (i = 1; i <= n; i++) {
         if (elem[i] !~ /^[a-z0-9][a-z0-9_-]*$/ || length(elem[i]) > 32)
           fail("invalid value \"" elem[i] "\" for option \"" opt "\" (want [a-z0-9][a-z0-9_-]*, max 32)")
+        # shape is a shared vocabulary: a theme sets it on any item, so every
+        # bundle must mean the same three things by it.
+        if (opt == "shape" && elem[i] != "plain" && elem[i] != "pill" && elem[i] != "split")
+          fail("invalid shape \"" elem[i] "\" (want plain, pill or split)")
         if ((opt SUBSEP elem[i]) in isval)
           fail("duplicate value \"" elem[i] "\" for option \"" opt "\"")
         isval[opt SUBSEP elem[i]] = 1

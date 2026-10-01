@@ -124,7 +124,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T24 | x | loader: palette opts into `STM_ITEM_OPTIONS_AWK` between config + default; warn + ignore bad | V28,V29,V9 |
 | T25 | x | `apply` note for palette-named uninstalled items | V30 |
 | T26 | x | `export` emit `[item.<name>]`; round-trip test | V31 |
-| T27 | . | manifest lint: `shape` values ⊆ vocab; CI bundled palettes colour-only check | V32,V35,V4 |
+| T27 | x | manifest lint: `shape` values ⊆ vocab; CI bundled palettes colour-only check | V32,V35,V4 |
 | T28 | . | tailscale `shape`: manifest (+ `bg1` `black` colours) + item.lua + plugin.sh; tests plain = 0.6.0, pill, split left/right order, app+split | V32,V33,V34,V10,V14,I.tsopt |
 | T29 | . | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
 | T30 | . | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |

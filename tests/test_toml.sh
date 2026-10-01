@@ -38,6 +38,13 @@ for f in "$REPO_ROOT"/palettes/*.toml; do
 done
 done_it
 
+it "every bundled palette is colour-only: no [layout] [items] [item.<name>] (V35)"
+for f in "$REPO_ROOT"/palettes/*.toml; do
+  tables=$(awk '/^[ \t]*\[[ \t]*(layout|items|item\.)/ { print FNR ": " $0 }' "$f")
+  assert_eq "" "$tables" "$(basename "$f") must stay colour-only; theme shape belongs in a user palette with base ="
+done
+done_it
+
 it "every bundled palette defines all 15 required keys"
 required="black white red green blue yellow orange magenta grey bg1 bg2 bar_bg bar_border popup_bg popup_border"
 for f in "$REPO_ROOT"/palettes/*.toml; do
