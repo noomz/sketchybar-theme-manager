@@ -45,7 +45,8 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - I.palopt palette table `[item.<name>]`, `key = "value"` strings. eg `[item.tailscale]` `shape = "pill"`
 - I.shape manifest `[options.shape]` values ⊆ `plain|pill|split`. plain = c `<ic> <text>` no bg; pill = a `[ <ic> <text> ]`; split = b `[<ic>] [<text>]`
 - I.kw `palettes/kanagawa-wave.toml`, slug `kanagawa-wave`, name `Kanagawa Wave`. source rebelot/kanagawa.nvim wave palette
-- I.port bundles `battery` `calendar` `net` `spotify` ? data source + options fixed per task at build (read author plugins first)
+- I.port bundles `battery` (→ I.bat) `calendar` `net` `spotify` ? data source + options fixed per task at build (read author plugins first)
+- I.bat `battery`: data `/usr/bin/pmset -g batt` (one call/run) → `NN%` of `InternalBattery` line only (UPS line ignored; desktop + UPS = no battery) + `AC Power`. label `NN%`. glyph nf-md by %: 90-100 U+F008E, 60-89 U+F0091, 30-59 U+F0093, 10-29 U+F0096, 0-9 U+F0097; AC Power → U+F0E7. options `shape` ∈ `plain|pill|split` default `split`. events `power_source_change` `system_woke`, `update_freq` 120, `default_position` `right`
 - I.fs
   - `$RESOLVED_DIR/items/stm/<name>.lua`
   - `$RESOLVED_DIR/plugins/stm/<name>.sh` (0755)
@@ -94,6 +95,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - V35 bundled palettes colour-only (C13); CI fail if any carry `[layout]` `[items]` `[item.<name>]`. `kanagawa-wave` key set ⊇ `tokyo-night.toml` key set (canonical + bash 26-name + semantic); `stm lint` pass.
 - V36 record transforms on colour data (`apply_mapping`, `apply_alpha`) key + rewrite only `color`/`extra` rows. every other record (`meta` `layout` `item` `itemopt`) pass byte-identical, any field count. item / option named like colour never replace colour.
 - V37 palette w/ `base =` may carry zero colours (empty or absent `[colors]`); required keys checked on merged chain only. no `base` + no colours → still invalid (`no [colors] table found`).
+- V38 battery state colour: AC Power → `green`; else % ≤ 15 → `red`, ≤ 30 → `yellow`, else `green`. colour on `icon.color` (plain|pill) or icon sub-item bg (split, V32). no `%` in pmset (no battery) → item + icon sub-item `drawing=off`; `%` present → `drawing=on`. manifest `colors` = `green yellow red bg1 black`.
 
 ## §T tasks
 
@@ -129,7 +131,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T28 | x | tailscale `shape`: manifest (+ `bg1` `black` colours) + item.lua + plugin.sh; tests plain = 0.6.0, pill, split left/right order, app+split | V32,V33,V34,V10,V14,I.tsopt |
 | T29 | x | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
 | T30 | x | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |
-| T31 | . | bundle `battery` (`shape` default `split`) ? source author `plugins/power.sh` | C12,V32,I.port |
+| T31 | x | bundle `battery` (`shape` default `split`) from author `plugins/power.sh`; tests plain/pill/split, levels, charging, no battery | C12,V32,V33,V38,I.bat |
 | T32 | . | bundle `calendar` (`shape` default `split`) ? date + clock = 1 or 2 items | C12,V32,I.port |
 | T33 | . | bundle `net` (`shape` default `split`) ? | C12,V32,I.port |
 | T34 | . | bundle `spotify` ? popup + cover art; maybe drop | C12,V32,I.port |
