@@ -36,6 +36,9 @@ Rules:
 - **The file name must equal the `slug`.** CI enforces this.
 - The slug is lower-case kebab-case: `[a-z0-9][a-z0-9._-]*`.
 - All fifteen colour keys are required. Extra keys are allowed.
+- Bundled palettes are colour-only: no `[layout]`, `[items]` or
+  `[item.<name>]` (the tests check). Item slots and options depend on what a
+  user has installed, so they belong in the user's own palette, via `base =`.
 - Values are `0xAARRGGBB` — exactly eight hex digits, alpha first.
 - `name` and `variant_label` are ASCII only: letters, digits, space, and
   `. _ ( ) + -`. They end up inside generated comments, which is why the charset
@@ -137,7 +140,9 @@ below.
 A palette may be downloaded from anywhere, so the only thing it ever
 contributes to generated output is a value already validated as
 `^0x[0-9a-f]{8}$`, an allowlisted layout enum or small integer, an item slot
-(`left` / `right` / `center`), plus ASCII labels that land in comments. A
+(`left` / `right` / `center`), an `[item.<name>]` option value (a lower-case
+enum, used only when it is in the installed item's manifest `values`, else
+warned about and ignored), plus ASCII labels that land in comments. A
 template lives in the user's own config directory, is written by them, and may
 contain arbitrary Lua or shell. `stm` must never install a template from a
 palette, and must never fetch one.
@@ -161,8 +166,16 @@ bare `[a-z][a-z0-9_-]*` (no `/`, `@`, `..`, `:` or scheme). The manifest
 are copied as-is into stm-owned `items/stm/` and `plugins/stm/` and must take
 colours only from the palette's `colors` table, never hard-coded hex. User
 options in `[item.<name>]` are enum values checked against the manifest before
-they reach `items_generated.lua`. A new bundled item is reviewed like any other
-code change to `bin/stm`, and `stm lint item:<name>` must pass.
+they reach `items_generated.lua`; a palette's are checked against the manifest
+too, but an unknown key or value only warns (bad syntax still fails the parse). A theme picks among options a bundle already ships — it never adds code.
+A new bundled item is reviewed like any other code change to `bin/stm`, and
+`stm lint item:<name>` must pass.
+
+An item that offers a `shape` option may use only `plain`, `pill` and `split`
+(`lint` refuses anything else), with the shared meaning in the README's Items
+section: `plain` adds no background, `pill` one item on `bg1`, `split` an icon
+sub-item `stm.<name>.icon` on the accent or state colour (icon `black`) left of
+the label on `bg1`. Every colour it uses is listed in the manifest's `colors`.
 
 The template substituter treats only `{{identifier}}` as a placeholder.
 `{{1,2},{3,4}}` is ordinary Lua and must survive untouched, so anything after
