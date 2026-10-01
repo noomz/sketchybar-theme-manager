@@ -735,6 +735,43 @@ assert_status 0
 assert_file_contains "$LOADER" '["label"] = "on",'
 done_it
 
+it "a base child with only item options, no colours of its own, applies (V37, B7)"
+# The C13 route: bundled palettes are colour-only, so a theme that reshapes
+# items is a user palette inheriting one. It needs no [colors] at all.
+for colours in '[colors]' ''; do
+  printf 'name = "Shape Only"\nslug = "shapeonly"\nbase = "nord"\n\n%s\n\n[item.ok]\nlabel = "off"\n' \
+    "$colours" >"$P/shapeonly.toml"
+  run_stm --dir "$D" --palette-dir "$P" lint shapeonly
+  assert_status 0
+  # The path form: the entry `install` and `publish` lint through.
+  run_stm --dir "$D" --palette-dir "$P" lint "$P/shapeonly.toml"
+  assert_status 0
+  run_stm --dir "$D" --palette-dir "$P" --no-reload apply shapeonly
+  assert_status 0
+  assert_file_contains "$LOADER" '["label"] = "off",'
+  assert_file_contains "$D/colors_generated.lua" "  red = 0xffbf616a,"
+done
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply nord
+assert_status 0
+before=$(snapshot)
+# Without a base there is nothing to inherit: still no palette.
+for colours in '[colors]' ''; do
+  printf 'name = "Bare"\nslug = "bare"\n\n%s\n\n[item.ok]\nlabel = "off"\n' "$colours" >"$P/bare.toml"
+  for verb in lint apply; do
+    run_stm --dir "$D" --palette-dir "$P" --no-reload "$verb" bare
+    assert_ne 0 "$STM_STATUS" "$verb: no colours and no base must fail"
+    assert_contains "$STM_ERR" "no [colors] table found"
+  done
+done
+# A base that cannot be found leaves a colourless child nothing to inherit.
+printf 'name = "Lost"\nslug = "lost"\nbase = "no-such-palette"\n\n[item.ok]\nlabel = "off"\n' >"$P/lost.toml"
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply lost
+assert_eq 3 "$STM_STATUS" "missing base is EX_NOTFOUND"
+assert_contains "$STM_ERR" "inherits from"
+assert_eq "$before" "$(snapshot)" "a refused palette must write nothing"
+rm -f "$P/bare.toml" "$P/lost.toml"
+done_it
+
 it "stm.config.toml [item.<name>] beats the palette (V29, I.cfg)"
 printf '[item.ok]\nlabel = "on"\n' >"$CFG"
 run_stm --dir "$D" --palette-dir "$P" --no-reload apply optoff
