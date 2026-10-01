@@ -93,6 +93,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - V34 tailscale `shape` default `plain` → render identical to 0.6.0. pill: text|nerd → `icon.color` = state colour (V17); app → V25 rule (state on `label.color`). split: state colour only on icon sub-item bg (no `label.color`, no `icon.color`; icon stay `black`); app image draw over it. label empty → main `background.drawing=off`, else `on` → only icon part show. main `background.padding_left` = 0 (gap = icon part `padding_right`, as author own split items).
 - V35 bundled palettes colour-only (C13); CI fail if any carry `[layout]` `[items]` `[item.<name>]`. `kanagawa-wave` key set ⊇ `tokyo-night.toml` key set (canonical + bash 26-name + semantic); `stm lint` pass.
 - V36 record transforms on colour data (`apply_mapping`, `apply_alpha`) key + rewrite only `color`/`extra` rows. every other record (`meta` `layout` `item` `itemopt`) pass byte-identical, any field count. item / option named like colour never replace colour.
+- V37 palette w/ `base =` may carry zero colours (empty or absent `[colors]`); required keys checked on merged chain only. no `base` + no colours → still invalid (`no [colors] table found`).
 
 ## §T tasks
 
@@ -127,7 +128,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T27 | x | manifest lint: `shape` values ⊆ vocab; CI bundled palettes colour-only check | V32,V35,V4 |
 | T28 | x | tailscale `shape`: manifest (+ `bg1` `black` colours) + item.lua + plugin.sh; tests plain = 0.6.0, pill, split left/right order, app+split | V32,V33,V34,V10,V14,I.tsopt |
 | T29 | x | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
-| T30 | . | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |
+| T30 | ~ | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |
 | T31 | . | bundle `battery` (`shape` default `split`) ? source author `plugins/power.sh` | C12,V32,I.port |
 | T32 | . | bundle `calendar` (`shape` default `split`) ? date + clock = 1 or 2 items | C12,V32,I.port |
 | T33 | . | bundle `net` (`shape` default `split`) ? | C12,V32,I.port |
@@ -144,3 +145,4 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | B4 | 2026-09-30 | tailscale parsers emit TAB/newline records; peer `HostName` w/ `\n` + `\t` forge extra online peer row + inflate count (display spoof) | V24 |
 | B5 | 2026-09-30 | tailscale hang bound = 30 x `/bin/sleep 0.1` loop; fork cost on loaded CI runner stretch ~3s → 7s, hang test fail (bash 3.2 job) | V15 |
 | B6 | 2026-09-30 | `apply_mapping` final awk keyed every non-meta record by `$2` (3 fields) → any `stm.config.toml` present: 4-field `itemopt` rows lose value + collapse per item (palette options → warning, default); also pre-existing: palette `[items] red = "left"` replace colour `red` after required-key check | V36 |
+| B7 | 2026-10-01 | per-link palette parse `fail_end("no [colors] table found")` when ncolors=0 even w/ `base =` → shape-only child (`base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`, C13 route) refused; base-child tests all carried dummy colour | V37 |
