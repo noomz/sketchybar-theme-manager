@@ -15,7 +15,7 @@
 # Layout it creates:
 #   $STM_PREFIX/bin/stm
 #   $STM_PREFIX/share/stm/palettes/*.toml
-#   $STM_PREFIX/share/stm/bundles/items/<name>/{item.toml,item.lua,plugin.sh}
+#   $STM_PREFIX/share/stm/bundles/items/<name>/{item.toml,item.lua[,plugin.sh]}
 
 set -eu
 
