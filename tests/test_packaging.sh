@@ -74,12 +74,12 @@ pack_release
 run_installer
 assert_eq 0 "$INSTALL_STATUS" "install.sh must succeed: $(cat "$SANDBOX/install.err")"
 assert_file_exists "$P/bin/stm"
-assert_eq "$(printf '%s\n' . ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh ./clock ./clock/item.lua ./clock/item.toml ./date ./date/item.lua ./date/item.toml ./linky ./linky/item.toml ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)" \
+assert_eq "$(printf '%s\n' . ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh ./clock ./clock/item.lua ./clock/item.toml ./date ./date/item.lua ./date/item.toml ./linky ./linky/item.toml ./net ./net/item.lua ./net/item.toml ./net/plugin.sh ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)" \
   "$(installed_items)" "only item.toml, item.lua and plugin.sh from validly named, real bundle dirs"
-for f in battery/plugin.sh tailscale/plugin.sh; do
+for f in battery/plugin.sh net/plugin.sh tailscale/plugin.sh; do
   assert_files_equal "$REPO_ROOT/bundles/items/$f" "$ITEMS/$f"
 done
-for b in battery clock date tailscale; do
+for b in battery clock date net tailscale; do
   for f in item.toml item.lua; do
     assert_files_equal "$REPO_ROOT/bundles/items/$b/$f" "$ITEMS/$b/$f"
   done
@@ -102,7 +102,7 @@ pack_release
 printf 'stale\n' >"$ITEMS/tailscale/old.lua"
 run_installer
 assert_eq 0 "$INSTALL_STATUS" "install.sh must succeed: $(cat "$SANDBOX/install.err")"
-assert_eq "$(printf '%s\n' . ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh ./clock ./clock/item.lua ./clock/item.toml ./date ./date/item.lua ./date/item.toml ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)" \
+assert_eq "$(printf '%s\n' . ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh ./clock ./clock/item.lua ./clock/item.toml ./date ./date/item.lua ./date/item.toml ./net ./net/item.lua ./net/item.toml ./net/plugin.sh ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)" \
   "$(installed_items)"
 assert_eq "" "$(find "$P/share/stm/bundles" -name '.items.*')" "no staging dir left behind"
 done_it

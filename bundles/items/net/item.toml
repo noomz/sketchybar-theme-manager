@@ -1,0 +1,25 @@
+# stm.net — the network link: Wi-Fi, Ethernet, VPN or offline (#19).
+# Installed with `stm install item:net`; options go in stm.config.toml
+# (or a theme's palette) under [item.net].
+name = "net"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["magenta", "red", "bg1", "black"]
+default_position = "right"
+update_freq = 10
+events = ["wifi_change", "system_woke"]
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  <icon> <text>, no background
+#   pill   [ <icon> <text> ], one bg1 background
+#   split  [<icon>] [<text>]: the icon on the state colour, the text on bg1
+[options.shape]
+values = ["plain", "pill", "split"]
+default = "split"
+
+# type: Wi-Fi, Ethernet, VPN, offline or the interface name   ip: the local address
+# (macOS hides the Wi-Fi name from bar scripts, so it cannot be shown)
+[options.label]
+values = ["type", "ip"]
+default = "type"
