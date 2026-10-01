@@ -29,6 +29,7 @@ return function(sbar, opts, colors)
     "STM_TS_IP=" .. quote(o.ip),
     "STM_TS_CLICK=" .. quote(o.click),
     "STM_TS_ICON=" .. quote(o.icon),
+    "STM_TS_SHAPE=" .. quote(o.shape),
   }, " ")
   local plugin = quote(opts.plugin_dir .. "/tailscale.sh")
 
@@ -51,7 +52,7 @@ return function(sbar, opts, colors)
     icon = { string = "", background = { drawing = true, color = 0, image = { scale = 0.625 } } }
   end
 
-  local item = sbar.add("item", opts.name, {
+  local props = {
     position = opts.position,
     update_freq = opts.update_freq,
     icon = icon,
@@ -66,7 +67,37 @@ return function(sbar, opts, colors)
         corner_radius = 6,
       },
     },
-  })
+  }
+
+  -- shape: plain draws no background (as 0.6.0 did). pill puts the item on
+  -- bg1. split moves the icon onto its own sub-item, <name>.icon, whose
+  -- background plugin.sh sets to the state colour; the icon on it is black and
+  -- the label stays on bg1. The sub-item sits left of the label at every
+  -- position, and right items are laid out right to left, so on the right the
+  -- label item goes in first. Clicking either part does the same thing.
+  local sub
+  if o.shape == "pill" then
+    props.background = { drawing = true, color = colors.bg1 }
+  elseif o.shape == "split" then
+    icon.color = colors.black
+    sub = {
+      position = opts.position,
+      icon = icon,
+      label = { drawing = false },
+      background = { drawing = true, color = colors.grey },
+      click_script = click_script,
+    }
+    props.icon = { drawing = false }
+    props.background = { drawing = true, color = colors.bg1, padding_left = 0 }
+  end
+
+  if sub and opts.position ~= "right" then
+    sbar.add("item", opts.name .. ".icon", sub)
+  end
+  local item = sbar.add("item", opts.name, props)
+  if sub and opts.position == "right" then
+    sbar.add("item", opts.name .. ".icon", sub)
+  end
 
   local function run(e)
     local sender = (e and e.SENDER) or "forced"

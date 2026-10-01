@@ -514,7 +514,7 @@ if [ -n "$LUA_BIN" ]; then
   L="$SANDBOX/luacfg"
   make_lua_config "$L"
   L_ABS=$(cd -- "$L" && pwd)
-  printf '[item.tailscale]\nclick = "app"\nicon = "nerd"\n' >"$L/stm.config.toml"
+  printf '[item.tailscale]\nclick = "app"\nicon = "nerd"\nshape = "split"\n' >"$L/stm.config.toml"
   STM_ROOT="$REPO_ROOT" run_stm --dir "$L" --no-reload install item:tailscale
   assert_status 0
   mkdir -p "$SANDBOX/lua"
@@ -534,6 +534,8 @@ EOF
   assert_contains "$lua_out" "'$L_ABS/plugins/stm/tailscale.sh'"
   assert_contains "$lua_out" "STM_TS_CLICK='app'"
   assert_contains "$lua_out" "STM_TS_ICON='nerd'"
+  assert_contains "$lua_out" "STM_TS_SHAPE='split'"
+  assert_contains "$lua_out" "add item stm.tailscale.icon right nil"
   # nf-md-dots_grid, U+F15FC (V25).
   assert_contains "$lua_out" "icon $(printf '\363\261\227\274')"
   assert_contains "$lua_out" "STM_GREEN='0xffa6da95'"
@@ -568,6 +570,82 @@ EOF
   # Transparent background (no pill from the user's icon defaults), 32pt app
   # image drawn at 20pt.
   assert_eq "string= color=nil bg.drawing=true bg.color=0 scale=0.625" "$(icon_of app)" "app icon"
+  done_it
+
+  cat >"$SANDBOX/lua/shape_probe.lua" <<'EOF'
+-- Runs item.lua with one shape, icon mode and position; prints each item it
+-- adds, in order, with its props flattened (keys sorted).
+local shape, icon, position, item_lua = ...
+local function dump(v)
+  if type(v) ~= "table" then
+    return tostring(v)
+  end
+  local keys = {}
+  for k in pairs(v) do
+    keys[#keys + 1] = k
+  end
+  table.sort(keys)
+  local parts = {}
+  for _, k in ipairs(keys) do
+    parts[#parts + 1] = k .. "=" .. dump(v[k])
+  end
+  return "{" .. table.concat(parts, " ") .. "}"
+end
+local sbar = {}
+function sbar.add(kind, name, props)
+  print(kind .. " " .. name .. " " .. dump(props))
+  return { subscribe = function() end, set = function() end }
+end
+function sbar.exec() end
+local opts = { name = "stm.tailscale", position = position, update_freq = 30,
+  plugin_dir = "/p", events = {},
+  options = { exit_node = "on", peers = "on", ip = "on", click = "popup", icon = icon, shape = shape } }
+dofile(item_lua)(sbar, opts, { grey = 7, green = 1, bg1 = 21, black = 22, popup_bg = 31, popup_border = 32 })
+EOF
+  # shape_of <shape> <icon> <position> — the items item.lua adds, one per line.
+  shape_of() {
+    "$LUA_BIN" "$SANDBOX/lua/shape_probe.lua" "$1" "$2" "$3" "$ITEM_LUA" 2>&1
+  }
+  TS_CLICK="click_script=sketchybar --set 'stm.tailscale' popup.drawing=toggle"
+  TS_POPUP="popup={align=right background={border_color=32 border_width=1 color=31 corner_radius=6}}"
+  TS_APP_ICON="background={color=0 drawing=true image={scale=0.625}}"
+
+  it "tailscale shape=plain adds exactly what 0.6.0 did (V34)"
+  # Captured from the 0.6.0 item.lua: no background, one item.
+  assert_eq "item stm.tailscale {$TS_CLICK icon={color=7 string=TS} label={string=tailscale} $TS_POPUP position=right update_freq=30}" \
+    "$(shape_of plain text right)" "plain text"
+  assert_eq "item stm.tailscale {$TS_CLICK icon={$TS_APP_ICON string=} label={string=tailscale} $TS_POPUP position=right update_freq=30}" \
+    "$(shape_of plain app right)" "plain app"
+  done_it
+
+  it "tailscale shape=pill: one item on a bg1 background (V32, V34, V14)"
+  assert_eq "item stm.tailscale {background={color=21 drawing=true} $TS_CLICK icon={color=7 string=TS} label={string=tailscale} $TS_POPUP position=right update_freq=30}" \
+    "$(shape_of pill text right)" "pill text"
+  assert_eq "item stm.tailscale {background={color=21 drawing=true} $TS_CLICK icon={$TS_APP_ICON string=} label={string=tailscale} $TS_POPUP position=left update_freq=30}" \
+    "$(shape_of pill app left)" "pill app"
+  done_it
+
+  it "tailscale shape=split: icon sub-item left of the label item at every position (V32, V33, V10)"
+  ts_main() {
+    printf 'item stm.tailscale {background={color=21 drawing=true padding_left=0} %s icon={drawing=false} label={string=tailscale} %s position=%s update_freq=30}' \
+      "$TS_CLICK" "$TS_POPUP" "$1"
+  }
+  ts_icon() {
+    printf 'item stm.tailscale.icon {background={color=7 drawing=true} %s icon={%s} label={drawing=false} position=%s}' \
+      "$TS_CLICK" "$2" "$1"
+  }
+  # Right items are laid out right to left: the label item goes in first.
+  assert_eq "$(ts_main right)
+$(ts_icon right 'color=22 string=TS')" "$(shape_of split text right)" "split right"
+  for pos in left center; do
+    assert_eq "$(ts_icon "$pos" 'color=22 string=TS')
+$(ts_main "$pos")" "$(shape_of split text "$pos")" "split $pos"
+  done
+  assert_eq "$(ts_icon left "color=22 string=$(printf '\363\261\227\274')")
+$(ts_main left)" "$(shape_of split nerd left)" "split nerd"
+  # app: the image sits on the state-coloured sub-item background.
+  assert_eq "$(ts_main right)
+$(ts_icon right "$TS_APP_ICON color=22 string=")" "$(shape_of split app right)" "split app"
   done_it
 elif [ -n "${CI:-}" ]; then
   it "lua is available to run items_generated.lua"
@@ -965,7 +1043,7 @@ done_it
 it "doctor: lists installed items, loader and wiring; tailscale CLI note (V18, I.ts)"
 assert_contains "$STM_OUT" "Items"
 assert_contains "$STM_OUT" "tailscale"
-assert_contains "$STM_OUT" "0.1.0"
+assert_contains "$STM_OUT" "0.2.0"
 assert_contains "$STM_OUT" "init.lua"
 assert_contains "$STM_OUT" "$SANDBOX/tailscale"
 STM_TAILSCALE="$SANDBOX/no-such-cli" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
