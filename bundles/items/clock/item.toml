@@ -1,0 +1,29 @@
+# stm.clock — the time (#19).
+# Installed with `stm install item:clock`; options go in stm.config.toml
+# (or a theme's palette) under [item.clock].
+name = "clock"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua"]
+colors = ["yellow", "bg1", "black"]
+default_position = "right"
+update_freq = 1
+events = ["system_woke"]
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  <icon> <text>, no background
+#   pill   [ <icon> <text> ], one bg1 background
+#   split  [<icon>] [<text>]: the icon on yellow, the text on bg1
+[options.shape]
+values = ["plain", "pill", "split"]
+default = "split"
+
+# 24: 14:05   12: 02:05 PM
+[options.hours]
+values = ["24", "12"]
+default = "24"
+
+# on: 14:05:09
+[options.seconds]
+values = ["off", "on"]
+default = "off"
