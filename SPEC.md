@@ -45,8 +45,10 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - I.palopt palette table `[item.<name>]`, `key = "value"` strings. eg `[item.tailscale]` `shape = "pill"`
 - I.shape manifest `[options.shape]` values ⊆ `plain|pill|split`. plain = c `<ic> <text>` no bg; pill = a `[ <ic> <text> ]`; split = b `[<ic>] [<text>]`
 - I.kw `palettes/kanagawa-wave.toml`, slug `kanagawa-wave`, name `Kanagawa Wave`. source rebelot/kanagawa.nvim wave palette
-- I.port bundles `battery` (→ I.bat) `calendar` `net` `spotify` ? data source + options fixed per task at build (read author plugins first)
+- I.port bundles `battery` (→ I.bat) `clock` (→ I.clk) `date` (→ I.date) `net` `spotify` ? data source + options fixed per task at build (read author plugins first). author `calendar.lua` = 2 split pieces → 2 bundles (one item each, V10)
 - I.bat `battery`: data `/usr/bin/pmset -g batt` (one call/run) → `NN%` of `InternalBattery` line only (UPS line ignored; desktop + UPS = no battery) + `AC Power`. label `NN%`. glyph nf-md by %: 90-100 U+F008E, 60-89 U+F0091, 30-59 U+F0093, 10-29 U+F0096, 0-9 U+F0097; AC Power → U+F0E7. options `shape` ∈ `plain|pill|split` default `split`. events `power_source_change` `system_woke`, `update_freq` 120, `default_position` `right`
+- I.clk `clock`: files `item.lua` only, label via Lua `os.date`. `hours` 24 → `%H:%M`, 12 → `%I:%M %p`; `seconds` on → `:%S` after `%M`. glyph nf-fa-clock_o U+F017, accent `yellow`. options `shape` ∈ `plain|pill|split` default `split`; `hours` ∈ `24|12` default `24`; `seconds` ∈ `off|on` default `off`. `update_freq` 1, events `system_woke`, `default_position` `right`
+- I.date `date`: files `item.lua` only, label via Lua `os.date`. `format` iso → `%Y-%m-%d`, short → `%a %d %b`. glyph nf-oct-calendar U+F455, accent `blue`. options `shape` ∈ `plain|pill|split` default `split`; `format` ∈ `iso|short` default `iso`. `update_freq` 60, events `system_woke`, `default_position` `right`
 - I.fs
   - `$RESOLVED_DIR/items/stm/<name>.lua`
   - `$RESOLVED_DIR/plugins/stm/<name>.sh` (0755)
@@ -96,6 +98,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 - V36 record transforms on colour data (`apply_mapping`, `apply_alpha`) key + rewrite only `color`/`extra` rows. every other record (`meta` `layout` `item` `itemopt`) pass byte-identical, any field count. item / option named like colour never replace colour.
 - V37 palette w/ `base =` may carry zero colours (empty or absent `[colors]`); required keys checked on merged chain only. no `base` + no colours → still invalid (`no [colors] table found`).
 - V38 battery state colour: AC Power → `green`; else % ≤ 15 → `red`, ≤ 30 → `yellow`, else `green`. colour on `icon.color` (plain|pill) or icon sub-item bg (split, V32). no `%` in pmset (no battery) → item + icon sub-item `drawing=off`; `%` present → `drawing=on`. manifest `colors` = `green yellow red bg1 black`.
+- V39 clock + date: label from `os.date` inside `item.lua`; no `plugin.sh`, no `sbar.exec` / fork per tick. item `set` label only when string change (1s tick + seconds off → ≤ 1 redraw/min). `os.date` format only from fixed table keyed by validated option (V9) → option value never reach `os.date`. accent fixed (clock `yellow`, date `blue`), not state: plain|pill → `icon.color` = accent; split → icon sub-item bg = accent, icon `black` (V32). manifest `colors` = accent + `bg1 black`.
 
 ## §T tasks
 
@@ -132,7 +135,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T29 | x | README: palette item options, shape vocab, precedence; trust paras AGENTS.md + CONTRIBUTING.md | C10,C13,I.palopt,I.shape |
 | T30 | x | real-bar smoke: user palette `base = "kanagawa-wave"` + `[item.tailscale] shape = "pill"`; switch gruvbox → plain | V29,V34 |
 | T31 | x | bundle `battery` (`shape` default `split`) from author `plugins/power.sh`; tests plain/pill/split, levels, charging, no battery | C12,V32,V33,V38,I.bat |
-| T32 | . | bundle `calendar` (`shape` default `split`) ? date + clock = 1 or 2 items | C12,V32,I.port |
+| T32 | x | bundles `clock` + `date` (`shape` default `split`, item.lua only) from author `items/calendar.lua`; tests plain/pill/split order, hours, seconds, format, set only on change | C12,V32,V33,V39,I.clk,I.date,I.port |
 | T33 | . | bundle `net` (`shape` default `split`) ? | C12,V32,I.port |
 | T34 | . | bundle `spotify` ? popup + cover art; maybe drop | C12,V32,I.port |
 | T35 | . | Formula + `install.sh` ship new bundles (known files only) | C3,V21 |
