@@ -1,0 +1,25 @@
+# stm.spotify — now playing in Spotify, with a popup: cover, title, artist,
+# album and playback controls (#19).
+# Installed with `stm install item:spotify`; options go in stm.config.toml
+# (or a theme's palette) under [item.spotify].
+name = "spotify"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["magenta", "green", "red", "white", "black", "bg1", "popup_bg", "popup_border"]
+default_position = "center"
+update_freq = 10
+events = ["system_woke"]
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  <icon> <text>, no background
+#   pill   [ <icon> <text> ], one bg1 background
+#   split  [<icon>] [<text>]: the icon on magenta, the text on bg1
+[options.shape]
+values = ["plain", "pill", "split"]
+default = "split"
+
+# on: download the album cover from Spotify (i.scdn.co) for the popup
+[options.cover]
+values = ["on", "off"]
+default = "on"

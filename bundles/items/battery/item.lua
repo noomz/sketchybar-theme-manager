@@ -29,9 +29,12 @@ return function(sbar, opts, colors)
   local plugin = quote(opts.plugin_dir .. "/battery.sh")
 
   local icon = { string = "\u{F008E}", color = colors.green }
+  -- plugin.sh hides the item when there is no battery; a hidden item gets
+  -- no events unless it asks for them (SketchyBar's default is when_shown).
   local props = {
     position = opts.position,
     update_freq = opts.update_freq,
+    updates = true,
     icon = icon,
     label = { string = "--%" },
   }
