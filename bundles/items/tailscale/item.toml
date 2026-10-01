@@ -2,10 +2,10 @@
 # Installed with `stm install item:tailscale`; options go in stm.config.toml
 # under [item.tailscale], one key per option below.
 name = "tailscale"
-version = "0.1.0"
+version = "0.2.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
-colors = ["green", "yellow", "red", "grey", "popup_bg", "popup_border"]
+colors = ["green", "yellow", "red", "grey", "popup_bg", "popup_border", "bg1", "black"]
 default_position = "right"
 update_freq = 30
 events = ["system_woke", "wifi_change"]
@@ -33,3 +33,11 @@ default = "popup"
 [options.icon]
 values = ["text", "nerd", "app"]
 default = "text"
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  <icon> <text>, no background (as in 0.6.0)
+#   pill   [ <icon> <text> ], one bg1 background
+#   split  [<icon>] [<text>]: the icon on the state colour, the text on bg1
+[options.shape]
+values = ["plain", "pill", "split"]
+default = "plain"

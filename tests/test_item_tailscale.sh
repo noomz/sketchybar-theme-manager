@@ -37,6 +37,7 @@ for a; do
     icon.background.image=app.*)
       id=${a#icon.background.image=app.}
       printf '%s\n' "$id" >>"$SB_LOG.probe"
+      printf '%s\n' "$2" >>"$SB_LOG.target"
       case " ${SB_APPS:-} " in *" $id "*) exit 0 ;; esac
       exit 1
       ;;
@@ -85,7 +86,7 @@ run_plugin() {
   local parser="$1" cli="$2" path="$FAKE_BIN:/bin"
   shift 2
   [ "$parser" = jq ] && path="$JQ_BIN:$path"
-  rm -f "$SB_LOG" "$SB_LOG.probe"
+  rm -f "$SB_LOG" "$SB_LOG.probe" "$SB_LOG.target"
   [ -n "${KEEP_ICON_CACHE:-}" ] || rm -f "$ICON_CACHE"
   env -i HOME="$HOME" TMPDIR="$SANDBOX" PATH="$path" SB_LOG="$SB_LOG" \
     NAME=stm.tailscale SENDER=routine STM_TAILSCALE="$cli" \
@@ -93,6 +94,7 @@ run_plugin() {
     "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
   SB=$(cat "$SB_LOG" 2>/dev/null || true)
   PROBES=$(cat "$SB_LOG.probe" 2>/dev/null || true)
+  PROBE_TARGETS=$(cat "$SB_LOG.target" 2>/dev/null || true)
 }
 
 # run_state <parser> <fixture> [VAR=value...]
@@ -293,6 +295,53 @@ printf 'app.evil\n' >"$ICON_CACHE"
 KEEP_ICON_CACHE=1 run_state plutil running STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys
 assert_eq io.tailscale.ipn.macsys "$PROBES" "bad cache probes"
 sb_lacks icon.background.image=app.app.evil
+done_it
+
+it "shape=plain|pill: the plugin sends what 0.6.0 sent (V34)"
+for args in "running" "stopped STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys" \
+  "starting STM_TS_ICON=app" "exit-node STM_TS_PEERS=off STM_TS_CLICK=app"; do
+  # shellcheck disable=SC2086  # deliberate split: fixture then VAR=value words
+  run_state plutil $args
+  base=$SB
+  for shape in plain pill; do
+    # shellcheck disable=SC2086
+    run_state plutil $args STM_TS_SHAPE=$shape
+    assert_eq "$base" "$SB" "shape=$shape argv ($args)"
+  done
+done
+done_it
+
+it "shape=split: state colour is the icon sub-item background (V32, V34, V10)"
+# The item's own --sets, up to the popup rows. The icon stays black
+# (item.lua) and the label keeps its colour: no icon.color, no label.color.
+run_state plutil running STM_TS_SHAPE=split
+expected=$(argv_of --set stm.tailscale label.drawing=on 'label=3/4  100.64.0.1' background.drawing=on \
+  --set stm.tailscale.icon background.color=$GREEN --remove)
+assert_eq "$expected" "$(printf '%s\n' "$SB" | head -n 9)" "split argv"
+run_state plutil stopped STM_TS_SHAPE=split STM_TS_CLICK=app
+assert_eq "$(argv_of --set stm.tailscale label.drawing=on label=stopped background.drawing=on \
+  --set stm.tailscale.icon background.color=$RED)" "$SB" "split stopped argv"
+done_it
+
+it "shape=split, icon=app: probe and image on the icon sub-item, over the state colour (V34, V25)"
+run_state plutil running STM_TS_SHAPE=split STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys \
+  STM_TS_EXIT_NODE=off STM_TS_PEERS=off STM_TS_IP=off STM_TS_CLICK=app
+assert_eq stm.tailscale.icon "$PROBE_TARGETS" "probe target"
+# No label text: the label part's bg1 goes too, so only the icon part shows.
+assert_eq "$(argv_of --set stm.tailscale label.drawing=off background.drawing=off \
+  --set stm.tailscale.icon icon= icon.background.drawing=on background.color=$GREEN)" "$SB" "split app argv"
+# No Tailscale app: TS text, still black, on the state colour.
+run_state plutil starting STM_TS_SHAPE=split STM_TS_ICON=app STM_TS_CLICK=app
+assert_eq "$(argv_of stm.tailscale.icon stm.tailscale.icon)" "$PROBE_TARGETS" "fallback probe targets"
+assert_eq "$(argv_of --set stm.tailscale label.drawing=on label=starting background.drawing=on \
+  --set stm.tailscale.icon icon=TS icon.background.drawing=off background.color=$YELLOW)" "$SB" \
+  "split app fallback argv"
+done_it
+
+it "shape=split, palette lacks the state colour: no empty --set for the icon sub-item (V14)"
+run_state plutil running STM_TS_SHAPE=split STM_GREEN= \
+  STM_TS_EXIT_NODE=off STM_TS_PEERS=off STM_TS_IP=off STM_TS_CLICK=app
+assert_eq "$(argv_of --set stm.tailscale label.drawing=off background.drawing=off)" "$SB" "split no-colour argv"
 done_it
 
 it "icon=text: no lookup, no cache file (V25)"

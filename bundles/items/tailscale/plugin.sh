@@ -8,6 +8,7 @@
 #   STM_TS_EXIT_NODE STM_TS_PEERS STM_TS_IP   on | off  (label fields)
 #   STM_TS_CLICK                        popup | app
 #   STM_TS_ICON                         text | nerd | app
+#   STM_TS_SHAPE                        plain | pill | split
 # Colours are never hard-coded here: they follow the palette.
 #
 # STM_TAILSCALE overrides the CLI lookup (tests, unusual installs). Stock
@@ -177,6 +178,11 @@ esac
 # cache. The image persists on the item between runs.
 icon_mode=${STM_TS_ICON:-text}
 app_icon=""
+# split draws the icon on its own sub-item (item.lua); everything else draws
+# it on the item itself. plain and pill send the same updates.
+shape=${STM_TS_SHAPE:-plain}
+icon_item=$NAME
+[ "$shape" = split ] && icon_item="$NAME.icon"
 if [ "$icon_mode" = app ]; then
   cache="${TMPDIR:-/tmp}/stm-tailscale-icon.$NAME"
   cached=$(/bin/cat "$cache" 2>/dev/null)
@@ -186,7 +192,7 @@ if [ "$icon_mode" = app ]; then
     none) ;;
     *)
       for id in io.tailscale.ipn.macsys io.tailscale.ipn.macos; do
-        if sketchybar --set "$NAME" icon.background.image="app.$id" >/dev/null 2>&1; then
+        if sketchybar --set "$icon_item" icon.background.image="app.$id" >/dev/null 2>&1; then
           app_icon=$id
           break
         fi
@@ -199,23 +205,35 @@ if [ "$icon_mode" = app ]; then
   esac
 fi
 
-set -- --set "$NAME"
-if [ -n "$label" ]; then
-  set -- "$@" label.drawing=on label="$label"
-else
-  set -- "$@" label.drawing=off
-fi
+# The icon's updates first, then the label's --set goes in front of them.
+set --
 if [ -n "$app_icon" ]; then
-  set -- "$@" icon= icon.background.drawing=on
+  set -- icon= icon.background.drawing=on
 elif [ "$icon_mode" = app ]; then
-  set -- "$@" icon=TS icon.background.drawing=off
+  set -- icon=TS icon.background.drawing=off
 fi
-# The app image is never tinted, so in app mode the state colour always goes
-# on the label, resolved or not: a fallback run must not leave the colour of
-# an earlier resolved run there.
-if [ -n "$color" ]; then
+if [ "$shape" = split ]; then
+  # The state colour is the sub-item's background; its icon stays black and
+  # an app image draws over the colour. Nothing to set -> no --set at all.
+  [ -n "$color" ] && set -- "$@" background.color="$color"
+  [ $# -gt 0 ] && set -- --set "$icon_item" "$@"
+  # No label text: hide the label part's bg1 too, so only the icon part shows.
+  if [ -n "$label" ]; then
+    set -- background.drawing=on "$@"
+  else
+    set -- background.drawing=off "$@"
+  fi
+elif [ -n "$color" ]; then
+  # The app image is never tinted, so in app mode the state colour always
+  # goes on the label, resolved or not: a fallback run must not leave the
+  # colour of an earlier resolved run there.
   [ "$icon_mode" = app ] && set -- "$@" label.color="$color"
   [ -z "$app_icon" ] && set -- "$@" icon.color="$color"
+fi
+if [ -n "$label" ]; then
+  set -- --set "$NAME" label.drawing=on label="$label" "$@"
+else
+  set -- --set "$NAME" label.drawing=off "$@"
 fi
 
 # Popup rows: rebuilt on every run so they follow the palette and the tailnet.
