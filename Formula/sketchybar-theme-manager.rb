@@ -66,9 +66,13 @@ class SketchybarThemeManager < Formula
     lint = shell_output("#{bin}/stm lint --porcelain nord")
     assert_match "ok\tnord", lint
 
-    # The bundled items must be findable from the installed location.
-    item = shell_output("#{bin}/stm lint --porcelain item:tailscale")
-    assert_match "ok\titem:tailscale", item
+    # Every bundled item must be findable, and valid, from the installed
+    # location.
+    items = Dir[share/"stm/bundles/items/*"].map { |dir| File.basename(dir) }
+    assert_includes items, "tailscale"
+    items.each do |name|
+      assert_match "ok\titem:#{name}", shell_output("#{bin}/stm lint --porcelain item:#{name}")
+    end
 
     # Applying against a scratch Lua config must produce a loadable module and
     # must not touch the user's own colors.lua.
