@@ -144,6 +144,7 @@ step 1b (#19): theme drive item *shape* via data. palette may set `[item.<name>]
 | T33 | x | bundle `net` (`shape` default `split`) from author `items/net.lua`; fake scutil/ipconfig/ifconfig: Wi-Fi, Ethernet, VPN, other, no type, IPv6-only, offline, bad if name (UTF-8 locale), ip mode incl VPN; lint + install | C12,V32,V33,V40,I.net,I.port |
 | T34 | x | bundle `spotify` (`shape` default `split`, popup + cover + controls) from author `items/spotify.lua`; fake pgrep/osascript/curl: not running, stopped, playing, paused, no artist, control chars, cover cache/bad url/fail/off, actions, 0x1F field, missing value; scripts compile (osacompile, Spotify.app only); Lua probe names + order + `updates`; lint + install; battery `updates = true` | C12,V10,V32,V33,V41,V42,I.spot,I.port |
 | T35 | x | Formula + `install.sh` ship new bundles (known files only) | C3,V21 |
+| T36 | x | README Items: every bundled item (battery clock date net spotify tailscale), options + data source + limits (SSID hidden, cover download); help text if it names items | I.bat,I.clk,I.date,I.net,I.spot,I.tsopt,C12 |
 
 ## §B bugs
 
