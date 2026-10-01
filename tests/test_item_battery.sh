@@ -183,16 +183,16 @@ EOF
     printf 'icon={color=%s string=%s}' "$1" "$G90"
   }
 
-  it "item.lua plain and pill: one item, pill on bg1 (V32, V14)"
-  assert_eq "item stm.battery {$(icon_props 1) label={string=--%} position=right update_freq=120}" \
+  it "item.lua plain and pill: one item, pill on bg1, updates while hidden (V32, V14, V42)"
+  assert_eq "item stm.battery {$(icon_props 1) label={string=--%} position=right update_freq=120 updates=true}" \
     "$(items_of plain right)" "plain"
-  assert_eq "item stm.battery {background={color=21 drawing=true} $(icon_props 1) label={string=--%} position=left update_freq=120}" \
+  assert_eq "item stm.battery {background={color=21 drawing=true} $(icon_props 1) label={string=--%} position=left update_freq=120 updates=true}" \
     "$(items_of pill left)" "pill"
   done_it
 
   it "item.lua split: icon sub-item left of the label at every position (V32, V33, V10)"
   main() {
-    printf 'item stm.battery {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=--%%} position=%s update_freq=120}' "$1"
+    printf 'item stm.battery {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=--%%} position=%s update_freq=120 updates=true}' "$1"
   }
   sub() {
     printf 'item stm.battery.icon {background={color=1 drawing=true} %s label={drawing=false} position=%s}' \
