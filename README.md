@@ -683,6 +683,7 @@ label = "type"   # type | ip — Wi-Fi, Ethernet, VPN, offline; or the local IPv
 
 [item.spotify]
 cover = "on"     # on | off — download the album cover for the popup
+narrow = "right" # right | center — where to sit on a narrow screen
 ```
 
 `battery` reads `pmset`: green, yellow at 30% and below, red at 15% and below,
@@ -703,7 +704,12 @@ starts Spotify, and hides while nothing is playing or paused. Click it for the
 popup: cover, title, artist, album, and shuffle, back, play/pause, next and
 repeat. The cover is downloaded only from Spotify's image host
 (`i.scdn.co`), into your own temp folder; `cover = "off"` never downloads.
-Its control glyphs are Nerd Font glyphs.
+Its control glyphs are Nerd Font glyphs. A long title scrolls within 24
+characters instead of growing into the items beside it. On a narrow main
+display (under 1800 points wide — a laptop screen) a centred `spotify` moves
+to the left end of the right items, its popup aligned right, and returns to the centre on a
+wider one; the main display decides for every display the bar is on.
+`narrow = "center"`, or a position of your own in `[items]`, keeps it put.
 
 | Command | What it does |
 | --- | --- |

@@ -19,6 +19,8 @@ return function(sbar, opts, colors)
   local env = table.concat({
     "STM_SP_SHAPE=" .. quote(o.shape),
     "STM_SP_COVER=" .. quote(o.cover),
+    "STM_SP_NARROW=" .. quote(o.narrow),
+    "STM_SP_POSITION=" .. quote(opts.position),
   }, " ")
   local plugin = quote(opts.plugin_dir .. "/spotify.sh")
 
@@ -34,6 +36,8 @@ return function(sbar, opts, colors)
 
   -- Hidden until plugin.sh finds something playing. A hidden item gets no
   -- events unless it asks for them (SketchyBar's default is when_shown).
+  -- A long title scrolls within 24 characters rather than grow into the
+  -- items beside it; plugin.sh moves the item right on a narrow screen.
   local icon = { string = "\u{F1BC}", color = colors.magenta }
   local props = {
     position = opts.position,
@@ -41,6 +45,8 @@ return function(sbar, opts, colors)
     updates = true,
     drawing = false,
     icon = icon,
+    label = { max_chars = 24 },
+    scroll_texts = true,
     popup = {
       align = "center",
       horizontal = true,
