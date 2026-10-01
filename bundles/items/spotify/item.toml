@@ -9,7 +9,7 @@ files = ["item.lua", "plugin.sh"]
 colors = ["magenta", "green", "red", "white", "black", "bg1", "popup_bg", "popup_border"]
 default_position = "center"
 update_freq = 10
-events = ["system_woke"]
+events = ["system_woke", "display_change"]
 
 # How the item is drawn (a theme may set this in its palette):
 #   plain  <icon> <text>, no background
@@ -23,3 +23,10 @@ default = "split"
 [options.cover]
 values = ["on", "off"]
 default = "on"
+
+# right: on a narrow main display (under 1800 points wide, i.e. a laptop
+# screen) move from the centre to the right, beside the right items; center:
+# stay centred. Only applies while the item's position is center.
+[options.narrow]
+values = ["right", "center"]
+default = "right"

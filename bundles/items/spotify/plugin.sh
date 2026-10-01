@@ -5,6 +5,8 @@
 #   NAME, SENDER     the SketchyBar item and event
 #   STM_SP_SHAPE     plain | pill | split
 #   STM_SP_COVER     on | off
+#   STM_SP_NARROW    right | center: where to sit on a narrow main display
+#   STM_SP_POSITION  the item's configured position
 #   STM_SP_ACTION    play | next | back | shuffle | repeat, on a control's click
 # Colours live in item.lua; this sets the text, glyphs, visibility and cover.
 #
@@ -26,6 +28,63 @@ hide() {
   sketchybar "$@"
   exit 0
 }
+
+# place — sets $move to the commands that put the item where it belongs, or
+# to nothing; $drawing to whether the bar shows it. A centred item on a narrow
+# main display (a laptop screen) runs into the right items: move it to their
+# left end, popup aligned right, and back to the centre on a wide one. Only from
+# the centre, and only when the bar has it elsewhere, so a tick never
+# reorders the bar. The main display decides for every display the bar is on.
+place() {
+  move="" drawing=""
+  [ "${STM_SP_POSITION:-center}" = center ] && [ "${STM_SP_NARROW:-right}" = right ] || return 0
+  w=$(sketchybar --query displays 2>/dev/null | /usr/bin/awk '
+    /"arrangement-id"/ { id = $0; gsub(/[^0-9]/, "", id) }
+    /"w"/ && id == "1" { sub(/^[^:]*: */, ""); sub(/[.,].*$/, ""); print; exit }')
+  case "$w" in
+    "" | *[!0-9]*) return 0 ;;
+  esac
+  if [ "$w" -lt 1800 ]; then want=right; else want=center; fi
+  # The first "drawing" and "position" are the item's own (geometry).
+  state=$(sketchybar --query "$NAME" 2>/dev/null | /usr/bin/awk -F'"' '
+    $2 == "drawing" && d == "" { d = $4 }
+    $2 == "position" && p == "" { p = $4 }
+    END { print d " " p }')
+  drawing=${state% *}
+  now=${state#* }
+  [ -n "$now" ] && [ "$now" != "$want" ] || return 0
+  move="--set $NAME position=$want popup.align=$want"
+  # On the right, leftmost of the right items: they are laid out right to
+  # left by index, so after the bar's last item. Its name goes in $move as one
+  # word, so only a plain one.
+  if [ "$want" = right ]; then
+    last=$(sketchybar --query bar 2>/dev/null | /usr/bin/awk -F'"' '
+      /"items"/ { on = 1; next }
+      on && /\]/ { exit }
+      on { last = $2 }
+      END { print last }')
+    case "$last" in
+      "" | "$NAME" | "$NAME.icon" | *[!A-Za-z0-9._-]*) ;;
+      *) move="$move --move $NAME after $last" ;;
+    esac
+  fi
+  # The icon sub-item stays left of the label: right items are laid out
+  # right to left, so on the right it goes after the label.
+  if [ "$shape" = split ]; then
+    [ "$want" = right ] && where=after || where=before
+    move="$move --set $NAME.icon position=$want --move $NAME.icon $where $NAME"
+  fi
+}
+
+# A display change (also every switch of the active display): only placement,
+# and only while the item is shown; nothing to ask Spotify.
+if [ "$SENDER" = display_change ]; then
+  set -f
+  place
+  # shellcheck disable=SC2086 # $move is words without spaces or globs (set -f)
+  [ "$drawing" = on ] && [ -n "$move" ] && sketchybar $move
+  exit 0
+fi
 
 # Ask Spotify nothing unless this user's Spotify runs: AppleScript would
 # launch it.
@@ -170,4 +229,8 @@ elif [ "$cover" = on ]; then
 else
   set -- "$@" --set "$NAME.row.cover" drawing=off
 fi
+place
+
+# shellcheck disable=SC2086 # $move is words without spaces or globs (set -f)
+set -- "$@" $move
 sketchybar "$@"

@@ -29,8 +29,19 @@ US=$(printf '\037')
 
 FAKE_BIN="$SANDBOX/sp-bin"
 mkdir -p "$FAKE_BIN"
+# Fake sketchybar: logs a command's argv; answers --query displays with
+# $DISPLAYS_OUT and --query <item> with $ITEM_OUT, logging the query.
 cat >"$FAKE_BIN/sketchybar" <<'EOF'
 #!/bin/sh
+if [ "$1" = --query ]; then
+  printf 'query %s\n' "$2" >>"$SB_LOG.queries"
+  case "$2" in
+    displays) printf '%s\n' "$DISPLAYS_OUT" ;;
+    bar) printf '%s\n' "$BAR_OUT" ;;
+    *) printf '%s\n' "$ITEM_OUT" ;;
+  esac
+  exit 0
+fi
 printf '%s\n' "$@" >>"$SB_LOG"
 EOF
 # Fake pgrep: this user's Spotify runs when $SP_RUNNING = 1.
@@ -88,13 +99,28 @@ CALLS=""
 run_plugin() {
   local r="$1" o="$2"
   shift 2
-  rm -f "$SB_LOG" "$SB_LOG.calls"
+  rm -f "$SB_LOG" "$SB_LOG.calls" "$SB_LOG.queries"
   env -i HOME="$HOME" TMPDIR="$SANDBOX" PATH="$FAKE_BIN:/bin:/usr/bin" SB_LOG="$SB_LOG" \
     NAME=stm.spotify SENDER=routine STM_PGREP="$SANDBOX/pgrep" STM_OSASCRIPT="$SANDBOX/osascript" \
     STM_CURL="$SANDBOX/curl" SCRIPTS="$SCRIPTS" SP_RUNNING="$r" OSA_OUT="$o" CURL_BODY=jpeg STM_SP_SHAPE=split \
-    STM_SP_COVER=on "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
+    STM_SP_COVER=on STM_SP_POSITION=center STM_SP_NARROW=right "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
   SB=$(cat "$SB_LOG" 2>/dev/null || true)
   CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
+  QUERIES=$(cat "$SB_LOG.queries" 2>/dev/null || true)
+}
+QUERIES=""
+
+# displays <main width> — `sketchybar --query displays` as 2.24 prints it
+# (main display first, then a wide external).
+displays() {
+  printf '[\n\t{\n\t\t"arrangement-id":1,\n\t\t"DirectDisplayID":1,\n\t\t"UUID":"37D8832A-2D66-02CA-B9F7-8F30A301B230",\n\t\t"frame":{\n\t\t"x":0.0000,\n\t\t"y":0.0000,\n\t\t"w":%s.0000,\n\t\t"h":1117.0000\n\t\t}\n\t},\n\t{\n\t\t"arrangement-id":2,\n\t\t"DirectDisplayID":5,\n\t\t"UUID":"AB3887F4-7423-4DF4-8654-FC2B221D790A",\n\t\t"frame":{\n\t\t"x":-2560.0000,\n\t\t"y":0.0000,\n\t\t"w":2560.0000,\n\t\t"h":1440.0000\n\t\t}\n\t}\n]' "$1"
+}
+# BAR — `sketchybar --query bar`, trimmed: the items, in index order.
+BAR=$(printf '{\n\t"position": "top",\n\t"items": [\n\t\t "logo",\n\t\t "stm.spotify",\n\t\t "stm.spotify.icon",\n\t\t "vpn",\n\t\t "stm.tailscale.row.2"\n\t]\n}')
+# placed <position> [drawing] — `sketchybar --query stm.spotify`, trimmed
+# (geometry first, as 2.24 prints it; later sections repeat "drawing").
+placed() {
+  printf '{\n\t"name": "stm.spotify",\n\t"type": "item",\n\t"geometry": {\n\t\t"drawing": "%s",\n\t\t"position": "%s",\n\t\t"associated_display_mask": 1,\n\t\t"background": {\n\t\t\t"drawing": "on"\n\t\t}\n\t}\n}' "${2:-on}" "$1"
 }
 
 argv_of() {
@@ -177,15 +203,17 @@ assert_eq jpeg "$(cat "$COVER_FILE")" "downloaded over the link"
 [ -L "$COVER_FILE" ] && _note_fail "the cover is still a symlink"
 assert_eq theirs "$(cat "$SANDBOX/elsewhere")" "link target untouched"
 # SketchyBar runs without TMPDIR: the cache goes to this user's own temp dir,
-# never the shared /tmp. (The download fails, so nothing is left there.)
+# never the shared /tmp. (The download fails, so nothing is left there.) Its
+# own item name keeps it clear of a real bar's cover in that same dir.
 rm -f "$SB_LOG.calls"
-env -i HOME="$HOME" PATH="$FAKE_BIN:/bin:/usr/bin" SB_LOG="$SB_LOG" NAME=stm.spotify SENDER=routine \
+probe_name="stm.spotify-test$$"
+env -i HOME="$HOME" PATH="$FAKE_BIN:/bin:/usr/bin" SB_LOG="$SB_LOG" NAME="$probe_name" SENDER=routine \
   STM_PGREP="$SANDBOX/pgrep" STM_OSASCRIPT="$SANDBOX/osascript" STM_CURL="$SANDBOX/curl" SCRIPTS="$SCRIPTS" \
   SP_RUNNING=1 OSA_OUT="$(osa playing T A L "$COVER_URL" false false)" CURL_FAIL=1 STM_SP_SHAPE=split \
   STM_SP_COVER=on /bin/sh "$PLUGIN" >/dev/null 2>&1
 user_tmp=$(/usr/bin/getconf DARWIN_USER_TEMP_DIR)
-assert_contains "$(cat "$SB_LOG.calls")" "-o ${user_tmp}stm-spotify-cover.stm.spotify.tmp."
-assert_eq "" "$(find "$user_tmp" -maxdepth 1 -name 'stm-spotify-cover.stm.spotify.*' 2>/dev/null)" "nothing left behind"
+assert_contains "$(cat "$SB_LOG.calls")" "-o ${user_tmp}stm-spotify-cover.$probe_name.tmp."
+assert_eq "" "$(find "$user_tmp" -maxdepth 1 -name "stm-spotify-cover.$probe_name*" 2>/dev/null)" "nothing left behind"
 done_it
 
 it "no artist: the album fills in; neither: the title alone (I.spot)"
@@ -272,6 +300,86 @@ assert_not_contains "$SB" "stm.spotify.icon"
 assert_eq "$(argv_of --set stm.spotify drawing=on 'label=T - A')" "$(printf '%s\n' "$SB" | sed -n 1,4p)" "pill head"
 done_it
 
+it "narrow main display: right of centre, popup aligned right; wide: centred (V43, V33)"
+PLAYING=$(osa playing T A L "$COVER_URL" false false)
+VISIBLE=$(shown 'T - A' T A L "$PAUSE" off off drawing=off)
+# Narrow (a 16-inch laptop), still centred: move, leftmost of the right
+# items (after the bar's last item), icon sub-item kept left of the label.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed center)" BAR_OUT="$BAR"
+assert_eq "$VISIBLE
+$(argv_of --set stm.spotify position=right popup.align=right --move stm.spotify after stm.tailscale.row.2 \
+  --set stm.spotify.icon position=right --move stm.spotify.icon after stm.spotify)" "$SB" "narrow, split"
+assert_eq "query displays
+query stm.spotify
+query bar" "$QUERIES" "queries"
+# The bar's last item unknown, or already ours: no reorder of the main item.
+for last in "" "stm.spotify" "stm.spotify.icon"; do
+  bar=$(printf '{\n\t"items": [\n\t\t "logo"%s\n\t]\n}' "${last:+,
+		 \"$last\"}")
+  [ -n "$last" ] || bar=""
+  run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed center)" BAR_OUT="$bar"
+  assert_eq "$VISIBLE
+$(argv_of --set stm.spotify position=right popup.align=right \
+    --set stm.spotify.icon position=right --move stm.spotify.icon after stm.spotify)" "$SB" "last item '$last'"
+done
+# Already right: nothing to move.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed right)"
+assert_eq "$VISIBLE" "$SB" "narrow, already right"
+# Wide, left right before (an external became main): back to the centre.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 2560)" ITEM_OUT="$(placed right)"
+assert_eq "$VISIBLE
+$(argv_of --set stm.spotify position=center popup.align=center --set stm.spotify.icon position=center \
+  --move stm.spotify.icon before stm.spotify)" "$SB" "wide, back to centre"
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 2560)" ITEM_OUT="$(placed center)"
+assert_eq "$VISIBLE" "$SB" "wide, centred"
+# 1799 is narrow, 1800 is not.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1799)" ITEM_OUT="$(placed center)"
+assert_contains "$SB" "position=right"
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1800)" ITEM_OUT="$(placed center)"
+assert_eq "$VISIBLE" "$SB" "1800 is wide"
+# pill: no icon sub-item to move.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1512)" ITEM_OUT="$(placed center)" \
+  STM_SP_SHAPE=pill BAR_OUT="$BAR"
+assert_eq "$(argv_of --set stm.spotify position=right popup.align=right --move stm.spotify after stm.tailscale.row.2)" \
+  "$(printf '%s\n' "$SB" | tail -n 8)" "narrow, pill"
+assert_not_contains "$SB" "stm.spotify.icon"
+done_it
+
+it "display_change: placement only, and only while shown (V43)"
+run_plugin 1 "$PLAYING" SENDER=display_change DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed center)" BAR_OUT="$BAR"
+assert_eq "$(argv_of --set stm.spotify position=right popup.align=right --move stm.spotify after stm.tailscale.row.2 \
+  --set stm.spotify.icon position=right --move stm.spotify.icon after stm.spotify)" "$SB" "shown, narrow"
+assert_eq "" "$CALLS" "no pgrep, no osascript"
+run_plugin 1 "$PLAYING" SENDER=display_change DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed right)"
+assert_eq "" "$SB" "already placed"
+run_plugin 1 "$PLAYING" SENDER=display_change DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed center off)"
+assert_eq "" "$SB" "hidden"
+assert_eq "" "$CALLS" "hidden: no pgrep, no osascript"
+run_plugin 1 "$PLAYING" SENDER=display_change DISPLAYS_OUT="$(displays 1728)" STM_SP_POSITION=left
+assert_eq "" "$SB$CALLS$QUERIES" "configured left: nothing at all"
+done_it
+
+it "never moves when the width is unknown, the position is yours, or narrow = center (V43)"
+for d in "" "garbage" "$(displays abc)"; do
+  run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$d" ITEM_OUT="$(placed center)"
+  assert_eq "$VISIBLE" "$SB" "displays '$d'"
+  assert_eq "query displays" "$QUERIES" "no item query"
+done
+# The bar did not say where the item is: no move (not one every tick).
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1728)" ITEM_OUT=""
+assert_eq "$VISIBLE" "$SB" "empty item reply"
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed left)" STM_SP_POSITION=left
+assert_eq "$VISIBLE" "$SB" "configured left"
+assert_eq "" "$QUERIES" "configured left: no queries"
+run_plugin 1 "$PLAYING" STM_SP_COVER=off DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed center)" STM_SP_NARROW=center
+assert_eq "$VISIBLE" "$SB" "narrow = center"
+assert_eq "" "$QUERIES" "narrow = center: no queries"
+# Hidden: nothing to place.
+run_plugin 0 "" DISPLAYS_OUT="$(displays 1728)" ITEM_OUT="$(placed center)"
+assert_eq "$HIDDEN_SPLIT" "$SB" "hidden"
+assert_eq "" "$QUERIES" "hidden: no queries"
+done_it
+
 LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"
@@ -315,7 +423,8 @@ function sbar.add(kind, name, a, b)
 end
 function sbar.exec(cmd) print("exec " .. cmd) end
 local opts = { name = "stm.spotify", position = position, update_freq = 10,
-  plugin_dir = "/p", events = { "system_woke" }, options = { shape = shape, cover = "on" } }
+  plugin_dir = "/p", events = { "system_woke", "display_change" },
+  options = { shape = shape, cover = "on", narrow = "right" } }
 local colors = { magenta = 1, green = 2, red = 3, white = 4, black = 5, bg1 = 21 }
 if dialect == "nested" then
   colors.popup = { bg = 31, border = 32 }
@@ -385,10 +494,13 @@ $rows" "$(names pill center)" "pill"
   assert_contains "$main" "icon={drawing=false}"
   assert_eq "item stm.spotify.icon {background={color=1 drawing=true} drawing=false icon={color=5 string=$SPOT} label={drawing=false} position=center}" \
     "$(line_of stm.spotify.icon split center)" "icon sub-item"
-  assert_contains "$main" "} drawing=false icon={drawing=false} popup="
+  assert_contains "$main" "} drawing=false icon={drawing=false} label={max_chars=24} popup="
   # Hidden items get no events unless they ask for them (V42, B9).
   for shape in plain pill split; do
     assert_contains "$(line_of stm.spotify "$shape" center)" " update_freq=10 updates=true}"
+    # A long title scrolls inside 24 characters instead of growing (V43).
+    assert_contains "$(line_of stm.spotify "$shape" center)" " label={max_chars=24} "
+    assert_contains "$(line_of stm.spotify "$shape" center)" " scroll_texts=true "
   done
   done_it
 
@@ -408,10 +520,11 @@ $rows" "$(names pill center)" "pill"
 
   it "item.lua subscribes the change event and runs the plugin per click (I.spot, V33)"
   out=$(probe split center flat click)
-  assert_contains "$out" "subscribe stm.spotify routine forced stm_spotify_change system_woke"
-  assert_contains "$out" "exec STM_SP_SHAPE='split' STM_SP_COVER='on' STM_SP_ACTION='' NAME='stm.spotify' SENDER='forced' '/p/spotify.sh'"
+  assert_contains "$out" "subscribe stm.spotify routine forced stm_spotify_change system_woke display_change"
+  env="STM_SP_SHAPE='split' STM_SP_COVER='on' STM_SP_NARROW='right' STM_SP_POSITION='center'"
+  assert_contains "$out" "exec $env STM_SP_ACTION='' NAME='stm.spotify' SENDER='forced' '/p/spotify.sh'"
   for a in shuffle back play next repeat; do
-    assert_contains "$out" "exec STM_SP_SHAPE='split' STM_SP_COVER='on' STM_SP_ACTION='$a' NAME='stm.spotify' SENDER='mouse.clicked' '/p/spotify.sh'"
+    assert_contains "$out" "exec $env STM_SP_ACTION='$a' NAME='stm.spotify' SENDER='mouse.clicked' '/p/spotify.sh'"
   done
   assert_eq "set stm.spotify {popup={drawing=toggle}}
 set stm.spotify {popup={drawing=false}}
@@ -435,8 +548,8 @@ STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install item:spotify
 assert_status 0
 assert_files_equal "$PLUGIN" "$D/plugins/stm/spotify.sh"
 loader=$(cat "$D/items_generated.lua")
-for opt in '["cover"] = "off"' '["shape"] = "split"' 'position = "center",' 'update_freq = 10,' \
-  'events = { "system_woke" },'; do
+for opt in '["cover"] = "off"' '["shape"] = "split"' '["narrow"] = "right"' 'position = "center",' \
+  'update_freq = 10,' 'events = { "system_woke", "display_change" },'; do
   assert_contains "$loader" "$opt"
 done
 done_it
