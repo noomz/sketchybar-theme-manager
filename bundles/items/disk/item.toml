@@ -1,0 +1,19 @@
+# stm.disk — how full the startup disk is (#21).
+# Installed with `stm install item:disk`; options go in stm.config.toml
+# (or a theme's palette) under [item.disk].
+name = "disk"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["green", "yellow", "red", "grey", "bg1", "black"]
+default_position = "right"
+update_freq = 60
+events = ["system_woke"]
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  <icon> <text>, no background
+#   pill   [ <icon> <text> ], one bg1 background
+#   split  [<icon>] [<text>]: the icon on the state colour, the text on bg1
+[options.shape]
+values = ["plain", "pill", "split"]
+default = "split"
