@@ -162,7 +162,7 @@ step 1c (#21): bundle author's system stats items: `cpu` `mem` graphs, `disk` us
 | T39 | x | bundle `cpu`; fake iostat: bands 29/30/59/60/79/80, us+sy > 100, malformed, absent; label width; shapes + split order; Lua probe add/query; lint + install | V32,V33,V44,V45,V46,I.cpu |
 | T40 | x | bundle `mem`; fake memory_pressure + sysctl: levels 1/2/4/other, malformed, absent; label width; shapes; Lua probe; lint + install | V32,V33,V44,V45,V46,I.mem |
 | T41 | x | bundle `disk`; fake df: bands 79/80/89/90, Data absent → `/`, malformed, absent; plain/pill/split colour placement; Lua probe; lint + install | V32,V33,V44,V45,V46,I.disk |
-| T42 | . | bundle `netspeed`; fake scutil/netstat/sleep: en0, utun (no Address), units B/K/M/G bounds, counter reset, offline, bad if name; unified + separate argv; Lua probe names + add order right/left + overlay padding + bracket + small font; lint + install | V10,V40,V44,V46,V47,I.ns |
+| T42 | x | bundle `netspeed`; fake scutil/netstat/sleep: en0, utun (no Address), units B/K/M/G bounds, counter reset, offline, bad if name; unified + separate argv; Lua probe names + add order right/left + overlay padding + bracket + small font; lint + install | V10,V40,V44,V46,V47,I.ns |
 | T43 | . | ship: packaging test lists new bundles (Formula + install.sh already generic); README Items: cpu mem disk netspeed options + data source + limits | C3,V21,I.cpu,I.mem,I.disk,I.ns |
 
 ## §B bugs
