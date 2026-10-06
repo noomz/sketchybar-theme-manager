@@ -59,6 +59,20 @@ installed_items() {
   (cd -- "$ITEMS" && find . | LC_ALL=C sort)
 }
 
+# The installed tree of the bundles this repo ships.
+SHIPPED=(. ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh
+  ./clock ./clock/item.lua ./clock/item.toml
+  ./cpu ./cpu/item.lua ./cpu/item.toml ./cpu/plugin.sh
+  ./date ./date/item.lua ./date/item.toml
+  ./net ./net/item.lua ./net/item.toml ./net/plugin.sh
+  ./spotify ./spotify/item.lua ./spotify/item.toml ./spotify/plugin.sh
+  ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)
+
+# shipped [path...] — that tree plus the given paths, sorted like installed_items.
+shipped() {
+  printf '%s\n' "${SHIPPED[@]}" "$@" | LC_ALL=C sort
+}
+
 it "install.sh ships bundled items, known files only (C3)"
 make_release
 printf 'not item code\n' >"$REL/bundles/items/tailscale/README.md"
@@ -74,12 +88,12 @@ pack_release
 run_installer
 assert_eq 0 "$INSTALL_STATUS" "install.sh must succeed: $(cat "$SANDBOX/install.err")"
 assert_file_exists "$P/bin/stm"
-assert_eq "$(printf '%s\n' . ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh ./clock ./clock/item.lua ./clock/item.toml ./date ./date/item.lua ./date/item.toml ./linky ./linky/item.toml ./net ./net/item.lua ./net/item.toml ./net/plugin.sh ./spotify ./spotify/item.lua ./spotify/item.toml ./spotify/plugin.sh ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)" \
+assert_eq "$(shipped ./linky ./linky/item.toml)" \
   "$(installed_items)" "only item.toml, item.lua and plugin.sh from validly named, real bundle dirs"
-for f in battery/plugin.sh net/plugin.sh spotify/plugin.sh tailscale/plugin.sh; do
+for f in battery/plugin.sh cpu/plugin.sh net/plugin.sh spotify/plugin.sh tailscale/plugin.sh; do
   assert_files_equal "$REPO_ROOT/bundles/items/$f" "$ITEMS/$f"
 done
-for b in battery clock date net spotify tailscale; do
+for b in battery clock cpu date net spotify tailscale; do
   for f in item.toml item.lua; do
     assert_files_equal "$REPO_ROOT/bundles/items/$b/$f" "$ITEMS/$b/$f"
   done
@@ -102,8 +116,7 @@ pack_release
 printf 'stale\n' >"$ITEMS/tailscale/old.lua"
 run_installer
 assert_eq 0 "$INSTALL_STATUS" "install.sh must succeed: $(cat "$SANDBOX/install.err")"
-assert_eq "$(printf '%s\n' . ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh ./clock ./clock/item.lua ./clock/item.toml ./date ./date/item.lua ./date/item.toml ./net ./net/item.lua ./net/item.toml ./net/plugin.sh ./spotify ./spotify/item.lua ./spotify/item.toml ./spotify/plugin.sh ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)" \
-  "$(installed_items)"
+assert_eq "$(shipped)" "$(installed_items)"
 assert_eq "" "$(find "$P/share/stm/bundles" -name '.items.*')" "no staging dir left behind"
 done_it
 

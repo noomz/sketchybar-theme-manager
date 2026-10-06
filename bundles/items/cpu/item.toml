@@ -1,0 +1,19 @@
+# stm.cpu — CPU load as a graph and a percentage (#21).
+# Installed with `stm install item:cpu`; options go in stm.config.toml
+# (or a theme's palette) under [item.cpu].
+name = "cpu"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["orange", "green", "yellow", "red", "grey", "bg1", "black"]
+default_position = "right"
+update_freq = 2
+events = ["system_woke"]
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  <icon> <graph> <text>, no background
+#   pill   [ <icon> <graph> <text> ], one bg1 background
+#   split  [<icon>] [<graph> <text>]: the icon on orange, the rest on bg1
+[options.shape]
+values = ["plain", "pill", "split"]
+default = "split"
