@@ -546,8 +546,12 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 | --- | --- | --- |
 | `battery` | battery level, coloured by level; a bolt on power | `right` |
 | `clock` | the time | `right` |
+| `cpu` | CPU load: a graph and a percentage, coloured by load | `right` |
 | `date` | the date | `right` |
+| `disk` | how full the startup disk is, coloured by use | `right` |
+| `mem` | memory in use: a graph and a percentage, coloured by memory pressure | `right` |
 | `net` | the network link: Wi-Fi, Ethernet, VPN or offline | `right` |
+| `netspeed` | download and upload rates: graphs and numbers | `right` |
 | `spotify` | what Spotify is playing; a popup with the cover and playback controls | `center` |
 | `tailscale` | whether Tailscale is up, your IP and exit node; a popup listing this device and its peers | `right` |
 
@@ -577,7 +581,8 @@ never touches the network. It writes only stm-owned files:
 
 Your own items, plugins, `init.lua` and `sketchybarrc` are left alone. Items
 need a Lua config; a shell bar is refused. The SketchyBar item is always
-named `stm.<name>`. These files are kept out of the `verify` baseline and go
+named `stm.<name>` (`netspeed` adds `stm.netspeed.up`, `stm.netspeed.rates`
+and `stm.netspeed.pill`). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -650,8 +655,9 @@ The icon part of `split` is always left of the text, and clicking either part
 does the same thing. Corner radius, height and padding come from your own
 `sbar.default`, except that `split` zeroes the text part's left background
 padding so the two parts sit one icon padding apart. `tailscale` defaults to
-`plain`, which draws exactly what it did before shapes existed; every other
-item defaults to `split`.
+`plain`, which draws exactly what it did before shapes existed; `netspeed`
+offers only `plain` and `pill` and defaults to `pill`; every other item
+defaults to `split`.
 
 The tailscale state colour is green when Running, yellow when Starting or
 NeedsLogin, red when Stopped, and grey when the CLI is missing or `tailscale
@@ -684,6 +690,9 @@ label = "type"   # type | ip — Wi-Fi, Ethernet, VPN, offline; or the local IPv
 [item.spotify]
 cover = "on"     # on | off — download the album cover for the popup
 narrow = "right" # right | center — where to sit on a narrow screen
+
+[item.netspeed]
+view = "unified" # unified | separate — one graph for both rates, or one item each
 ```
 
 `battery` reads `pmset`: green, yellow at 30% and below, red at 15% and below,
@@ -710,6 +719,36 @@ display (under 1800 points wide — a laptop screen) a centred `spotify` moves
 to the left end of the right items, its popup aligned right, and returns to the centre on a
 wider one; the main display decides for every display the bar is on.
 `narrow = "center"`, or a position of your own in `[items]`, keeps it put.
+
+`cpu`, `mem`, `disk` and `netspeed` read stock macOS tools only, with no
+helper to compile and nothing left running between updates. Their labels keep
+a steady width: it changes only when the number of characters does, measured
+from your own label font (any font; the width assumes a monospaced one).
+
+`cpu` runs `iostat` every 2 seconds for a one-second sample of user + system
+load. Its graph is green, yellow from 30%, orange from 60% and red from 80%;
+the icon is `orange`.
+
+`mem` shows the memory in use (100% minus the free percentage
+`memory_pressure` reports), every 5 seconds. The graph takes the kernel's own
+pressure level: green normal, yellow warning, red critical. The icon is
+`blue`.
+
+`disk` shows how full the Data volume is (the one your files are on), from
+`df` every minute: green, yellow from 80%, red from 90%.
+
+`netspeed` follows the link carrying the default route, as `net` does, and
+measures it over one second every 2 seconds with `netstat`. Download is
+`blue`, upload `magenta`; rates are in bytes per second, base 1000 (`999B`,
+`56K`, `12M`, `1G`). The graphs are logarithmic, so 1 KB/s and 100 MB/s both
+show. `view = "unified"` draws one graph with the upload line over the filled
+download area, and both rates stacked beside it in your label font 3 points
+smaller; `view = "separate"` draws a download item and an upload item, each
+with its own graph. A VPN that does not take the default route is not counted
+on its own, and an interface that resets its counters shows `--` once.
+
+Whatever cannot be read shows `--`: `cpu` and `mem` then add nothing to the
+graph, and the `cpu` graph and the `disk` icon turn grey.
 
 | Command | What it does |
 | --- | --- |
