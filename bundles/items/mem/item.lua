@@ -37,7 +37,7 @@ return function(sbar, opts, colors)
   }, " ")
   local plugin = quote(opts.plugin_dir .. "/mem.sh")
 
-  local icon = { string = "\u{F035B}", color = colors.blue }
+  local icon = { string = "\u{EFC5}", color = colors.blue }
   local props = {
     position = opts.position,
     update_freq = opts.update_freq,

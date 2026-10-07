@@ -21,8 +21,8 @@ YELLOW=0xffcccc00
 RED=0xffaa0000
 GREY=0xff808080
 
-# nf-md-memory (bash 3.2 printf has no \U).
-MEM=$(printf '\363\260\215\233')
+# nf-fa-memory, a RAM stick (bash 3.2 printf has no \U).
+MEM=$(printf '\356\277\205')
 
 FAKE_BIN="$SANDBOX/mem-bin"
 mkdir -p "$FAKE_BIN"
