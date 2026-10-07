@@ -3,6 +3,7 @@
 -- `install --force`, so do not edit it.
 return function(sbar, opts, colors)
   local o = opts.options
+  local MONO_ADVANCE = 0.61
 
   local function hex(c)
     if type(c) ~= "number" then
@@ -15,7 +16,7 @@ return function(sbar, opts, colors)
     return "'" .. (tostring(s):gsub("'", "'\\''")) .. "'"
   end
 
-  local function soft(c)
+  local function fill_of(c)
     if type(c) ~= "number" then
       return nil
     end
@@ -37,7 +38,7 @@ return function(sbar, opts, colors)
     update_freq = opts.update_freq,
     icon = icon,
     label = { string = "--" },
-    graph = { color = colors.grey, fill_color = soft(colors.grey), line_width = 1.0 },
+    graph = { color = colors.grey, fill_color = fill_of(colors.grey), line_width = 1.0 },
   }
 
   local sub
@@ -75,7 +76,7 @@ return function(sbar, opts, colors)
       local size = type(label) == "table" and tonumber(tostring(label.font):match(":([%d.]+)$"))
       if size then
         local pad = (tonumber(label.padding_left) or 0) + (tonumber(label.padding_right) or 0)
-        metrics = { string.format("%.2f", size * 0.61), string.format("%d", math.floor(pad)) }
+        metrics = { string.format("%.2f", size * MONO_ADVANCE), string.format("%d", math.floor(pad)) }
       end
     end
     local m = metrics or { "", "" }

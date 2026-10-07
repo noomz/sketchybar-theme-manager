@@ -3,6 +3,7 @@
 -- `install --force`, so do not edit it.
 return function(sbar, opts, colors)
   local o = opts.options
+  local MONO_ADVANCE = 0.61
 
   local function hex(c)
     if type(c) ~= "number" then
@@ -67,7 +68,7 @@ return function(sbar, opts, colors)
       local size = type(label) == "table" and tonumber(tostring(label.font):match(":([%d.]+)$"))
       if size then
         local pad = (tonumber(label.padding_left) or 0) + (tonumber(label.padding_right) or 0)
-        metrics = { string.format("%.2f", size * 0.61), string.format("%d", math.floor(pad)) }
+        metrics = { string.format("%.2f", size * MONO_ADVANCE), string.format("%d", math.floor(pad)) }
       end
     end
     local m = metrics or { "", "" }

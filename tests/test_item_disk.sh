@@ -36,8 +36,8 @@ used() {
   printf 'Filesystem   1024-blocks      Used Available Capacity  iused      ifree %%iused  Mounted on\n/dev/disk3s5   971350180 627337944 305637736    %s 10606218 3056377360    0%%   /System/Volumes/Data' "$1"
 }
 
-SB=""
-CALLS=""
+SB_ARGV=""
+TOOL_CALLS=""
 run_plugin() {
   local out="$1"
   shift
@@ -46,8 +46,8 @@ run_plugin() {
     NAME=stm.disk SENDER=routine STM_DF="$SANDBOX/df" STM_DATA_VOLUME="$DATA" DF_OUT="$out" \
     STM_GREEN=$GREEN STM_YELLOW=$YELLOW STM_RED=$RED STM_GREY=$GREY \
     STM_DISK_CW=7.93 STM_DISK_PAD=12 "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
-  SB=$(cat "$SB_LOG" 2>/dev/null || true)
-  CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
+  SB_ARGV=$(cat "$SB_LOG" 2>/dev/null || true)
+  TOOL_CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
 }
 
 argv_of() {
@@ -59,7 +59,7 @@ while read -r cap width color; do
   for shape in plain pill; do
     run_plugin "$(used "$cap")" STM_DISK_SHAPE=$shape
     assert_eq "$(argv_of --set stm.disk "label=$cap" "label.width=$width" "icon.color=${!color}")" \
-      "$SB" "$cap $shape"
+      "$SB_ARGV" "$cap $shape"
   done
 done <<'EOF'
 0% 28 GREEN
@@ -69,38 +69,38 @@ done <<'EOF'
 90% 36 RED
 100% 44 RED
 EOF
-assert_eq "df -k $DATA" "$CALLS" "one df, on the Data volume"
+assert_eq "df -k $DATA" "$TOOL_CALLS" "one df, on the Data volume"
 done_it
 
 it "split: state colour on the icon sub-item (V32, V10)"
 run_plugin "$(used 85%)" STM_DISK_SHAPE=split
 assert_eq "$(argv_of --set stm.disk label=85% label.width=36 --set stm.disk.icon "background.color=$YELLOW")" \
-  "$SB" "split"
+  "$SB_ARGV" "split"
 run_plugin "garbage" STM_DISK_SHAPE=split
 assert_eq "$(argv_of --set stm.disk label=-- label.width=28 --set stm.disk.icon "background.color=$GREY")" \
-  "$SB" "split unknown"
+  "$SB_ARGV" "split unknown"
 done_it
 
 it "no Data volume: df /, as before macOS 10.15 (I.disk)"
 run_plugin "$(used 42%)" STM_DISK_SHAPE=plain STM_DATA_VOLUME="$SANDBOX/no-such-volume"
-assert_eq "$(argv_of --set stm.disk label=42% label.width=36 "icon.color=$GREEN")" "$SB" "/"
-assert_eq "df -k /" "$CALLS" "df on /"
+assert_eq "$(argv_of --set stm.disk label=42% label.width=36 "icon.color=$GREEN")" "$SB_ARGV" "/"
+assert_eq "df -k /" "$TOOL_CALLS" "df on /"
 done_it
 
 it "malformed or missing df output: --, grey (V44)"
 for out in "" garbage "$(used 101%)" "$(used x%)" "$(used 5)" "$(printf 'Filesystem Capacity\n/dev/x -3%% /')"; do
   run_plugin "$out" STM_DISK_SHAPE=plain
-  assert_eq "$(argv_of --set stm.disk label=-- label.width=28 "icon.color=$GREY")" "$SB" "output [$out]"
+  assert_eq "$(argv_of --set stm.disk label=-- label.width=28 "icon.color=$GREY")" "$SB_ARGV" "output [$out]"
 done
 run_plugin "$(used 42%)" STM_DISK_SHAPE=plain STM_DF="$SANDBOX/no-such-df"
-assert_eq "$(argv_of --set stm.disk label=-- label.width=28 "icon.color=$GREY")" "$SB" "df absent"
+assert_eq "$(argv_of --set stm.disk label=-- label.width=28 "icon.color=$GREY")" "$SB_ARGV" "df absent"
 done_it
 
 it "label width: unknown font sends none; a palette without the colour sends none (V46, V14)"
 run_plugin "$(used 42%)" STM_DISK_SHAPE=plain STM_DISK_CW= STM_DISK_PAD=
-assert_eq "$(argv_of --set stm.disk label=42% "icon.color=$GREEN")" "$SB" "no width"
+assert_eq "$(argv_of --set stm.disk label=42% "icon.color=$GREEN")" "$SB_ARGV" "no width"
 run_plugin "$(used 42%)" STM_DISK_SHAPE=split STM_GREEN=
-assert_eq "$(argv_of --set stm.disk label=42% label.width=36)" "$SB" "no green"
+assert_eq "$(argv_of --set stm.disk label=42% label.width=36)" "$SB_ARGV" "no green"
 done_it
 
 it "lint and install item:disk (V4, I.fs, I.cfg)"

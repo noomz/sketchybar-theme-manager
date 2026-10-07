@@ -5,12 +5,15 @@ return function(sbar, opts, colors)
   local o = opts.options
   local name = opts.name
   local GRAPH_WIDTH = 30
+  local MONO_ADVANCE = 0.61
+  local RATES_SMALLER = 3
+  local RATES_MIN_SIZE = 8
 
   local function quote(s)
     return "'" .. (tostring(s):gsub("'", "'\\''")) .. "'"
   end
 
-  local function soft(c)
+  local function fill_of(c)
     if type(c) ~= "number" then
       return nil
     end
@@ -46,7 +49,7 @@ return function(sbar, opts, colors)
         position = opts.position,
         icon = { string = icon, color = color },
         label = { string = "--" },
-        graph = { color = color, fill_color = soft(color), line_width = 1.0 },
+        graph = { color = color, fill_color = fill_of(color), line_width = 1.0 },
       }
       if o.shape == "pill" then
         props.background = { drawing = true, color = colors.bg1 }
@@ -71,7 +74,10 @@ return function(sbar, opts, colors)
         update_freq = opts.update_freq,
         icon = { string = "\u{F06F3}", color = colors.blue },
         label = { drawing = false },
-        graph = { color = colors.blue, fill_color = soft(colors.blue), line_width = 1.0 },
+        graph = { color = colors.blue, fill_color = fill_of(colors.blue), line_width = 1.0 },
+        -- SketchyBar applies background padding only while the background
+        -- draws, and the overlay's negative padding_right needs it, so these
+        -- transparent backgrounds stay drawn.
         background = { drawing = true, color = 0, padding_right = -GRAPH_WIDTH },
       } },
       { name = name .. ".up", kind = "graph", props = {
@@ -112,11 +118,11 @@ return function(sbar, opts, colors)
       if size then
         local pad = (tonumber(label.padding_left) or 0) + (tonumber(label.padding_right) or 0)
         if small then
-          size = math.max(8, size - 3)
+          size = math.max(RATES_MIN_SIZE, size - RATES_SMALLER)
           local font = string.format("%s:%s:%.1f", family, style, size)
           small:set({ icon = { font = font }, label = { font = font } })
         end
-        metrics = { string.format("%.2f", size * 0.61), string.format("%d", math.floor(pad)) }
+        metrics = { string.format("%.2f", size * MONO_ADVANCE), string.format("%d", math.floor(pad)) }
       end
     end
     local m = metrics or { "", "" }

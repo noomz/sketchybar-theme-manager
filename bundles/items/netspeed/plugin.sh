@@ -18,12 +18,16 @@ export LC_ALL
 NAME=${NAME:-stm.netspeed}
 view=${STM_NS_VIEW:-unified}
 
-dev=$(printf 'show State:/Network/Global/IPv4\nshow State:/Network/Global/IPv6\n' |
-  "${STM_SCUTIL:-/usr/sbin/scutil}" 2>/dev/null |
-  /usr/bin/awk -F' : ' '$1 ~ /^ *PrimaryInterface$/ { print $2; exit }')
-case "$dev" in
-  "" | [!a-z]* | *[!a-z0-9]*) dev="" ;;
-esac
+primary_interface() {
+  iface=$(printf 'show State:/Network/Global/IPv4\nshow State:/Network/Global/IPv6\n' |
+    "${STM_SCUTIL:-/usr/sbin/scutil}" 2>/dev/null |
+    /usr/bin/awk -F' : ' '$1 ~ /^ *PrimaryInterface$/ { print $2; exit }')
+  case "$iface" in
+    "" | [!a-z]* | *[!a-z0-9]*) ;;
+    *) printf '%s\n' "$iface" ;;
+  esac
+}
+dev=$(primary_interface)
 
 # "<Ibytes> <Obytes>" from the interface's <Link#> row, counted from the
 # right: a tunnel's row (utun*) has no Address column.
@@ -46,7 +50,7 @@ rates=$(/usr/bin/awk -v before="$before" -v after="$after" '
   }
   function level(r,   v) {
     if (r < 0) return 0
-    v = log(r + 1) / log(10) / 8
+    v = log(r + 1) / log(10) / decades
     return v > 1 ? 1 : v
   }
   function text(r,   i) {
@@ -55,6 +59,7 @@ rates=$(/usr/bin/awk -v before="$before" -v after="$after" '
     return int(r / per[i]) unit[i]
   }
   BEGIN {
+    decades = 8
     n = split("1000 1000000 1000000000", below, " ")
     split("1 1000 1000000 1000000000", per, " ")
     split("B K M G", unit, " ")
@@ -88,8 +93,9 @@ if [ "$view" = separate ]; then
 else
   n=${#down}
   [ ${#up} -gt "$n" ] && n=${#up}
+  arrow_len=1
   set -- "$@" --set "$NAME.rates" icon="↑$up" label="↓$down"
-  w=$(width $((n + 1)))
+  w=$(width $((n + arrow_len)))
   [ -n "$w" ] && set -- "$@" label.width="$w"
 fi
 sketchybar "$@"

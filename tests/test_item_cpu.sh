@@ -37,8 +37,8 @@ sample() {
     "$1" "$2" 50
 }
 
-SB=""
-CALLS=""
+SB_ARGV=""
+TOOL_CALLS=""
 run_plugin() {
   local out="$1"
   shift
@@ -47,15 +47,15 @@ run_plugin() {
     NAME=stm.cpu SENDER=routine STM_IOSTAT="$SANDBOX/iostat" IOSTAT_OUT="$out" \
     STM_GREEN=$GREEN STM_YELLOW=$YELLOW STM_ORANGE=$ORANGE STM_RED=$RED STM_GREY=$GREY \
     STM_CPU_CW=7.93 STM_CPU_PAD=12 "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
-  SB=$(cat "$SB_LOG" 2>/dev/null || true)
-  CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
+  SB_ARGV=$(cat "$SB_LOG" 2>/dev/null || true)
+  TOOL_CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
 }
 
 argv_of() {
   printf '%s\n' "$@"
 }
 
-fill() {
+fill_of() {
   printf '0x40%s' "${1#0x??}"
 }
 
@@ -63,7 +63,7 @@ it "load = us + sy of the last sample; graph coloured by band (I.cpu, V45)"
 while read -r us sy load push width color; do
   run_plugin "$(sample "$us" "$sy")"
   assert_eq "$(argv_of --push stm.cpu "$push" --set stm.cpu "label=$load%" "label.width=$width" \
-    "graph.color=${!color}" "graph.fill_color=$(fill "${!color}")")" "$SB" "load $load"
+    "graph.color=${!color}" "graph.fill_color=$(fill_of "${!color}")")" "$SB_ARGV" "load $load"
 done <<'EOF'
 0 0 0 0.00 28 GREEN
 20 9 29 0.29 36 GREEN
@@ -74,13 +74,13 @@ done <<'EOF'
 70 10 80 0.80 36 RED
 90 10 100 1.00 44 RED
 EOF
-assert_eq "iostat -n0 -c 2 -w 1" "$CALLS" "one iostat run, two samples a second apart"
+assert_eq "iostat -n0 -c 2 -w 1" "$TOOL_CALLS" "one iostat run, two samples a second apart"
 done_it
 
 it "a load over 100 is clamped (V44)"
 run_plugin "$(sample 80 40)"
 assert_eq "$(argv_of --push stm.cpu 1.00 --set stm.cpu label=100% label.width=44 \
-  "graph.color=$RED" "graph.fill_color=$(fill $RED)")" "$SB" "120 -> 100"
+  "graph.color=$RED" "graph.fill_color=$(fill_of $RED)")" "$SB_ARGV" "120 -> 100"
 done_it
 
 it "malformed or missing iostat output: --, grey, nothing pushed (V44)"
@@ -88,28 +88,28 @@ for out in "" "garbage" "$(sample x 2)" "$(sample 3 -1)" "$(printf '%s\n 7' "$(s
   "$(printf '%s\n 1;x 2 3' "$(sample 1 1)")"; do
   run_plugin "$out"
   assert_eq "$(argv_of --set stm.cpu label=-- label.width=28 "graph.color=$GREY" \
-    "graph.fill_color=$(fill $GREY)")" "$SB" "output [$out]"
+    "graph.fill_color=$(fill_of $GREY)")" "$SB_ARGV" "output [$out]"
 done
 run_plugin "$(sample 20 10)" STM_IOSTAT="$SANDBOX/no-such-iostat"
 assert_eq "$(argv_of --set stm.cpu label=-- label.width=28 "graph.color=$GREY" \
-  "graph.fill_color=$(fill $GREY)")" "$SB" "iostat absent"
+  "graph.fill_color=$(fill_of $GREY)")" "$SB_ARGV" "iostat absent"
 done_it
 
 it "label width: pad + ceil(chars x CW); unknown font sends none (V46)"
 run_plugin "$(sample 3 2)" STM_CPU_CW=8.54 STM_CPU_PAD=10
 assert_eq "$(argv_of --push stm.cpu 0.05 --set stm.cpu label=5% label.width=28 \
-  "graph.color=$GREEN" "graph.fill_color=$(fill $GREEN)")" "$SB" "2 chars at 14pt"
+  "graph.color=$GREEN" "graph.fill_color=$(fill_of $GREEN)")" "$SB_ARGV" "2 chars at 14pt"
 run_plugin "$(sample 3 2)" STM_CPU_CW= STM_CPU_PAD=
 assert_eq "$(argv_of --push stm.cpu 0.05 --set stm.cpu label=5% \
-  "graph.color=$GREEN" "graph.fill_color=$(fill $GREEN)")" "$SB" "no width without a font size"
+  "graph.color=$GREEN" "graph.fill_color=$(fill_of $GREEN)")" "$SB_ARGV" "no width without a font size"
 run_plugin "$(sample 3 2)" STM_CPU_CW='8;x' STM_CPU_PAD=12
 assert_eq "$(argv_of --push stm.cpu 0.05 --set stm.cpu label=5% \
-  "graph.color=$GREEN" "graph.fill_color=$(fill $GREEN)")" "$SB" "no width from a bad CW"
+  "graph.color=$GREEN" "graph.fill_color=$(fill_of $GREEN)")" "$SB_ARGV" "no width from a bad CW"
 done_it
 
 it "a palette without the band colour sends no empty colour (V14)"
 run_plugin "$(sample 20 20)" STM_YELLOW=
-assert_eq "$(argv_of --push stm.cpu 0.40 --set stm.cpu label=40% label.width=36)" "$SB" "no yellow"
+assert_eq "$(argv_of --push stm.cpu 0.40 --set stm.cpu label=40% label.width=36)" "$SB_ARGV" "no yellow"
 done_it
 
 it "lint and install item:cpu (V4, I.fs, I.cfg)"
@@ -185,7 +185,8 @@ EOF
   items_of() {
     probe "$1" "$2" ok | grep -E '^(item|graph) '
   }
-  GRAPH='graph={color=4282668390 fill_color=1078220134 line_width=1.0}'
+  PROBE_GREY=0xff445566
+  GRAPH="graph={color=$((PROBE_GREY)) fill_color=$(($(fill_of $PROBE_GREY))) line_width=1.0}"
   LABEL='label={string=--}'
 
   it "item.lua plain and pill: one graph item 30 wide, orange icon, pill on bg1 (I.cpu, V32, V14)"

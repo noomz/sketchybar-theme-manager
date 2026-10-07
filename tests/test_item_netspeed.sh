@@ -62,8 +62,8 @@ tunnel() {
   printf '%-5s 1280  100.105.87.87 100.105.87.87     497640     -  234807962   514379     -   56252168     -' "$1"
 }
 
-SB=""
-CALLS=""
+SB_ARGV=""
+TOOL_CALLS=""
 run_plugin() {
   local s="$1" b="$2" a="$3"
   shift 3
@@ -72,8 +72,8 @@ run_plugin() {
     NAME=stm.netspeed SENDER=routine STM_SCUTIL="$SANDBOX/scutil" STM_NETSTAT="$SANDBOX/netstat" \
     STM_SLEEP="$SANDBOX/sleep" SCUTIL_OUT="$s" NETSTAT_BEFORE="$b" NETSTAT_AFTER="$a" \
     STM_NS_VIEW=separate STM_NS_CW=6.10 STM_NS_PAD=6 "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
-  SB=$(cat "$SB_LOG" 2>/dev/null || true)
-  CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
+  SB_ARGV=$(cat "$SB_LOG" 2>/dev/null || true)
+  TOOL_CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
 }
 
 argv_of() {
@@ -87,19 +87,19 @@ separate() {
 
 it "rates over one second, from the <Link#> row; one scutil, two netstat, one sleep (I.ns, V44)"
 run_plugin "$(primary en0)" "$(link en0 50376381282 16272668862)" "$(link en0 50376437282 16272671862)"
-assert_eq "$(separate 0.594 0.435 56K 25 3K 19)" "$SB" "56000 down, 3000 up"
-assert_eq "$(argv_of scutil 'netstat -ibn -I en0' 'sleep 1' 'netstat -ibn -I en0')" "$CALLS" "calls"
+assert_eq "$(separate 0.594 0.435 56K 25 3K 19)" "$SB_ARGV" "56000 down, 3000 up"
+assert_eq "$(argv_of scutil 'netstat -ibn -I en0' 'sleep 1' 'netstat -ibn -I en0')" "$TOOL_CALLS" "calls"
 done_it
 
 it "a tunnel row has no Address column: counters are read from the right (I.ns)"
 run_plugin "$(primary utun4)" "$(tunnel utun4 234807962 56252168)" "$(tunnel utun4 234808961 56252177)"
-assert_eq "$(separate 0.375 0.125 999B 31 9B 19)" "$SB" "utun4"
+assert_eq "$(separate 0.375 0.125 999B 31 9B 19)" "$SB_ARGV" "utun4"
 done_it
 
 it "units in base 1000, at most four characters; graph log scale capped at 1 (I.ns)"
 while read -r bytes level text width; do
   run_plugin "$(primary en0)" "$(link en0 1000 0)" "$(link en0 $((1000 + bytes)) 0)"
-  assert_eq "$(separate "$level" 0.000 "$text" "$width" 0B 19)" "$SB" "$bytes bytes"
+  assert_eq "$(separate "$level" 0.000 "$text" "$width" 0B 19)" "$SB_ARGV" "$bytes bytes"
 done <<'EOF'
 0 0.000 0B 19
 999 0.375 999B 31
@@ -115,24 +115,24 @@ done_it
 
 it "a counter that went back or is missing is -- and 0, per direction (V44)"
 run_plugin "$(primary en0)" "$(link en0 5000 9000)" "$(link en0 4000 9999)"
-assert_eq "$(separate 0.000 0.375 -- 19 999B 31)" "$SB" "download counter reset"
+assert_eq "$(separate 0.000 0.375 -- 19 999B 31)" "$SB_ARGV" "download counter reset"
 run_plugin "$(primary en0)" "$(link en0 5000 9000)" "$(link en0 5999 x)"
-assert_eq "$(separate 0.375 0.000 999B 31 -- 19)" "$SB" "upload counter not a number"
+assert_eq "$(separate 0.375 0.000 999B 31 -- 19)" "$SB_ARGV" "upload counter not a number"
 run_plugin "$(primary en0)" "$(link en0 5000 9000)" "Name Mtu Network"
-assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB" "no <Link#> row the second time"
+assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB_ARGV" "no <Link#> row the second time"
 run_plugin "$(primary en0)" "" "" STM_NETSTAT="$SANDBOX/no-such-netstat"
-assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB" "netstat absent"
+assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB_ARGV" "netstat absent"
 done_it
 
 it "offline or a malformed interface name: no netstat, no sleep, -- (V40, V44)"
 run_plugin "$OFFLINE" "$(link en0 1 1)" "$(link en0 9 9)"
-assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB" "offline"
-assert_eq scutil "$CALLS" "offline calls"
+assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB_ARGV" "offline"
+assert_eq scutil "$TOOL_CALLS" "offline calls"
 for dev in 'en0;touch x' 'EN0' '../en0' '-h' "$(printf '\303\2510')"; do
   for loc in C en_US.UTF-8; do
     run_plugin "$(primary "$dev")" "$(link en0 1 1)" "$(link en0 9 9)" LANG="$loc" LC_ALL="$loc"
-    assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB" "$dev ($loc)"
-    assert_eq scutil "$CALLS" "$dev calls ($loc)"
+    assert_eq "$(separate 0.000 0.000 -- 19 -- 19)" "$SB_ARGV" "$dev ($loc)"
+    assert_eq scutil "$TOOL_CALLS" "$dev calls ($loc)"
   done
 done
 done_it
@@ -140,10 +140,10 @@ done_it
 it "unified: both rates on the stacked text item, as wide as the longer line (V47, V46)"
 run_plugin "$(primary en0)" "$(link en0 0 0)" "$(link en0 1000 999999)" STM_NS_VIEW=unified
 assert_eq "$(argv_of --push stm.netspeed 0.375 --push stm.netspeed.up 0.750 \
-  --set stm.netspeed.rates "icon=${UP}999K" "label=${DOWN}1K" label.width=37)" "$SB" "unified"
+  --set stm.netspeed.rates "icon=${UP}999K" "label=${DOWN}1K" label.width=37)" "$SB_ARGV" "unified"
 run_plugin "$OFFLINE" "" "" STM_NS_VIEW=unified STM_NS_CW= STM_NS_PAD=
 assert_eq "$(argv_of --push stm.netspeed 0.000 --push stm.netspeed.up 0.000 \
-  --set stm.netspeed.rates "icon=${UP}--" "label=${DOWN}--")" "$SB" "offline, no font yet"
+  --set stm.netspeed.rates "icon=${UP}--" "label=${DOWN}--")" "$SB_ARGV" "offline, no font yet"
 done_it
 
 it "lint and install item:netspeed; shape offers plain and pill only (V4, V32, I.fs, I.cfg)"
