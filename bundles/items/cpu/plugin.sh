@@ -7,7 +7,6 @@
 #                                palette colours as 0xAARRGGBB (may be empty)
 #   STM_CPU_CW STM_CPU_PAD       label character width and paddings (empty
 #                                until the bar has told item.lua its font)
-# Colours are never hard-coded here: they follow the palette.
 #
 # STM_IOSTAT overrides /usr/sbin/iostat (tests).
 
@@ -16,9 +15,8 @@ export LC_ALL
 
 NAME=${NAME:-stm.cpu}
 
-# One iostat run, two samples a second apart: the first averages since boot,
-# the last covers that second. Load is user + system time, printed as
-# "<percent> <band> <graph value>"; the band names a palette colour.
+# Of iostat's two samples a second apart, the first averages since boot and
+# the last covers that second.
 sample=$("${STM_IOSTAT:-/usr/sbin/iostat}" -n0 -c 2 -w 1 2>/dev/null |
   /usr/bin/awk '{ last = $0 } END {
     if (split(last, f, " ") < 3 || f[1] !~ /^[0-9]+$/ || f[2] !~ /^[0-9]+$/) exit
@@ -43,8 +41,7 @@ esac
 label=${pct:+$pct%}
 label=${label:---}
 
-# label.width is the whole label, paddings included. Sized by character
-# count, the item changes width only when the count does.
+# label.width is the whole label, paddings included.
 width=""
 case "$STM_CPU_CW:$STM_CPU_PAD" in
   *[!0-9.:]* | :* | *:) ;;

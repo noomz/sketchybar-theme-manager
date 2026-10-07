@@ -6,7 +6,6 @@
 #   STM_NS_VIEW              unified | separate
 #   STM_NS_CW STM_NS_PAD     label character width and paddings (empty until
 #                            the bar has told item.lua its font)
-# This sends no colour: item.lua sets the palette's colours once.
 #
 # STM_SCUTIL, STM_NETSTAT and STM_SLEEP override /usr/sbin/scutil,
 # /usr/sbin/netstat and /bin/sleep (tests).
@@ -19,12 +18,9 @@ export LC_ALL
 NAME=${NAME:-stm.netspeed}
 view=${STM_NS_VIEW:-unified}
 
-# The interface carrying the default route, IPv4 first, then IPv6, as the
-# net item finds it; none means offline.
 dev=$(printf 'show State:/Network/Global/IPv4\nshow State:/Network/Global/IPv6\n' |
   "${STM_SCUTIL:-/usr/sbin/scutil}" 2>/dev/null |
   /usr/bin/awk -F' : ' '$1 ~ /^ *PrimaryInterface$/ { print $2; exit }')
-# A BSD interface name only; anything else never reaches a tool.
 case "$dev" in
   "" | [!a-z]* | *[!a-z0-9]*) dev="" ;;
 esac
@@ -43,9 +39,6 @@ if [ -n "$dev" ]; then
   after=$(counters)
 fi
 
-# Per direction, a byte count over that second, as a graph value (log scale:
-# 1 B/s and 100 MB/s both show) and a label of at most four characters. A
-# missing counter, or one that went back (the interface reset), is "--".
 rates=$(/usr/bin/awk -v before="$before" -v after="$after" '
   function rate(was, now) {
     if (was !~ /^[0-9]+$/ || now !~ /^[0-9]+$/ || now + 0 < was + 0) return -1
@@ -75,8 +68,7 @@ read -r down_level up_level down up <<EOF
 $rates
 EOF
 
-# label.width is the whole label, paddings included. Sized by character
-# count, the item changes width only when the count does.
+# label.width is the whole label, paddings included.
 width() {
   case "$STM_NS_CW:$STM_NS_PAD" in
     *[!0-9.:]* | :* | *:) ;;
@@ -94,8 +86,6 @@ if [ "$view" = separate ]; then
   w=$(width ${#up})
   [ -n "$w" ] && set -- "$@" label.width="$w"
 else
-  # Two lines in one item: upload on top in the icon slot, download below in
-  # the label, which is as wide as the longer line (arrow included).
   n=${#down}
   [ ${#up} -gt "$n" ] && n=${#up}
   set -- "$@" --set "$NAME.rates" icon="↑$up" label="↓$down"

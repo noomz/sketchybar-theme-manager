@@ -14,7 +14,6 @@ events = ["system_woke", "wifi_change"]
 # How the item is drawn (a theme may set this in its palette):
 #   plain  no background
 #   pill   on bg1: one pill (unified) or one per rate (separate)
-# There is no split: the icon belongs to the graph beside it.
 [options.shape]
 values = ["plain", "pill"]
 default = "pill"

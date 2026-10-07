@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-#
-# bundles/items/cpu (#21). Runs plugin.sh as SketchyBar would, against a fake
-# `iostat` (canned output) and a fake `sketchybar` that logs its argv one per
-# line; then runs item.lua under Lua with a fake `sbar`. Never touches the
-# real iostat or the real bar.
 
 # shellcheck source=tests/helpers.sh
 # shellcheck disable=SC1091
@@ -15,7 +10,6 @@ BUNDLE="$REPO_ROOT/bundles/items/cpu"
 PLUGIN="$BUNDLE/plugin.sh"
 SB_LOG="$SANDBOX/sketchybar.argv"
 
-# Distinct palette colours so every colour names its source.
 GREEN=0xff11aa22
 YELLOW=0xffcccc00
 ORANGE=0xffee7700
@@ -31,7 +25,6 @@ cat >"$FAKE_BIN/sketchybar" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" >>"$SB_LOG"
 EOF
-# Fake iostat: prints $IOSTAT_OUT; every call is logged with its argv.
 cat >"$SANDBOX/iostat" <<'EOF'
 #!/bin/sh
 printf 'iostat %s\n' "$*" >>"$SB_LOG.calls"
@@ -39,8 +32,6 @@ printf '%s\n' "$IOSTAT_OUT"
 EOF
 chmod 755 "$FAKE_BIN/sketchybar" "$SANDBOX/iostat"
 
-# sample <us> <sy> — `iostat -n0 -c 2 -w 1`: the boot average, then the
-# one-second sample the load comes from.
 sample() {
   printf '      cpu    load average\n us sy id   1m   5m   15m\n  3  2 95  6.04 6.01 6.64\n %2s %2s %2s  5.79 5.96 6.62' \
     "$1" "$2" 50
@@ -48,8 +39,6 @@ sample() {
 
 SB=""
 CALLS=""
-# run_plugin <iostat out> [VAR=value...] — argv sketchybar got lands in $SB,
-# the tool calls made in $CALLS.
 run_plugin() {
   local out="$1"
   shift
@@ -66,13 +55,11 @@ argv_of() {
   printf '%s\n' "$@"
 }
 
-# fill <colour> — the same colour at alpha 0x40.
 fill() {
   printf '0x40%s' "${1#0x??}"
 }
 
 it "load = us + sy of the last sample; graph coloured by band (I.cpu, V45)"
-# load push width colour: every band edge.
 while read -r us sy load push width color; do
   run_plugin "$(sample "$us" "$sy")"
   assert_eq "$(argv_of --push stm.cpu "$push" --set stm.cpu "label=$load%" "label.width=$width" \
@@ -145,11 +132,6 @@ LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"
   cat >"$SANDBOX/lua/probe.lua" <<'EOF'
--- Runs item.lua with one shape and position; prints each item it adds, in
--- order, with its props flattened (keys sorted), each query, the events it
--- subscribes to and each plugin command. Then fires one routine event.
--- query: "ok" answers every query, "late" only from the second on, "none"
--- never.
 local shape, position, query, item_lua = ...
 local function dump(v)
   if type(v) ~= "table" then
@@ -203,7 +185,6 @@ EOF
   items_of() {
     probe "$1" "$2" ok | grep -E '^(item|graph) '
   }
-  # The initial graph: grey line, grey at alpha 0x40 under it.
   GRAPH='graph={color=4282668390 fill_color=1078220134 line_width=1.0}'
   LABEL='label={string=--}'
 
