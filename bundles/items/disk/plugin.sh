@@ -8,7 +8,6 @@
 #   STM_DISK_SHAPE                   plain | pill | split
 #   STM_DISK_CW STM_DISK_PAD         label character width and paddings (empty
 #                                    until the bar has told item.lua its font)
-# Colours are never hard-coded here: they follow the palette.
 #
 # STM_DF overrides /bin/df and STM_DATA_VOLUME /System/Volumes/Data (tests).
 
@@ -23,8 +22,7 @@ shape=${STM_DISK_SHAPE:-split}
 vol=${STM_DATA_VOLUME:-/System/Volumes/Data}
 [ -d "$vol" ] || vol=/
 
-# The Capacity column, found by its header (%iused is a percentage too),
-# printed as "<percent> <band>"; the band names a palette colour.
+# The Capacity column, found by its header: %iused is a percentage too.
 use=$("${STM_DF:-/bin/df}" -k "$vol" 2>/dev/null |
   /usr/bin/awk 'NR == 1 { for (f = 1; f <= NF; f++) if ($f == "Capacity") col = f; next }
     col && $col ~ /^[0-9]+%$/ { p = $col + 0; found = 1; exit }
@@ -48,8 +46,7 @@ esac
 label=${pct:+$pct%}
 label=${label:---}
 
-# label.width is the whole label, paddings included. Sized by character
-# count, the item changes width only when the count does.
+# label.width is the whole label, paddings included.
 width=""
 case "$STM_DISK_CW:$STM_DISK_PAD" in
   *[!0-9.:]* | :* | *:) ;;
@@ -59,8 +56,6 @@ esac
 
 set -- --set "$NAME" label="$label"
 [ -n "$width" ] && set -- "$@" label.width="$width"
-# split: the state colour fills the icon sub-item (item.lua keeps that icon
-# black); otherwise it colours the icon itself.
 if [ "$shape" = split ]; then
   [ -n "$color" ] && set -- "$@" --set "$NAME.icon" background.color="$color"
 else

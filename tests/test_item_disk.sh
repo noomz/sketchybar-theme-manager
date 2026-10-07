@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-#
-# bundles/items/disk (#21). Runs plugin.sh as SketchyBar would, against a
-# fake `df` (canned output) and a fake `sketchybar` that logs its argv one
-# per line; then runs item.lua under Lua with a fake `sbar`. Never touches
-# the real df or the real bar.
 
 # shellcheck source=tests/helpers.sh
 # shellcheck disable=SC1091
@@ -15,7 +10,6 @@ BUNDLE="$REPO_ROOT/bundles/items/disk"
 PLUGIN="$BUNDLE/plugin.sh"
 SB_LOG="$SANDBOX/sketchybar.argv"
 
-# Distinct palette colours so every colour names its source.
 GREEN=0xff11aa22
 YELLOW=0xffcccc00
 RED=0xffaa0000
@@ -31,7 +25,6 @@ cat >"$FAKE_BIN/sketchybar" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" >>"$SB_LOG"
 EOF
-# Fake df: prints $DF_OUT; every call is logged with its argv.
 cat >"$SANDBOX/df" <<'EOF'
 #!/bin/sh
 printf 'df %s\n' "$*" >>"$SB_LOG.calls"
@@ -39,15 +32,12 @@ printf '%s\n' "$DF_OUT"
 EOF
 chmod 755 "$FAKE_BIN/sketchybar" "$SANDBOX/df"
 
-# used <capacity> — `df -k <vol>` at that capacity (%iused 0%).
 used() {
   printf 'Filesystem   1024-blocks      Used Available Capacity  iused      ifree %%iused  Mounted on\n/dev/disk3s5   971350180 627337944 305637736    %s 10606218 3056377360    0%%   /System/Volumes/Data' "$1"
 }
 
 SB=""
 CALLS=""
-# run_plugin <df out> [VAR=value...] — argv sketchybar got lands in $SB, the
-# tool calls made in $CALLS.
 run_plugin() {
   local out="$1"
   shift
@@ -133,9 +123,6 @@ LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"
   cat >"$SANDBOX/lua/probe.lua" <<'EOF'
--- Runs item.lua with one shape and position; prints each item it adds, in
--- order, with its props flattened (keys sorted), each query, the events it
--- subscribes to and each plugin command.
 local shape, position, item_lua = ...
 local function dump(v)
   if type(v) ~= "table" then

@@ -1,15 +1,9 @@
 -- stm.mem — memory use as a graph and a percentage. Installed by
 -- `stm install item:mem`; stm owns this file and replaces it on
 -- `install --force`, so do not edit it.
---
--- Colours come only from `colors` (the active palette), so `stm apply <theme>`
--- recolours the item on reload. plugin.sh reads memory_pressure, pushes the
--- share in use onto the graph and colours the graph by the kernel's memory
--- pressure level.
 return function(sbar, opts, colors)
   local o = opts.options
 
-  -- 0xAARRGGBB for plugin.sh, or "" when this config lacks the colour.
   local function hex(c)
     if type(c) ~= "number" then
       return ""
@@ -21,7 +15,6 @@ return function(sbar, opts, colors)
     return "'" .. (tostring(s):gsub("'", "'\\''")) .. "'"
   end
 
-  -- The colour at alpha 0x40, for the area under the graph line.
   local function soft(c)
     if type(c) ~= "number" then
       return nil
@@ -46,11 +39,6 @@ return function(sbar, opts, colors)
     graph = { color = colors.grey, fill_color = soft(colors.grey), line_width = 1.0 },
   }
 
-  -- shape: plain draws no background. pill puts the item on bg1. split moves
-  -- the icon onto its own sub-item, <name>.icon, on blue with the icon in
-  -- black; the graph and label stay on bg1. The sub-item sits left of the
-  -- rest at every position, and right items are laid out right to left, so
-  -- on the right the graph goes in first.
   local sub
   if o.shape == "pill" then
     props.background = { drawing = true, color = colors.bg1 }
@@ -66,6 +54,8 @@ return function(sbar, opts, colors)
     props.background = { drawing = true, color = colors.bg1, padding_left = 0 }
   end
 
+  -- Right items are laid out right to left, so on the right the graph goes in
+  -- first.
   if sub and opts.position ~= "right" then
     sbar.add("item", opts.name .. ".icon", sub)
   end
@@ -74,9 +64,8 @@ return function(sbar, opts, colors)
     sbar.add("item", opts.name .. ".icon", sub)
   end
 
-  -- plugin.sh sizes the label from the font the bar actually uses. A config
-  -- batching its setup (sbar.begin_config) has not sent this item yet when
-  -- it loads, so ask again on later runs until the bar answers.
+  -- A config batching its setup (sbar.begin_config) has not sent this item
+  -- yet when it loads, so ask again on later runs until the bar answers.
   local metrics
   local function measure()
     if not metrics then

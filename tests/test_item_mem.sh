@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-#
-# bundles/items/mem (#21). Runs plugin.sh as SketchyBar would, against a fake
-# `memory_pressure` and `sysctl` (canned output) and a fake `sketchybar`
-# that logs its argv one per line; then runs item.lua under Lua with a fake
-# `sbar`. Never touches the real tools or the real bar.
 
 # shellcheck source=tests/helpers.sh
 # shellcheck disable=SC1091
@@ -15,7 +10,6 @@ BUNDLE="$REPO_ROOT/bundles/items/mem"
 PLUGIN="$BUNDLE/plugin.sh"
 SB_LOG="$SANDBOX/sketchybar.argv"
 
-# Distinct palette colours so every colour names its source.
 GREEN=0xff11aa22
 YELLOW=0xffcccc00
 RED=0xffaa0000
@@ -30,7 +24,6 @@ cat >"$FAKE_BIN/sketchybar" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" >>"$SB_LOG"
 EOF
-# Fakes print $MP_OUT and $SYSCTL_OUT; every call is logged with its argv.
 cat >"$SANDBOX/memory_pressure" <<'EOF'
 #!/bin/sh
 printf 'memory_pressure %s\n' "$*" >>"$SB_LOG.calls"
@@ -43,15 +36,12 @@ printf '%s\n' "$SYSCTL_OUT"
 EOF
 chmod 755 "$FAKE_BIN/sketchybar" "$SANDBOX/memory_pressure" "$SANDBOX/sysctl"
 
-# free <n> — `memory_pressure -Q` with that free percentage.
 free() {
   printf 'The system has 38654705664 (2359296 pages with a page size of 16384).\nSystem-wide memory free percentage: %s' "$1"
 }
 
 SB=""
 CALLS=""
-# run_plugin <memory_pressure out> <sysctl out> [VAR=value...] — argv
-# sketchybar got lands in $SB, the tool calls made in $CALLS.
 run_plugin() {
   local m="$1" s="$2"
   shift 2
@@ -68,7 +58,6 @@ argv_of() {
   printf '%s\n' "$@"
 }
 
-# fill <colour> — the same colour at alpha 0x40.
 fill() {
   printf '0x40%s' "${1#0x??}"
 }
@@ -146,10 +135,6 @@ LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"
   cat >"$SANDBOX/lua/probe.lua" <<'EOF'
--- Runs item.lua with one shape and position; prints each item it adds, in
--- order, with its props flattened (keys sorted), each query, the events it
--- subscribes to and each plugin command. Then fires one routine event.
--- query: "ok" answers every query, "none" never.
 local shape, position, query, item_lua = ...
 local function dump(v)
   if type(v) ~= "table" then
@@ -202,7 +187,6 @@ EOF
   items_of() {
     probe "$1" "$2" ok | grep -E '^(item|graph) '
   }
-  # The initial graph: grey line, grey at alpha 0x40 under it.
   GRAPH='graph={color=4282668390 fill_color=1078220134 line_width=1.0}'
   LABEL='label={string=--}'
 

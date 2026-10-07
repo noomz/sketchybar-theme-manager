@@ -7,7 +7,6 @@
 #                                palette colours as 0xAARRGGBB (may be empty)
 #   STM_MEM_CW STM_MEM_PAD       label character width and paddings (empty
 #                                until the bar has told item.lua its font)
-# Colours are never hard-coded here: they follow the palette.
 #
 # STM_MEMORY_PRESSURE and STM_SYSCTL override /usr/bin/memory_pressure and
 # /usr/sbin/sysctl (tests).
@@ -17,7 +16,6 @@ export LC_ALL
 
 NAME=${NAME:-stm.mem}
 
-# In use = 100 - the free percentage, printed as "<percent> <graph value>".
 used=$("${STM_MEMORY_PRESSURE:-/usr/bin/memory_pressure}" -Q 2>/dev/null |
   /usr/bin/awk '/free percentage: / {
     v = $0
@@ -39,8 +37,7 @@ esac
 label=${pct:+$pct%}
 label=${label:---}
 
-# label.width is the whole label, paddings included. Sized by character
-# count, the item changes width only when the count does.
+# label.width is the whole label, paddings included.
 width=""
 case "$STM_MEM_CW:$STM_MEM_PAD" in
   *[!0-9.:]* | :* | *:) ;;

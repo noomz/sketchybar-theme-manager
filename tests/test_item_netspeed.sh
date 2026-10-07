@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-#
-# bundles/items/netspeed (#21). Runs plugin.sh as SketchyBar would, against a
-# fake `scutil` (canned primary interface), a fake `netstat` (one canned
-# answer per call), a fake `sleep` and a fake `sketchybar` that logs its argv
-# one per line; then runs item.lua under Lua with a fake `sbar`. Never
-# touches the real network tools or the real bar.
 
 # shellcheck source=tests/helpers.sh
 # shellcheck disable=SC1091
@@ -37,8 +31,6 @@ printf 'scutil\n' >>"$SB_LOG.calls"
 show State:/Network/Global/IPv6" ] || exit 64
 printf '%s\n' "$SCUTIL_OUT"
 EOF
-# Fake netstat: the first call prints $NETSTAT_BEFORE, the next
-# $NETSTAT_AFTER. Fake sleep returns at once. Calls are logged.
 cat >"$SANDBOX/netstat" <<'EOF'
 #!/bin/sh
 printf 'netstat %s\n' "$*" >>"$SB_LOG.calls"
@@ -55,19 +47,15 @@ printf 'sleep %s\n' "$*" >>"$SB_LOG.calls"
 EOF
 chmod 755 "$FAKE_BIN/sketchybar" "$SANDBOX/scutil" "$SANDBOX/netstat" "$SANDBOX/sleep"
 
-# primary <if> — scutil's answer to both queries on a dual-stack link.
 primary() {
   printf '<dictionary> {\n  PrimaryInterface : %s\n}\n<dictionary> {\n  PrimaryInterface : %s\n}' "$1" "$1"
 }
 OFFLINE=$(printf '  No such key\n  No such key')
-# link <if> <ibytes> <obytes> — `netstat -ibn -I <if>` for a physical link:
-# the <Link#> row has a MAC address, and an inet row follows.
 link() {
   printf 'Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll\n'
   printf '%-5s 1500  <Link#14>   02:00:00:00:00:00 47977465     0 %s 22638185     0 %s     0\n' "$1" "$2" "$3"
   printf '%-5s 1500  192.168.101   192.168.101.55  47977465     - 99999999999 22638185     - 99999999999     -' "$1"
 }
-# tunnel <if> <ibytes> <obytes> — the same for a utun: no Address column.
 tunnel() {
   printf 'Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll\n'
   printf '%-5s 1280  <Link#23>                       497640     0 %s   514379     0 %s     0\n' "$1" "$2" "$3"
@@ -76,8 +64,6 @@ tunnel() {
 
 SB=""
 CALLS=""
-# run_plugin <scutil out> <netstat before> <netstat after> [VAR=value...] —
-# argv sketchybar got lands in $SB, the tool calls made in $CALLS.
 run_plugin() {
   local s="$1" b="$2" a="$3"
   shift 3
@@ -94,8 +80,6 @@ argv_of() {
   printf '%s\n' "$@"
 }
 
-# separate <down level> <up level> <down> <down width> <up> <up width> — the
-# argv of one separate-view update.
 separate() {
   argv_of --push stm.netspeed "$1" --push stm.netspeed.up "$2" \
     --set stm.netspeed "label=$3" "label.width=$4" --set stm.netspeed.up "label=$5" "label.width=$6"
@@ -187,10 +171,6 @@ LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"
   cat >"$SANDBOX/lua/probe.lua" <<'EOF'
--- Runs item.lua with one shape, view and position; prints each item it adds,
--- in order, with its props flattened (keys sorted), each query, set and
--- subscribe, and each plugin command. Then fires one routine event. The
--- bar's label font is Hack Nerd Font:Bold:<size>, paddings 6 and 5.
 local shape, view, position, size, item_lua = ...
 local function dump(v)
   if type(v) ~= "table" then
@@ -242,11 +222,9 @@ EOF
   probe() {
     "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "$3" "${4:-13.00}" "$BUNDLE/item.lua" 2>&1
   }
-  # names_of <shape> <view> <position> — kind and name of each add, in order.
   names_of() {
     probe "$@" | awk '$1 == "item" || $1 == "graph" || $1 == "bracket" { print $1, $2 }'
   }
-  # line_of <name> <shape> <view> <position> — the add line of one item.
   line_of() {
     local n="$1"
     shift
