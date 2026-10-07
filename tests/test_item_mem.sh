@@ -40,8 +40,8 @@ free() {
   printf 'The system has 38654705664 (2359296 pages with a page size of 16384).\nSystem-wide memory free percentage: %s' "$1"
 }
 
-SB=""
-CALLS=""
+SB_ARGV=""
+TOOL_CALLS=""
 run_plugin() {
   local m="$1" s="$2"
   shift 2
@@ -50,15 +50,15 @@ run_plugin() {
     NAME=stm.mem SENDER=routine STM_MEMORY_PRESSURE="$SANDBOX/memory_pressure" STM_SYSCTL="$SANDBOX/sysctl" \
     MP_OUT="$m" SYSCTL_OUT="$s" STM_GREEN=$GREEN STM_YELLOW=$YELLOW STM_RED=$RED STM_GREY=$GREY \
     STM_MEM_CW=7.93 STM_MEM_PAD=12 "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
-  SB=$(cat "$SB_LOG" 2>/dev/null || true)
-  CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
+  SB_ARGV=$(cat "$SB_LOG" 2>/dev/null || true)
+  TOOL_CALLS=$(cat "$SB_LOG.calls" 2>/dev/null || true)
 }
 
 argv_of() {
   printf '%s\n' "$@"
 }
 
-fill() {
+fill_of() {
   printf '0x40%s' "${1#0x??}"
 }
 
@@ -66,7 +66,7 @@ it "in use = 100 - free; graph coloured by pressure level (I.mem, V45)"
 while read -r out level used push width color; do
   run_plugin "$(free "$out")" "$level"
   assert_eq "$(argv_of --push stm.mem "$push" --set stm.mem "label=$used%" "label.width=$width" \
-    "graph.color=${!color}" "graph.fill_color=$(fill "${!color}")")" "$SB" "free $out, level $level"
+    "graph.color=${!color}" "graph.fill_color=$(fill_of "${!color}")")" "$SB_ARGV" "free $out, level $level"
 done <<'EOF'
 53% 1 47 0.47 36 GREEN
 100% 1 0 0.00 28 GREEN
@@ -77,42 +77,42 @@ done <<'EOF'
 40% 8 60 0.60 36 GREY
 40% 1x 60 0.60 36 GREY
 EOF
-assert_eq "$(argv_of 'memory_pressure -Q' 'sysctl -n kern.memorystatus_vm_pressure_level')" "$CALLS" \
+assert_eq "$(argv_of 'memory_pressure -Q' 'sysctl -n kern.memorystatus_vm_pressure_level')" "$TOOL_CALLS" \
   "one memory_pressure, one sysctl"
 done_it
 
 it "unreadable sysctl: grey (V44)"
 run_plugin "$(free 53%)" ""
 assert_eq "$(argv_of --push stm.mem 0.47 --set stm.mem label=47% label.width=36 \
-  "graph.color=$GREY" "graph.fill_color=$(fill $GREY)")" "$SB" "empty"
+  "graph.color=$GREY" "graph.fill_color=$(fill_of $GREY)")" "$SB_ARGV" "empty"
 run_plugin "$(free 53%)" 1 STM_SYSCTL="$SANDBOX/no-such-sysctl"
 assert_eq "$(argv_of --push stm.mem 0.47 --set stm.mem label=47% label.width=36 \
-  "graph.color=$GREY" "graph.fill_color=$(fill $GREY)")" "$SB" "absent"
+  "graph.color=$GREY" "graph.fill_color=$(fill_of $GREY)")" "$SB_ARGV" "absent"
 done_it
 
 it "malformed or missing memory_pressure output: --, nothing pushed, level colour kept (V44)"
 for out in "" garbage "$(free 101%)" "$(free -3%)" "$(free 5x%)" "$(free '%')" "$(free '4 2%')"; do
   run_plugin "$out" 2
   assert_eq "$(argv_of --set stm.mem label=-- label.width=28 "graph.color=$YELLOW" \
-    "graph.fill_color=$(fill $YELLOW)")" "$SB" "output [$out]"
+    "graph.fill_color=$(fill_of $YELLOW)")" "$SB_ARGV" "output [$out]"
 done
 run_plugin "$(free 53%)" 2 STM_MEMORY_PRESSURE="$SANDBOX/no-such-tool"
 assert_eq "$(argv_of --set stm.mem label=-- label.width=28 "graph.color=$YELLOW" \
-  "graph.fill_color=$(fill $YELLOW)")" "$SB" "memory_pressure absent"
+  "graph.fill_color=$(fill_of $YELLOW)")" "$SB_ARGV" "memory_pressure absent"
 done_it
 
 it "label width: pad + ceil(chars x CW); unknown font sends none (V46)"
 run_plugin "$(free 53%)" 1 STM_MEM_CW=8.54 STM_MEM_PAD=10
 assert_eq "$(argv_of --push stm.mem 0.47 --set stm.mem label=47% label.width=36 \
-  "graph.color=$GREEN" "graph.fill_color=$(fill $GREEN)")" "$SB" "3 chars at 14pt"
+  "graph.color=$GREEN" "graph.fill_color=$(fill_of $GREEN)")" "$SB_ARGV" "3 chars at 14pt"
 run_plugin "$(free 53%)" 1 STM_MEM_CW= STM_MEM_PAD=
 assert_eq "$(argv_of --push stm.mem 0.47 --set stm.mem label=47% \
-  "graph.color=$GREEN" "graph.fill_color=$(fill $GREEN)")" "$SB" "no width without a font size"
+  "graph.color=$GREEN" "graph.fill_color=$(fill_of $GREEN)")" "$SB_ARGV" "no width without a font size"
 done_it
 
 it "a palette without the level colour sends no empty colour (V14)"
 run_plugin "$(free 53%)" 4 STM_RED=
-assert_eq "$(argv_of --push stm.mem 0.47 --set stm.mem label=47% label.width=36)" "$SB" "no red"
+assert_eq "$(argv_of --push stm.mem 0.47 --set stm.mem label=47% label.width=36)" "$SB_ARGV" "no red"
 done_it
 
 it "lint and install item:mem (V4, I.fs, I.cfg)"
@@ -187,7 +187,8 @@ EOF
   items_of() {
     probe "$1" "$2" ok | grep -E '^(item|graph) '
   }
-  GRAPH='graph={color=4282668390 fill_color=1078220134 line_width=1.0}'
+  PROBE_GREY=0xff445566
+  GRAPH="graph={color=$((PROBE_GREY)) fill_color=$(($(fill_of $PROBE_GREY))) line_width=1.0}"
   LABEL='label={string=--}'
 
   it "item.lua plain and pill: one graph item 30 wide, blue icon, pill on bg1 (I.mem, V32, V14)"
