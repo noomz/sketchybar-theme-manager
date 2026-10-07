@@ -5,8 +5,8 @@
 class SketchybarThemeManager < Formula
   desc "Theme manager for SketchyBar"
   homepage "https://github.com/noomz/sketchybar-theme-manager"
-  url "https://github.com/noomz/sketchybar-theme-manager/archive/refs/tags/v0.7.0.tar.gz"
-  sha256 "0b887b63b786712a156394737865b65623ee38d9879c0fc9bee30e6ae20a4a9a"
+  url "https://github.com/noomz/sketchybar-theme-manager/archive/refs/tags/v0.8.0.tar.gz"
+  sha256 "3b7972207cdcb7ec9b72c0e76d8cd756c5c18dad18e3cc7afa78e0774082f8ca"
   license "MIT"
   head "https://github.com/noomz/sketchybar-theme-manager.git", branch: "main"
 
