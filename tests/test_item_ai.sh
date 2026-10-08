@@ -630,7 +630,7 @@ LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"
   cat >"$SANDBOX/lua/probe.lua" <<'EOF'
-local shape, position, query, metrics, item_lua = ...
+local shape, position, query, metrics, item_lua, clicks = ...
 local function dump(v)
   if type(v) ~= "table" then
     return tostring(v)
@@ -692,14 +692,21 @@ local function fire(key, sender)
   end
 end
 fire("stm.ai routine", "routine")
+if clicks and clicks ~= "" then
+  for key in clicks:gmatch("[^,]+") do
+    print("fire " .. key)
+    fire(key, key:match("%S+$"))
+  end
+  return
+end
 fire("stm.ai.claude.row.foot mouse.clicked", "mouse.clicked")
 fire("stm.ai.claude mouse.clicked", "mouse.clicked")
 fire("stm.ai.claude.icon mouse.clicked", "mouse.clicked")
 fire("stm.ai.claude mouse.exited.global", "mouse.exited.global")
 EOF
-  # probe <shape> <position> [metrics "p=v p=v"] [query ok|none|late]
+  # probe <shape> <position> [metrics "p=v p=v"] [query ok|none|late] [clicks "item event,item event"]
   probe() {
-    "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "${4:-ok}" "${3:-}" "$BUNDLE/item.lua" 2>&1
+    "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "${4:-ok}" "${3:-}" "$BUNDLE/item.lua" "${5:-}" 2>&1
   }
   names_of() {
     probe "$@" | awk '$1 == "item" || $1 == "bracket" { print $1 " " $2 }' | grep -v '\.row\.' | tr '\n' ' '
@@ -779,6 +786,22 @@ $env $m STM_AI_ACTION='open' NAME='stm.ai' SENDER='mouse.clicked' '/p/ai.sh'" \
   assert_contains "$none" "STM_AI_CW_CLAUDE='' STM_AI_PAD_CLAUDE=''"
   late=$(probe split right "" late)
   assert_contains "$(printf '%s\n' "$late" | grep '^exec ' | tail -1)" "STM_AI_CW_CLAUDE='7.93'"
+  done_it
+
+  it "item.lua: a click on one segment closes the others' popups (V55, B18)"
+  # popup sets after each fired event, one line per event
+  popups() {
+    probe split right "gemini=off" ok "$1" |
+      awk '$1 == "fire" { if (n++) print s; s = $2 " " $3 ":"; next } $1 == "set" && $3 ~ /^\{popup=/ { s = s " " $2 "=" $3 } END { print s }'
+  }
+  others="stm.ai.claude={popup={drawing=false}} stm.ai.codex={popup={drawing=toggle}} stm.ai.grok={popup={drawing=false}} stm.ai.openrouter={popup={drawing=false}}"
+  out=$(popups "stm.ai.claude mouse.clicked,stm.ai.codex mouse.clicked,stm.ai.codex.icon mouse.clicked,stm.ai.claude mouse.clicked,stm.ai.codex mouse.exited.global")
+  assert_eq "stm.ai.claude mouse.clicked: stm.ai.claude={popup={drawing=toggle}} stm.ai.codex={popup={drawing=false}} stm.ai.grok={popup={drawing=false}} stm.ai.openrouter={popup={drawing=false}}
+stm.ai.codex mouse.clicked: $others
+stm.ai.codex.icon mouse.clicked: $others
+stm.ai.claude mouse.clicked: stm.ai.claude={popup={drawing=toggle}} stm.ai.codex={popup={drawing=false}} stm.ai.grok={popup={drawing=false}} stm.ai.openrouter={popup={drawing=false}}
+stm.ai.codex mouse.exited.global: stm.ai.codex={popup={drawing=false}}" "$out" "B closes A, toggles B; off segment untouched"
+  assert_not_contains "$out" "stm.ai.gemini"
   done_it
 
   it "item.lua sizes each popup's name column from its rows' icon font (V55, B13)"

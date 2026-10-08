@@ -208,8 +208,12 @@ return function(sbar, opts, colors)
       run(e, "open")
     end)
 
+    -- mouse.exited.global fires only when the pointer leaves the bar, not
+    -- when it moves to the next segment, so a click closes the others.
     local function toggle()
-      s.item:set({ popup = { drawing = "toggle" } })
+      for _, other in ipairs(segments) do
+        other.item:set({ popup = { drawing = other == s and "toggle" or false } })
+      end
     end
     s.item:subscribe("mouse.clicked", toggle)
     s.item:subscribe("mouse.exited.global", function()
