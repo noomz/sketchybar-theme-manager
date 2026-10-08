@@ -60,7 +60,8 @@ installed_items() {
 }
 
 # The installed tree of the bundles this repo ships.
-SHIPPED=(. ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh
+SHIPPED=(. ./ai ./ai/item.lua ./ai/item.toml ./ai/plugin.sh
+  ./battery ./battery/item.lua ./battery/item.toml ./battery/plugin.sh
   ./clock ./clock/item.lua ./clock/item.toml
   ./cpu ./cpu/item.lua ./cpu/item.toml ./cpu/plugin.sh
   ./date ./date/item.lua ./date/item.toml
@@ -93,10 +94,10 @@ assert_eq 0 "$INSTALL_STATUS" "install.sh must succeed: $(cat "$SANDBOX/install.
 assert_file_exists "$P/bin/stm"
 assert_eq "$(shipped ./linky ./linky/item.toml)" \
   "$(installed_items)" "only item.toml, item.lua and plugin.sh from validly named, real bundle dirs"
-for f in battery/plugin.sh cpu/plugin.sh disk/plugin.sh mem/plugin.sh net/plugin.sh netspeed/plugin.sh spotify/plugin.sh tailscale/plugin.sh; do
+for f in ai/plugin.sh battery/plugin.sh cpu/plugin.sh disk/plugin.sh mem/plugin.sh net/plugin.sh netspeed/plugin.sh spotify/plugin.sh tailscale/plugin.sh; do
   assert_files_equal "$REPO_ROOT/bundles/items/$f" "$ITEMS/$f"
 done
-for b in battery clock cpu date disk mem net netspeed spotify tailscale; do
+for b in ai battery clock cpu date disk mem net netspeed spotify tailscale; do
   for f in item.toml item.lua; do
     assert_files_equal "$REPO_ROOT/bundles/items/$b/$f" "$ITEMS/$b/$f"
   done
