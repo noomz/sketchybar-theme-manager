@@ -7,6 +7,9 @@
 #   STM_GREEN STM_YELLOW STM_RED STM_GREY STM_WHITE
 #                                palette colours as 0xAARRGGBB (may be empty)
 #   STM_AI_SHAPE                 plain | pill | split
+#   STM_AI_ICON                  tag | image
+#   STM_AI_ICON_DIR              <config dir>/icons/ai (image: the user's own
+#                                <provider>.png files), or empty
 #   STM_AI_CLAUDE STM_AI_CODEX STM_AI_GEMINI STM_AI_GROK STM_AI_OPENROUTER
 #                                each provider's metric, auto or off
 #   STM_AI_CW_<P> STM_AI_PAD_<P> each segment's label character width and
@@ -425,17 +428,57 @@ segment() {
   [ "${STM_AI_SHAPE:-}" = split ] || [ "$windows" = 1 ] && icon_item=1
   pill=0
   [ "${STM_AI_SHAPE:-}" = pill ] && [ "$windows" = 1 ] && pill=1
+  # The item whose icon holds the tag, and the image found for it (icon=image).
+  target=$seg
+  [ "$icon_item" = 1 ] && target=$seg.icon
+  case $p in
+    claude) tag=CL ;;
+    codex) tag=CX ;;
+    gemini) tag=GE ;;
+    grok) tag=GK ;;
+    *) tag=OR ;;
+  esac
+  img=""
+  for x in $icons; do
+    case $x in "$p":*)
+      img=${x#*:}
+      break
+      ;;
+    esac
+  done
+  [ "$img" = none ] && img=""
+  return 0
+}
+
+# icon_set — icon=image: the image found for the segment, or its tag. An
+# image is loaded only on a probing run; it persists on the item.
+icon_set() {
+  [ "${STM_AI_ICON:-}" = image ] || return 0
+  if [ -z "$img" ]; then
+    emit --set "$target" "icon=$tag" icon.background.drawing=off
+  else
+    emit --set "$target" icon= icon.background.drawing=on
+    # 40x40 px -> 20 pt; an app's image was loaded by its probe.
+    [ "$probing" = 1 ] && [ "$img" = file ] &&
+      emit "icon.background.image=$icon_dir/$p.png" icon.background.image.scale=0.5
+  fi
+  return 0
 }
 
 # show <label> <tag band> <label band> [<top> <band> <bottom> <band>] — the
 # segment drawn: the windows metric stacks <top> over <bottom> when it has
 # them; the tag colour goes on the split tag's background, on the tag that
 # the windows metric moves to <segment>.icon, or on the segment's own tag.
+# An image is never tinted: on plain and pill its tag colour goes on the
+# label; the windows lines keep their own colours.
 show() {
   emit --set "$seg" drawing=on
   text=$1
   measured=$1
   label_color=$(color_of "$3")
+  tag_color=$(color_of "$2")
+  [ -n "$img" ] && [ -n "$tag_color" ] && [ "$windows" = 0 ] && [ "${STM_AI_SHAPE:-}" != split ] &&
+    label_color=$tag_color
   if [ "$windows" = 1 ]; then
     if [ -n "${4:-}" ]; then
       emit icon.drawing=on "icon=$4"
@@ -466,25 +509,24 @@ show() {
         'BEGIN { w = n * cw; i = int(w); if (i < w) i++; print pad + i }')"
       ;;
   esac
-  tag_color=$(color_of "$2")
   if [ "${STM_AI_SHAPE:-}" = split ]; then
     emit --set "$seg.icon" drawing=on
     [ -n "$tag_color" ] && emit "background.color=$tag_color"
   elif [ "$windows" = 1 ]; then
     emit --set "$seg.icon" drawing=on
-    [ -n "$tag_color" ] && emit "icon.color=$tag_color"
-  elif [ -n "$tag_color" ]; then
+    [ -n "$tag_color" ] && [ -z "$img" ] && emit "icon.color=$tag_color"
+  elif [ -n "$tag_color" ] && [ -z "$img" ]; then
     emit "icon.color=$tag_color"
   fi
   [ "$pill" = 1 ] && emit --set "$seg.pill" drawing=on
-  return 0
+  icon_set
 }
 
 hide() {
   emit --set "$seg" drawing=off popup.drawing=off
   [ "$icon_item" = 1 ] && emit --set "$seg.icon" drawing=off
   [ "$pill" = 1 ] && emit --set "$seg.pill" drawing=off
-  return 0
+  icon_set
 }
 
 # popup_end — hide the unused rows from row $n on; set the foot.
@@ -495,6 +537,95 @@ popup_end() {
   done
   emit --set "$seg.row.foot" "label=$foot"
 }
+
+# app_ids <p> — into $ids, the bundle ids whose app icon stands for <p>.
+app_ids() {
+  case $1 in
+    claude) ids=com.anthropic.claudefordesktop ;;
+    codex) ids="com.openai.codex com.openai.chat" ;;
+    *) ids="" ;;
+  esac
+}
+
+# icon_ok <p> <answer> — a cached answer this plugin could have written.
+icon_ok() {
+  case $1 in claude | codex | gemini | grok | openrouter) ;; *) return 1 ;; esac
+  case $2 in
+    file | none) return 0 ;;
+    app.*)
+      app_ids "$1"
+      for id in $ids; do
+        [ "$2" = "app.$id" ] && return 0
+      done
+      ;;
+  esac
+  return 1
+}
+
+# icon=image: per segment, the user's <icon dir>/<p>.png (that exact name, a
+# regular file, never a symlink), else the installed app's icon, else the
+# tag. SketchyBar exits non-zero when it cannot resolve a bundle id, so each
+# app is probed with a --set of its own, which also loads its image. The
+# answers (file, app.<id> or none per segment) are cached in the per-user
+# temp dir and looked for again only on forced (reload, --update) and
+# system_woke, or without a valid cache.
+icons=""
+probing=0
+icon_dir=""
+if [ "${STM_AI_ICON:-}" = image ]; then
+  case ${STM_AI_ICON_DIR:-} in
+    *[[:cntrl:]]*) ;;
+    /*) icon_dir=$STM_AI_ICON_DIR ;;
+  esac
+  cache=""
+  [ -n "$tmp" ] && cache="$tmp/stm-ai-icon.$NAME"
+  case ${SENDER:-} in
+    forced | system_woke) ;;
+    *)
+      if [ -n "$cache" ] && [ -f "$cache" ]; then
+        while read -r cp cv rest; do
+          [ -z "$rest" ] && icon_ok "$cp" "$cv" && icons="$icons $cp:$cv"
+        done <"$cache"
+      fi
+      # Valid only with an answer for every enabled segment.
+      for e in $enabled; do
+        case "$icons " in *" ${e%%:*}:"*) ;; *) icons="" ;; esac
+      done
+      ;;
+  esac
+  if [ -z "$icons" ]; then
+    probing=1
+    for e in $enabled; do
+      segment "${e%%:*}"
+      v=none
+      if [ -n "$icon_dir" ]; then
+        for f in "$icon_dir"/*; do
+          if [ "$f" = "$icon_dir/$p.png" ] && [ -f "$f" ] && [ ! -L "$f" ]; then
+            v="file"
+            break
+          fi
+        done
+      fi
+      if [ "$v" = none ]; then
+        app_ids "$p"
+        for id in $ids; do
+          if sketchybar --set "$target" "icon.background.image=app.$id" icon.background.image.scale=0.625 \
+            >/dev/null 2>&1; then
+            v=app.$id
+            break
+          fi
+        done
+      fi
+      icons="$icons $p:$v"
+    done
+    if [ -n "$cache" ] && c=$(/usr/bin/mktemp "$cache.XXXXXX" 2>/dev/null); then
+      for x in $icons; do
+        printf '%s %s\n' "${x%%:*}" "${x#*:}"
+      done >"$c"
+      /bin/mv -f "$c" "$cache" 2>/dev/null || /bin/rm -f "$c"
+    fi
+  fi
+fi
 
 aub=$(find_aub)
 

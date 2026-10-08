@@ -33,6 +33,9 @@ return function(sbar, opts, colors)
     return "'" .. (tostring(s):gsub("'", "'\\''")) .. "'"
   end
 
+  -- icon=image: the user's own icons live in <config dir>/icons/ai, beside
+  -- the plugins/stm folder stm installs into.
+  local config_dir = opts.plugin_dir:match("^(.+)/plugins/stm$")
   local env = {
     "STM_GREEN=" .. quote(hex(colors.green)),
     "STM_YELLOW=" .. quote(hex(colors.yellow)),
@@ -40,6 +43,8 @@ return function(sbar, opts, colors)
     "STM_GREY=" .. quote(hex(colors.grey)),
     "STM_WHITE=" .. quote(hex(colors.white)),
     "STM_AI_SHAPE=" .. quote(o.shape),
+    "STM_AI_ICON=" .. quote(o.icon),
+    "STM_AI_ICON_DIR=" .. quote(config_dir and config_dir .. "/icons/ai" or ""),
   }
   local segments = {}
   for _, p in ipairs(PROVIDERS) do
@@ -97,6 +102,14 @@ return function(sbar, opts, colors)
       else
         props.icon = { drawing = false }
       end
+    end
+    -- icon=image: plugin.sh draws the image as the tag's icon background
+    -- and falls back to the tag. The background is transparent (0, not a
+    -- palette colour) so icon defaults draw no pill behind it; 0.625 draws
+    -- a 32 pt app image at 20 pt (plugin.sh sets 0.5 for the user's file).
+    if o.icon == "image" then
+      local tag_icon = sub and sub.icon or props.icon
+      tag_icon.background = { drawing = false, color = 0, image = { scale = 0.625 } }
     end
     if o.shape == "split" then
       props.background = { drawing = true, color = colors.bg1, padding_left = 0 }

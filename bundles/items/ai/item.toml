@@ -4,7 +4,7 @@
 # Installed with `stm install item:ai`; options go in stm.config.toml
 # (or a theme's palette) under [item.ai].
 name = "ai"
-version = "0.2.0"
+version = "0.3.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["green", "yellow", "red", "grey", "white", "black", "bg1", "popup_bg", "popup_border"]
@@ -19,6 +19,14 @@ events = ["system_woke"]
 [options.shape]
 values = ["plain", "pill", "split"]
 default = "split"
+
+# What stands for each provider (stm ships no logo):
+#   tag    a text tag: CL CX GE GK OR
+#   image  your own <config dir>/icons/ai/<provider>.png (40x40 px), else the
+#          installed app's icon (Claude; Codex, then ChatGPT), else the tag
+[options.icon]
+values = ["tag", "image"]
+default = "tag"
 
 # One key per provider: what its segment shows, or off for no segment.
 #   auto     the first metric listed, and no segment while the provider has

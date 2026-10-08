@@ -26,10 +26,19 @@ NOW=$((ASOF + 60))
 # Plugin PATH: our fakes plus /bin.
 FAKE_BIN="$SANDBOX/ai-bin"
 mkdir -p "$FAKE_BIN"
+# It fails, as SketchyBar does, to set an app image whose bundle id is not
+# in $SB_APPS.
 cat >"$FAKE_BIN/sketchybar" <<'EOF'
 #!/bin/sh
 printf 'call\n' >>"$SB_LOG.calls"
 printf '%s\n' "$@" >>"$SB_LOG"
+for a in "$@"; do
+  case $a in
+    icon.background.image=app.*)
+      case " ${SB_APPS:-} " in *" ${a#icon.background.image=app.} "*) ;; *) exit 1 ;; esac
+      ;;
+  esac
+done
 EOF
 
 # Fake aub: logs its argv, then prints $AUB_JSON unless $AUB_MODE says not to.
@@ -595,11 +604,143 @@ assert_eq "$(lines drawing=on "icon=  7d" "label=███████▉░░ 
   "$(seg stm.ai.claude.row.3)" "row without colours"
 done_it
 
+# The user's icon folder, in a sandbox config dir, and the icon cache.
+ICONS="$SANDBOX/icfg/icons/ai"
+mkdir -p "$ICONS"
+printf 'png\n' >"$SANDBOX/real.png"
+CACHE="$SANDBOX/stm-ai-icon.stm.ai"
+
+# icon_run <SENDER> [VAR=value...] — run_plugin with icon=image.
+icon_run() {
+  local sender="$1"
+  shift
+  run_plugin "$FIXTURE" STM_AI_ICON=image STM_AI_ICON_DIR="$ICONS" SENDER="$sender" "$@"
+}
+
+it "icon tag: today's argv, no probe, no cache (V57)"
+rm -f "$CACHE"
+cp "$SANDBOX/real.png" "$ICONS/claude.png"
+run_plugin "$FIXTURE" SENDER=forced
+plain_sb=$SB
+run_plugin "$FIXTURE" SENDER=forced STM_AI_ICON=tag STM_AI_ICON_DIR="$ICONS" SB_APPS="com.anthropic.claudefordesktop com.openai.codex"
+assert_eq "$plain_sb" "$SB" "tag = no option"
+assert_not_contains "$SB" "icon.background"
+assert_eq 1 "$SB_CALLS" "one sketchybar call"
+assert_eq no "$([ -e "$CACHE" ] && echo yes || echo no)" "no cache written"
+for bad in "image;x" "../image" "IMAGE" ""; do
+  run_plugin "$FIXTURE" SENDER=forced STM_AI_ICON="$bad" STM_AI_ICON_DIR="$ICONS"
+  assert_eq "$plain_sb" "$SB" "icon '$bad' = tag (V9)"
+done
+done_it
+
+it "icon image: the user's file first, then the app, then the tag; split keeps the band on .icon (V57)"
+rm -f "$CACHE" "$ICONS"/*
+cp "$SANDBOX/real.png" "$ICONS/claude.png"
+icon_run forced SB_APPS="com.anthropic.claudefordesktop com.openai.codex"
+assert_eq "$(lines drawing=on "background.color=$YELLOW" icon= icon.background.drawing=on \
+  "icon.background.image=$ICONS/claude.png" icon.background.image.scale=0.5)" \
+  "$(seg stm.ai.claude.icon)" "claude: file over the installed app, 40 px -> 20 pt"
+assert_eq "$(shown claude " 79% 7d" "$WHITE" 68)" "$(seg stm.ai.claude)" "split: label keeps its colour"
+assert_eq "$(lines icon.background.image=app.com.openai.codex icon.background.image.scale=0.625 \
+  drawing=on "background.color=$GREEN" icon= icon.background.drawing=on)" \
+  "$(seg stm.ai.codex.icon)" "codex: app probed once, image set by the probe"
+assert_eq "$(lines drawing=off icon=GE icon.background.drawing=off)" "$(seg stm.ai.gemini.icon)" "gemini: no app, tag"
+assert_eq "$(lines drawing=on "background.color=$GREEN" icon=GK icon.background.drawing=off)" \
+  "$(seg stm.ai.grok.icon)" "grok: tag"
+assert_eq 2 "$SB_CALLS" "one probe (codex) + the update"
+assert_eq "$(lines "claude file" "codex app.com.openai.codex" "gemini none" "grok none" "openrouter none")" \
+  "$(cat "$CACHE")" "cache: one line per segment"
+done_it
+
+it "icon image: codex falls back to the ChatGPT app, then to the tag (V57)"
+rm -f "$CACHE" "$ICONS"/*
+icon_run forced SB_APPS="com.openai.chat"
+assert_eq "$(lines icon.background.image=app.com.anthropic.claudefordesktop icon.background.image.scale=0.625 \
+  drawing=on "background.color=$YELLOW" icon=CL icon.background.drawing=off)" \
+  "$(seg stm.ai.claude.icon)" "claude app missing: tag"
+assert_eq "$(lines icon.background.image=app.com.openai.codex icon.background.image.scale=0.625 \
+  icon.background.image=app.com.openai.chat icon.background.image.scale=0.625 \
+  drawing=on "background.color=$GREEN" icon= icon.background.drawing=on)" \
+  "$(seg stm.ai.codex.icon)" "codex app missing: ChatGPT"
+assert_eq 4 "$SB_CALLS" "three probes + the update"
+icon_run forced
+assert_contains "$(seg stm.ai.codex.icon)" "icon=CX"
+assert_eq "$(lines "claude none" "codex none" "gemini none" "grok none" "openrouter none")" "$(cat "$CACHE")" "none cached"
+done_it
+
+it "icon image: a symlink, another name or a non-file is never used (V57)"
+rm -f "$CACHE" "$ICONS"/*
+ln -s "$SANDBOX/real.png" "$ICONS/claude.png"
+for f in codex.PNG codex.png.bak gemini.jpg .grok.png; do
+  cp "$SANDBOX/real.png" "$ICONS/$f"
+done
+mkdir "$ICONS/openrouter.png"
+icon_run forced
+assert_not_contains "$SB" "$ICONS"
+assert_contains "$(seg stm.ai.claude.icon)" "icon=CL"
+assert_contains "$(seg stm.ai.codex.icon)" "icon=CX"
+assert_contains "$(seg stm.ai.openrouter.icon)" "icon=OR"
+rmdir "$ICONS/openrouter.png"
+rm -f "$CACHE" "$ICONS"/* "$ICONS"/.grok.png
+cp "$SANDBOX/real.png" "$ICONS/claude.png"
+for dir in "icfg/icons/ai" "$(printf '%s\nx' "$ICONS")" ""; do
+  rm -f "$CACHE"
+  icon_run forced STM_AI_ICON_DIR="$dir"
+  assert_not_contains "$SB" "claude.png" "dir '$dir' not used"
+  assert_contains "$(seg stm.ai.claude.icon)" "icon=CL"
+done
+done_it
+
+it "icon image: probe only on forced or system_woke or without a valid cache (V57, V25)"
+rm -f "$CACHE" "$ICONS"/*
+cp "$SANDBOX/real.png" "$ICONS/claude.png"
+icon_run forced SB_APPS="com.openai.chat"
+icon_run routine
+assert_eq 1 "$SB_CALLS" "cached: no probe"
+assert_not_contains "$SB" "icon.background.image"
+assert_eq "$(lines drawing=on "background.color=$YELLOW" icon= icon.background.drawing=on)" \
+  "$(seg stm.ai.claude.icon)" "cached file: image kept, not resent"
+assert_eq "$(lines drawing=on "background.color=$GREEN" icon= icon.background.drawing=on)" \
+  "$(seg stm.ai.codex.icon)" "cached app"
+icon_run system_woke
+assert_eq 3 "$SB_CALLS" "woke: codex probed again"
+assert_contains "$(seg stm.ai.claude.icon)" "icon.background.image=$ICONS/claude.png"
+for bad in "claude app.com.evil" "codex app.com.anthropic.claudefordesktop" "claude /etc/x" "claude file
+codex none"; do
+  printf '%s\n' "$bad" >"$CACHE"
+  icon_run routine
+  assert_eq 3 "$SB_CALLS" "cache '$bad': codex probed again (2 ids)"
+done
+done_it
+
+it "icon image: plain and pill move the band to the label; windows keeps its lines (V57, V25)"
+rm -f "$CACHE" "$ICONS"/*
+cp "$SANDBOX/real.png" "$ICONS/claude.png"
+for shape in plain pill; do
+  rm -f "$CACHE"
+  icon_run forced STM_AI_SHAPE=$shape
+  assert_eq "$(lines drawing=on "label= 79% 7d" "label.color=$YELLOW" label.width=68 icon= icon.background.drawing=on \
+    "icon.background.image=$ICONS/claude.png" icon.background.image.scale=0.5)" \
+    "$(seg stm.ai.claude)" "$shape: band on the label, image untinted"
+  assert_eq "$(lines icon.background.image=app.com.openai.codex icon.background.image.scale=0.625 \
+    icon.background.image=app.com.openai.chat icon.background.image.scale=0.625 \
+    drawing=on "label= 14% wk" "label.color=$WHITE" label.width=68 "icon.color=$GREEN" \
+    icon=CX icon.background.drawing=off)" "$(seg stm.ai.codex)" "$shape: no app, tag keeps the band"
+done
+run_plugin "$FIXTURE" SENDER=forced STM_AI_SHAPE=plain STM_AI_CLAUDE=windows
+lines_tag=$(seg stm.ai.claude)
+rm -f "$CACHE"
+icon_run forced STM_AI_SHAPE=plain STM_AI_CLAUDE=windows
+assert_eq "$(lines drawing=on icon= icon.background.drawing=on "icon.background.image=$ICONS/claude.png" \
+  icon.background.image.scale=0.5)" "$(seg stm.ai.claude.icon)" "windows: image on .icon, no tint"
+assert_eq "$lines_tag" "$(seg stm.ai.claude)" "windows: both lines keep their bands"
+done_it
+
 it "lint and install item:ai (V4, V9, I.fs, I.cfg)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:ai
 assert_status 0
 assert_eq "ok	item:ai" "$STM_OUT"
-assert_file_contains "$BUNDLE/item.toml" 'version = "0.2.0"'
+assert_file_contains "$BUNDLE/item.toml" 'version = "0.3.0"'
 D="$SANDBOX/cfg"
 make_lua_config "$D"
 STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install item:ai
@@ -607,7 +748,7 @@ assert_status 0
 assert_files_equal "$PLUGIN" "$D/plugins/stm/ai.sh"
 loader=$(cat "$D/items_generated.lua")
 for opt in '["shape"] = "split"' '["claude"] = "auto"' '["codex"] = "auto"' '["gemini"] = "auto"' \
-  '["grok"] = "auto"' '["openrouter"] = "auto"' 'update_freq = 60,' 'events = { "system_woke" },' \
+  '["grok"] = "auto"' '["openrouter"] = "auto"' '["icon"] = "tag"' 'update_freq = 60,' 'events = { "system_woke" },' \
   'position = "right"'; do
   assert_contains "$loader" "$opt"
 done
@@ -619,7 +760,7 @@ assert_status 0
 loader=$(cat "$D/items_generated.lua")
 assert_contains "$loader" '["claude"] = "windows"'
 assert_contains "$loader" '["grok"] = "off"'
-for bad in 'gemini = "cost"' 'view = "worst"' 'grok = "worst"'; do
+for bad in 'gemini = "cost"' 'view = "worst"' 'grok = "worst"' 'icon = "app"' 'icon = "/tmp/x.png"'; do
   printf '[item.ai]\n%s\n' "$bad" >"$D/stm.config.toml"
   STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload --force install item:ai
   assert_ne 0 "$STM_STATUS" "$bad refused"
@@ -630,7 +771,7 @@ LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"
   cat >"$SANDBOX/lua/probe.lua" <<'EOF'
-local shape, position, query, metrics, item_lua, clicks = ...
+local shape, position, query, metrics, item_lua, clicks, plugin_dir = ...
 local function dump(v)
   if type(v) ~= "table" then
     return tostring(v)
@@ -678,12 +819,12 @@ function sbar.query(name)
     icon = { font = "Hack Nerd Font:Bold:17.00", padding_left = 4, padding_right = 4 } }
 end
 function sbar.exec(cmd) print("exec " .. cmd) end
-local options = { shape = shape, claude = "auto", codex = "auto", gemini = "auto", grok = "auto", openrouter = "auto" }
+local options = { shape = shape, icon = "tag", claude = "auto", codex = "auto", gemini = "auto", grok = "auto", openrouter = "auto" }
 for k, v in metrics:gmatch("(%w+)=(%w+)") do
   options[k] = v
 end
 local opts = { name = "stm.ai", position = position, update_freq = 60,
-  plugin_dir = "/p", events = { "system_woke" }, options = options }
+  plugin_dir = plugin_dir or "/p", events = { "system_woke" }, options = options }
 dofile(item_lua)(sbar, opts, { green = 1, yellow = 2, red = 3, grey = 0xff445566, white = 5, black = 6,
   bg1 = 21, popup_bg = 31, popup_border = 32 })
 local function fire(key, sender)
@@ -704,9 +845,9 @@ fire("stm.ai.claude mouse.clicked", "mouse.clicked")
 fire("stm.ai.claude.icon mouse.clicked", "mouse.clicked")
 fire("stm.ai.claude mouse.exited.global", "mouse.exited.global")
 EOF
-  # probe <shape> <position> [metrics "p=v p=v"] [query ok|none|late] [clicks "item event,item event"]
+  # probe <shape> <position> [metrics "p=v p=v"] [query ok|none|late] [clicks "item event,item event"] [plugin_dir]
   probe() {
-    "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "${4:-ok}" "${3:-}" "$BUNDLE/item.lua" "${5:-}" 2>&1
+    "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "${4:-ok}" "${3:-}" "$BUNDLE/item.lua" "${5:-}" "${6:-/p}" 2>&1
   }
   names_of() {
     probe "$@" | awk '$1 == "item" || $1 == "bracket" { print $1 " " $2 }' | grep -v '\.row\.' | tr '\n' ' '
@@ -767,7 +908,7 @@ EOF
 
   it "item.lua runs plugin.sh with options, colours and per-segment metrics (V14, V46, V56)"
   out=$(probe split right "codex=windows gemini=off")
-  env="exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_GREY='0xff445566' STM_WHITE='0x00000005' STM_AI_SHAPE='split' STM_AI_CLAUDE='auto' STM_AI_CODEX='windows' STM_AI_GEMINI='off' STM_AI_GROK='auto' STM_AI_OPENROUTER='auto'"
+  env="exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_GREY='0xff445566' STM_WHITE='0x00000005' STM_AI_SHAPE='split' STM_AI_ICON='tag' STM_AI_ICON_DIR='' STM_AI_CLAUDE='auto' STM_AI_CODEX='windows' STM_AI_GEMINI='off' STM_AI_GROK='auto' STM_AI_OPENROUTER='auto'"
   m="STM_AI_CW_CLAUDE='7.93' STM_AI_PAD_CLAUDE='12' STM_AI_CW_CODEX='6.10' STM_AI_PAD_CODEX='12' STM_AI_CW_GROK='7.93' STM_AI_PAD_GROK='12' STM_AI_CW_OPENROUTER='7.93' STM_AI_PAD_OPENROUTER='12'"
   assert_eq "$env $m STM_AI_ACTION='' NAME='stm.ai' SENDER='forced' '/p/ai.sh'
 $env $m STM_AI_ACTION='' NAME='stm.ai' SENDER='routine' '/p/ai.sh'
@@ -786,6 +927,20 @@ $env $m STM_AI_ACTION='open' NAME='stm.ai' SENDER='mouse.clicked' '/p/ai.sh'" \
   assert_contains "$none" "STM_AI_CW_CLAUDE='' STM_AI_PAD_CLAUDE=''"
   late=$(probe split right "" late)
   assert_contains "$(printf '%s\n' "$late" | grep '^exec ' | tail -1)" "STM_AI_CW_CLAUDE='7.93'"
+  done_it
+
+  it "item.lua icon image: transparent icon background, app scale, icon folder from plugin_dir (V57, V25)"
+  img="background={color=0 drawing=false image={scale=0.625}}"
+  assert_contains "$(line_of plain right "icon=image" stm.ai.claude)" "icon={$img color=$((0xff445566)) string=CL}"
+  assert_contains "$(line_of split right "icon=image" stm.ai.codex.icon)" "icon={$img color=6 string=CX}"
+  assert_contains "$(line_of plain right "icon=image codex=windows" stm.ai.codex.icon)" \
+    "icon={$img color=$((0xff445566)) string=CX}"
+  assert_contains "$(line_of plain right "icon=image codex=windows" stm.ai.codex)" "icon={drawing=false padding_left=0"
+  assert_not_contains "$(probe plain right)" "image="
+  out=$(probe split right "icon=image" ok "" "/Users/a b/.config/sketchybar/plugins/stm")
+  assert_contains "$(printf '%s\n' "$out" | grep '^exec ' | head -1)" \
+    "STM_AI_ICON='image' STM_AI_ICON_DIR='/Users/a b/.config/sketchybar/icons/ai'"
+  assert_contains "$(probe split right "icon=image" ok "" "/x/plugins/other")" "STM_AI_ICON_DIR=''"
   done_it
 
   it "item.lua: a click on one segment closes the others' popups (V55, B18)"
