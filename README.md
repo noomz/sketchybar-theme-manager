@@ -544,7 +544,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 
 | Item | Shows | Position |
 | --- | --- | --- |
-| `ai` | how much of your AI providers' quota is used (Claude, Codex, Gemini, Grok), coloured by use; a popup per account. Needs [Agents Usage Bar](https://github.com/noomz/agents_usage_bar) | `right` |
+| `ai` | how much of your AI providers' quota is used: one segment each for Claude, Codex, Gemini, Grok and OpenRouter, coloured by use, each with its own popup. Needs [Agents Usage Bar](https://github.com/noomz/agents_usage_bar) | `right` |
 | `battery` | battery level, coloured by level; a bolt on power | `right` |
 | `clock` | the time | `right` |
 | `cpu` | CPU load: a graph and a percentage, coloured by load | `right` |
@@ -583,7 +583,9 @@ never touches the network. It writes only stm-owned files:
 Your own items, plugins, `init.lua` and `sketchybarrc` are left alone. Items
 need a Lua config; a shell bar is refused. The SketchyBar item is always
 named `stm.<name>` (`netspeed` adds `stm.netspeed.up`, `stm.netspeed.rates`
-and `stm.netspeed.pill`; `ai` adds `stm.ai.pill` in its `windows` view). These files are kept out of the `verify` baseline and go
+and `stm.netspeed.pill`; `ai` is a hidden `stm.ai` that drives one segment per
+provider, `stm.ai.<provider>`, with `stm.ai.<provider>.icon` and
+`stm.ai.<provider>.pill` as its shape needs). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -696,30 +698,58 @@ narrow = "right" # right | center — where to sit on a narrow screen
 view = "unified" # unified | separate — one graph for both rates, or one item each
 
 [item.ai]
-view = "worst"   # worst | windows | cost — " 76% 7d", the 5h and 7d windows stacked, or "$126" today
-provider = "all" # all | claude | codex | gemini | grok — where the bar value comes from
+claude = "auto"     # auto | worst | 5h | 7d | sonnet | opus | windows | cost | off
+codex = "auto"      # auto | worst | 5h | weekly | windows | cost | off
+gemini = "auto"     # auto | worst | off
+grok = "auto"       # auto | billing | off
+openrouter = "auto" # auto | balance | quota | off
 ```
 
 `ai` reads [Agents Usage Bar](https://github.com/noomz/agents_usage_bar), a
 separate menu-bar app that polls your AI providers. Every minute the plugin
-runs `aub usage --json`, which reads the app's cache: stm makes no network
+runs `aub usage --json` once, which reads the app's cache: stm makes no network
 call and never reads a token, a key or the keychain, and it never runs
 `aub --live`. It looks for `aub` in `~/.local/bin`, then inside the app in
 `/Applications` and `~/Applications`, then `PATH`; `$STM_AUB` overrides that.
 The JSON is read by one `osascript` (JavaScript) run, so nothing else needs
 installing.
 
-The bar shows the most used rate-limit window across your providers and
-accounts — eg ` 76% 7d` — with the colour on the icon: green, yellow from 50%,
-red from 80% (the bands Agents Usage Bar uses). A credit balance (OpenRouter)
-never sets the bar value; it shows in the popup. The data is only as fresh as
-the app's polling (every 5 minutes by default): when the cache is more than 15
-minutes old, the value stays but turns grey and the popup says `stale`. With
-the app not running and no cache the item shows `--`; without `aub` it shows
-`no aub`. Click it for the popup: one row per provider, or per account when a
-provider has several, with a usage bar, the window, the time to reset and
-today's cost. The last row opens Agents Usage Bar (or its download page when
-`aub` is missing). The icon is the Nerd Font glyph nf-md-creation.
+Each provider gets its own segment, always in the order Claude, Codex, Gemini,
+Grok, OpenRouter from left to right, wherever the item sits. A segment starts
+with a text tag — `CL`, `CX`, `GE`, `GK`, `OR` — not a logo, coloured by that
+provider's most used window: green, yellow from 50%, red from 80% (the bands
+Agents Usage Bar uses). Click a segment, or its tag, for its own popup.
+
+One key per provider picks what its segment shows, or `off` for no segment at
+all:
+
+| Value | Shows |
+| --- | --- |
+| `auto` | the first metric after it in the list above (`worst`, `billing` or `balance`), and no segment while the provider has nothing to show — not signed in, or not in Agents Usage Bar |
+| `worst` | the provider's most used window across its accounts, eg ` 76% 7d` (Codex's weekly window is `wk`) |
+| `5h` `7d` `sonnet` `opus` | that Claude window, the highest across accounts: ` 41% 5h`, ` 79% 7d`, ` 12% 7d-s`, ` 62% 7d-o` |
+| `5h` `weekly` | that Codex window: ` 3% 5h`, ` 14% wk` |
+| `billing` | Grok's billing window, eg ` 41%` |
+| `quota` | the share of OpenRouter credit used, eg ` 96%` |
+| `windows` | the 5h window over the 7d (Codex: weekly) one of the most used account, stacked in your label font 3 points smaller |
+| `cost` | today's spend: `$4.20` under $10, then `$126`, then `$12k` |
+| `balance` | OpenRouter's credit left: `$5.95` under $1000, then `$1500`, then `$12k` |
+
+A metric you set yourself always shows: `sign in` when the provider is signed
+out, `--` when there is no value for it. The data is only as fresh as the
+app's polling (every 5 minutes by default): when the cache is more than 15
+minutes old, every segment keeps its value but turns grey and the popups say
+`stale`. With the app not running and no cache, the first segment shows `--`
+and the rest hide; without `aub` it shows `no aub`. With every key `off` there
+is nothing on the bar and `aub` is never run.
+
+A popup starts with the provider's spend and tokens today and the time of the
+data. Then, per account, a row with the account's spend (`no limit` for an
+account without windows) and one row per window — a usage bar, the use and the
+time to reset. Gemini lists its models, Grok adds the credit used out of its
+limit, and OpenRouter shows the credit used and left and its limit. The last
+row opens Agents Usage Bar (or its download page when `aub` is missing).
+Ollama Cloud has no segment.
 
 `battery` reads `pmset`: green, yellow at 30% and below, red at 15% and below,
 green with a bolt on power. Only the Mac's own battery counts, so on a desktop

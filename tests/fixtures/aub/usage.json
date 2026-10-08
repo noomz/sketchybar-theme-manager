@@ -10,7 +10,9 @@
           "quota" : { "fraction" : 0.79, "limit" : 1, "remaining" : 0.21, "used" : 0.79 },
           "quotaWindows" : [
             { "name" : "5h", "resetsAt" : "2026-10-08T10:00:00Z", "utilization" : 0.41 },
-            { "name" : "7d", "resetsAt" : "2026-10-09T14:00:00Z", "utilization" : 0.79 }
+            { "name" : "7d", "resetsAt" : "2026-10-09T14:00:00Z", "utilization" : 0.79 },
+            { "name" : "7d-sonnet", "resetsAt" : "2026-10-09T14:00:00Z", "utilization" : 0.12 },
+            { "name" : "7d-opus", "resetsAt" : "2026-10-09T14:00:00Z", "utilization" : 0.62 }
           ]
         },
         {
@@ -64,7 +66,8 @@
       "id" : "codex",
       "quota" : { "fraction" : 0.03, "limit" : 1, "remaining" : 0.97, "used" : 0.03 },
       "quotaWindows" : [ ],
-      "status" : "ok"
+      "status" : "ok",
+      "tokensToday" : 1020896
     },
     {
       "accounts" : [ ],
