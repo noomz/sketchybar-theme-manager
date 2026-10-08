@@ -544,6 +544,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 
 | Item | Shows | Position |
 | --- | --- | --- |
+| `ai` | how much of your AI providers' quota is used (Claude, Codex, Gemini, Grok), coloured by use; a popup per account. Needs [Agents Usage Bar](https://github.com/noomz/agents_usage_bar) | `right` |
 | `battery` | battery level, coloured by level; a bolt on power | `right` |
 | `clock` | the time | `right` |
 | `cpu` | CPU load: a graph and a percentage, coloured by load | `right` |
@@ -582,7 +583,7 @@ never touches the network. It writes only stm-owned files:
 Your own items, plugins, `init.lua` and `sketchybarrc` are left alone. Items
 need a Lua config; a shell bar is refused. The SketchyBar item is always
 named `stm.<name>` (`netspeed` adds `stm.netspeed.up`, `stm.netspeed.rates`
-and `stm.netspeed.pill`). These files are kept out of the `verify` baseline and go
+and `stm.netspeed.pill`; `ai` adds `stm.ai.pill` in its `windows` view). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -693,7 +694,32 @@ narrow = "right" # right | center — where to sit on a narrow screen
 
 [item.netspeed]
 view = "unified" # unified | separate — one graph for both rates, or one item each
+
+[item.ai]
+view = "worst"   # worst | windows | cost — " 76% 7d", the 5h and 7d windows stacked, or "$126" today
+provider = "all" # all | claude | codex | gemini | grok — where the bar value comes from
 ```
+
+`ai` reads [Agents Usage Bar](https://github.com/noomz/agents_usage_bar), a
+separate menu-bar app that polls your AI providers. Every minute the plugin
+runs `aub usage --json`, which reads the app's cache: stm makes no network
+call and never reads a token, a key or the keychain, and it never runs
+`aub --live`. It looks for `aub` in `~/.local/bin`, then inside the app in
+`/Applications` and `~/Applications`, then `PATH`; `$STM_AUB` overrides that.
+The JSON is read by one `osascript` (JavaScript) run, so nothing else needs
+installing.
+
+The bar shows the most used rate-limit window across your providers and
+accounts — eg ` 76% 7d` — with the colour on the icon: green, yellow from 50%,
+red from 80% (the bands Agents Usage Bar uses). A credit balance (OpenRouter)
+never sets the bar value; it shows in the popup. The data is only as fresh as
+the app's polling (every 5 minutes by default): when the cache is more than 15
+minutes old, the value stays but turns grey and the popup says `stale`. With
+the app not running and no cache the item shows `--`; without `aub` it shows
+`no aub`. Click it for the popup: one row per provider, or per account when a
+provider has several, with a usage bar, the window, the time to reset and
+today's cost. The last row opens Agents Usage Bar (or its download page when
+`aub` is missing). The icon is the Nerd Font glyph nf-md-creation.
 
 `battery` reads `pmset`: green, yellow at 30% and below, red at 15% and below,
 green with a bolt on power. Only the Mac's own battery counts, so on a desktop

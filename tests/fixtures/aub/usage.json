@@ -1,0 +1,129 @@
+{
+  "asOf" : "2026-10-08T05:49:39Z",
+  "providers" : [
+    {
+      "accounts" : [
+        { "costTodayUSD" : null, "name" : "default", "quotaWindows" : [ ] },
+        {
+          "costTodayUSD" : "96.716573",
+          "name" : "personal",
+          "quota" : { "fraction" : 0.79, "limit" : 1, "remaining" : 0.21, "used" : 0.79 },
+          "quotaWindows" : [
+            { "name" : "5h", "resetsAt" : "2026-10-08T10:00:00Z", "utilization" : 0.41 },
+            { "name" : "7d", "resetsAt" : "2026-10-09T14:00:00Z", "utilization" : 0.79 }
+          ]
+        },
+        {
+          "costTodayUSD" : "66.993036",
+          "name" : "work",
+          "quotaWindows" : [
+            { "name" : "5h", "resetsAt" : "2026-10-08T10:00:00Z", "utilization" : 0.05 },
+            { "name" : "7d", "resetsAt" : "2026-10-10T14:00:00Z", "utilization" : 0.33 }
+          ]
+        }
+      ],
+      "balanceUSD" : null,
+      "costTodayUSD" : "163.709609",
+      "displayName" : "Claude",
+      "error" : null,
+      "id" : "claude",
+      "quota" : { "fraction" : 0.79, "limit" : 1, "remaining" : 0.21, "used" : 0.79 },
+      "quotaWindows" : [
+        { "name" : "personal 5h", "resetsAt" : "2026-10-08T10:00:00Z", "utilization" : 0.41 },
+        { "name" : "personal 7d", "resetsAt" : "2026-10-09T14:00:00Z", "utilization" : 0.79 },
+        { "name" : "work 5h", "resetsAt" : "2026-10-08T10:00:00Z", "utilization" : 0.05 },
+        { "name" : "work 7d", "resetsAt" : "2026-10-10T14:00:00Z", "utilization" : 0.33 }
+      ],
+      "raw" : { },
+      "status" : "ok",
+      "tokensToday" : 101000000
+    },
+    {
+      "accounts" : [
+        {
+          "costTodayUSD" : null,
+          "name" : "plus",
+          "quotaWindows" : [
+            { "name" : "primary", "resetsAt" : "2026-10-08T10:00:00Z", "utilization" : 0.03 },
+            { "name" : "secondary", "resetsAt" : "2026-10-13T00:00:00Z", "utilization" : 0.14 }
+          ]
+        },
+        {
+          "costTodayUSD" : null,
+          "name" : "team",
+          "quotaWindows" : [
+            { "name" : "primary", "resetsAt" : "2026-10-08T10:00:00Z", "utilization" : 0.02 },
+            { "name" : "secondary", "resetsAt" : "2026-10-13T00:00:00Z", "utilization" : 0.03 }
+          ]
+        }
+      ],
+      "balanceUSD" : null,
+      "costTodayUSD" : "0.09368105",
+      "displayName" : "Codex",
+      "error" : null,
+      "id" : "codex",
+      "quota" : { "fraction" : 0.03, "limit" : 1, "remaining" : 0.97, "used" : 0.03 },
+      "quotaWindows" : [ ],
+      "status" : "ok"
+    },
+    {
+      "accounts" : [ ],
+      "balanceUSD" : null,
+      "costTodayUSD" : null,
+      "displayName" : "Gemini",
+      "error" : "sign in with gemini",
+      "id" : "gemini",
+      "quota" : null,
+      "quotaWindows" : [ ],
+      "status" : "unauthenticated"
+    },
+    {
+      "accounts" : [ ],
+      "balanceUSD" : null,
+      "costTodayUSD" : null,
+      "displayName" : "Grok",
+      "error" : null,
+      "id" : "grok",
+      "quota" : { "fraction" : 0.41, "limit" : 100, "remaining" : 59, "used" : 41 },
+      "quotaWindows" : [
+        { "name" : "billing", "resetsAt" : "2026-10-12T04:26:15Z", "utilization" : 0.41 }
+      ],
+      "status" : "ok"
+    },
+    {
+      "accounts" : [ ],
+      "balanceUSD" : null,
+      "costTodayUSD" : null,
+      "displayName" : "llama.cpp",
+      "error" : null,
+      "id" : "llamacpp",
+      "quota" : null,
+      "quotaWindows" : [ ],
+      "status" : "notRunning"
+    },
+    {
+      "accounts" : [ ],
+      "balanceUSD" : null,
+      "costTodayUSD" : null,
+      "displayName" : "Ollama Cloud",
+      "error" : null,
+      "id" : "ollama-cloud",
+      "quota" : null,
+      "quotaWindows" : [ ],
+      "status" : "ok"
+    },
+    {
+      "accounts" : [ ],
+      "balanceUSD" : "5.953117662000011264",
+      "costTodayUSD" : "0.2687059919999796736",
+      "displayName" : "OpenRouter",
+      "error" : null,
+      "id" : "openrouter",
+      "quota" : { "fraction" : 0.9627930146124999, "limit" : 160, "remaining" : 5.953117662000011, "used" : 154.046882338 },
+      "quotaWindows" : [ ],
+      "status" : "ok"
+    }
+  ],
+  "source" : "cached",
+  "totals" : { "costUSD" : "163.80329005", "tokens" : 102020896 }
+}
