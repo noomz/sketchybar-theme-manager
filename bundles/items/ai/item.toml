@@ -1,10 +1,10 @@
-# stm.ai — how much of your AI providers' quota is used, from the
-# Agents Usage Bar cache (#26). Needs Agents Usage Bar (`aub`) installed and
-# running; without it the item shows "no aub".
+# stm.ai — how much of your AI providers' quota is used, one bar segment per
+# provider, from the Agents Usage Bar cache (#26, #27). Needs Agents Usage Bar
+# (`aub`) installed and running; without it the first segment shows "no aub".
 # Installed with `stm install item:ai`; options go in stm.config.toml
 # (or a theme's palette) under [item.ai].
 name = "ai"
-version = "0.1.0"
+version = "0.2.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["green", "yellow", "red", "grey", "white", "black", "bg1", "popup_bg", "popup_border"]
@@ -12,23 +12,38 @@ default_position = "right"
 update_freq = 60
 events = ["system_woke"]
 
-# How the item is drawn (a theme may set this in its palette):
-#   plain  <icon> <text>, no background
-#   pill   [ <icon> <text> ], one bg1 background
-#   split  [<icon>] [<text>]: the icon on the state colour, the text on bg1
+# How each segment is drawn (a theme may set this in its palette):
+#   plain  <tag> <text>, no background
+#   pill   [ <tag> <text> ], one bg1 background
+#   split  [<tag>] [<text>]: the tag on the state colour, the text on bg1
 [options.shape]
 values = ["plain", "pill", "split"]
 default = "split"
 
-# What the text shows:
-#   worst    the most used window, eg " 76% 7d"
-#   windows  the 5h and 7d windows of that account, stacked
-#   cost     today's spend across providers, eg "$126"
-[options.view]
-values = ["worst", "windows", "cost"]
-default = "worst"
+# One key per provider: what its segment shows, or off for no segment.
+#   auto     the first metric listed, and no segment while the provider has
+#            no data (not signed in, not in aub)
+#   worst    its most used window, eg " 76% 7d"
+#   windows  its 5h and 7d (codex: weekly) windows, stacked
+#   cost     today's spend, eg "$4.20"
+# The rest name one window (claude 5h 7d sonnet opus, codex 5h weekly,
+# grok billing), the OpenRouter credit balance, or the share of it used.
+[options.claude]
+values = ["auto", "worst", "5h", "7d", "sonnet", "opus", "windows", "cost", "off"]
+default = "auto"
 
-# Which provider the bar value comes from. The popup always lists all.
-[options.provider]
-values = ["all", "claude", "codex", "gemini", "grok"]
-default = "all"
+[options.codex]
+values = ["auto", "worst", "5h", "weekly", "windows", "cost", "off"]
+default = "auto"
+
+[options.gemini]
+values = ["auto", "worst", "off"]
+default = "auto"
+
+[options.grok]
+values = ["auto", "billing", "off"]
+default = "auto"
+
+[options.openrouter]
+values = ["auto", "balance", "quota", "off"]
+default = "auto"

@@ -1,16 +1,18 @@
 #!/bin/sh
-# stm.ai plugin. Installed by `stm install item:ai` (#26).
+# stm.ai plugin. Installed by `stm install item:ai` (#26, #27).
 #
-# item.lua runs this with:
-#   NAME, SENDER                 the SketchyBar item and event
+# item.lua runs this from the hidden driver item with:
+#   NAME, SENDER                 the driver item and event; the segments are
+#                                NAME.<provider>
 #   STM_GREEN STM_YELLOW STM_RED STM_GREY STM_WHITE
 #                                palette colours as 0xAARRGGBB (may be empty)
 #   STM_AI_SHAPE                 plain | pill | split
-#   STM_AI_VIEW                  worst | windows | cost
-#   STM_AI_PROVIDER              all | claude | codex | gemini | grok
-#   STM_AI_CW STM_AI_PAD         label character width and paddings (empty
-#                                until the bar has told item.lua its font)
-#   STM_AI_ACTION                open (the popup's last row was clicked) or empty
+#   STM_AI_CLAUDE STM_AI_CODEX STM_AI_GEMINI STM_AI_GROK STM_AI_OPENROUTER
+#                                each provider's metric, auto or off
+#   STM_AI_CW_<P> STM_AI_PAD_<P> each segment's label character width and
+#                                paddings (empty until the bar has told
+#                                item.lua its font)
+#   STM_AI_ACTION                open (a popup's last row was clicked) or empty
 #
 # The numbers come from the Agents Usage Bar cache: `aub usage --json` reads
 # it without touching the network. This plugin never calls a provider and
@@ -31,6 +33,29 @@ AHEAD_SECS=300 # an asOf this far in the future is not trusted
 APP_ID=app.agents-usage-bar
 APP_URL=https://github.com/noomz/agents_usage_bar
 US=$(printf '\037')
+
+# The enabled segments, left to right, as <provider>:<metric>:<auto 1|0>.
+# An unset key is the manifest default (auto); a value outside the manifest
+# values is off.
+enabled=""
+for p in claude codex gemini grok openrouter; do
+  case $p in
+    claude) v=${STM_AI_CLAUDE-auto} auto=worst ;;
+    codex) v=${STM_AI_CODEX-auto} auto=worst ;;
+    gemini) v=${STM_AI_GEMINI-auto} auto=worst ;;
+    grok) v=${STM_AI_GROK-auto} auto=billing ;;
+    *) v=${STM_AI_OPENROUTER-auto} auto=balance ;;
+  esac
+  case "$p:$v" in
+    *:auto) enabled="$enabled $p:$auto:1" ;;
+    claude:worst | claude:5h | claude:7d | claude:sonnet | claude:opus | claude:windows | claude:cost | \
+      codex:worst | codex:5h | codex:weekly | codex:windows | codex:cost | gemini:worst | grok:billing | \
+      openrouter:balance | openrouter:quota)
+      enabled="$enabled $p:$v:0"
+      ;;
+  esac
+done
+[ -n "$enabled" ] || exit 0
 
 # SketchyBar runs plugins without TMPDIR; the per-user temp dir is private.
 tmp=${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null)}
@@ -83,8 +108,8 @@ run_aub() {
 }
 
 # parse — the JSON in, tab-separated records out, from one stock process:
-#   asof <iso>   total <usd>   tokens <n>
-#   prov <i> <id> <status> <cost> <balance> <fraction>
+#   asof <iso>
+#   prov <i> <id> <status> <cost> <balance> <fraction> <tokens> <limit> <used>
 #   acct <i> <a> <name> <cost>
 #   win <i> <a or -> <name> <utilization> <resetsAt>
 # Every value is typed first (a name must be a string, a number a number or a
@@ -103,8 +128,7 @@ function run(argv) {
   function text(v) { return typeof v === "string" ? v.replace(/[^\x20-\x7e]/g, "") : ""; }
   function value(v) { return typeof v === "number" && isFinite(v) ? String(v) : text(v); }
   if (!obj(doc) || !Array.isArray(doc.providers)) throw new Error("not aub usage JSON");
-  var totals = obj(doc.totals) ? doc.totals : {};
-  var out = ["asof\t" + text(doc.asOf), "total\t" + value(totals.costUSD), "tokens\t" + value(totals.tokens)];
+  var out = ["asof\t" + text(doc.asOf)];
   var seen = {};
   function windows(ws, i, a) {
     list(ws).forEach(function (w) {
@@ -117,7 +141,8 @@ function run(argv) {
     if (!known.hasOwnProperty(id) || seen[id]) return;
     seen[id] = 1;
     var quota = obj(p.quota) ? p.quota : {};
-    out.push(["prov", i, id, text(p.status), value(p.costTodayUSD), value(p.balanceUSD), value(quota.fraction)].join("\t"));
+    out.push(["prov", i, id, text(p.status), value(p.costTodayUSD), value(p.balanceUSD), value(quota.fraction),
+      value(p.tokensToday), value(quota.limit), value(quota.used)].join("\t"));
     windows(p.quotaWindows, i, "-");
     list(p.accounts).forEach(function (acc, a) {
       if (!obj(acc)) return;
@@ -132,17 +157,19 @@ parse() {
   /usr/bin/osascript -l JavaScript -e "$PARSE_JS" "$WORK/out.json" 2>/dev/null
 }
 
-# summarise — the records in, what to draw out (fields split by 0x1F):
-#   state <green|yellow|red|stale|nodata>   label <text>
-#   lines <top> <band> <bottom> <band>      (windows view, when it has them)
-#   head <cost> <tokens> <asOf epoch> <stale 0|1>
+# summarise — the records in, what to draw out (fields split by 0x1F), per
+# enabled segment in bar order:
+#   asof <epoch> <stale 0|1>                                   (once, first)
+#   seg <p> <shown 0|1> <label> <tag band> <label band> [<top> <band> <bottom> <band>]
+#   head <p> <cost> <tokens>
 #   row <name> <label> <label band> <name band>
+#   end <p>
 # Only known provider ids with status ok count, a provider's windows come from
 # its accounts when any has some (the top level repeats them), and every
 # value is checked before it reaches a label.
 summarise() {
-  /usr/bin/awk -F'\t' -v now="$now" -v view="${STM_AI_VIEW:-worst}" -v want="${STM_AI_PROVIDER:-all}" \
-    -v rows="$ROWS" -v stale_secs="$STALE_SECS" -v ahead_secs="$AHEAD_SECS" '
+  /usr/bin/awk -F'\t' -v now="$now" -v want="$enabled" -v rows="$ROWS" \
+    -v stale_secs="$STALE_SECS" -v ahead_secs="$AHEAD_SECS" '
     function epoch(s, y, m, d, hh, mm, ss, era, yoe, doy) {
       if (s !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9](\.[0-9]+)?Z$/) return ""
       y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
@@ -166,9 +193,11 @@ summarise() {
       return s
     }
     function band(p) { return p >= 80 ? "red" : p >= 50 ? "yellow" : "green" }
-    function suffix(n) {
+    function suffix(n, id) {
+      if (id != "claude" && id != "codex") return ""
       if (n == "5h" || n == "primary") return "5h"
-      if (n ~ /^7d/ || n == "secondary") return "7d"
+      if (n == "secondary") return id == "codex" ? "wk" : "7d"
+      if (n ~ /^7d/) return "7d"
       return ""
     }
     function bar(p, e, full, s, i) {
@@ -183,27 +212,45 @@ summarise() {
       s = e - now; d = int(s / 86400); h = int((s % 86400) / 3600); m = int((s % 3600) / 60)
       return d > 0 ? d "d " h "h" : h > 0 ? h "h " m "m" : m "m"
     }
-    function dollars(s, n) {
+    # usd: cents below <cents> dollars, then whole dollars, then thousands.
+    function usd(s, cents, n) {
+      if (s + 0 < cents) return sprintf("$%.2f", s)
       n = int(s + 0.5)
       return n >= 10000 ? "$" int(n / 1000) "k" : "$" n
     }
+    function amount(s) { return s == int(s) ? int(s) : sprintf("%.2f", s) }
     function tok(n) {
-      if (n == "") return "--"
       if (n < 1000) return n
       if (n < 1000000) return sprintf("%.1fK", n / 1000)
       if (n < 1000000000) return sprintf("%.1fM", n / 1000000)
       if (n < 1000000000000) return sprintf("%.1fB", n / 1000000000)
       return "999B+"
     }
-    function out(a, b, c, d, e) { print a US b US c US d US e }
-    # row: the line for one window group (the worst of its windows).
-    function line(g, cost, p, s, r) {
-      p = gpct[g]; s = suffix(gwin[g]); r = until(greset[g])
-      return bar(p) " " sprintf("%3d%%", p) (s != "" ? " " s : "") (r != "" ? "  ↻ " r : "") \
-        (cost != "" ? sprintf("  $%.2f", cost) : "")
+    function pctlabel(p, s) { return sprintf("%3d%%", p) (s != "" ? " " s : "") }
+    # line: a popup row for one window.
+    function line(p, reset, r) {
+      r = until(reset)
+      return bar(p) " " sprintf("%3d%%", p) (r != "" ? "  ↻ " r : "")
+    }
+    function wrow(id, n, k, s) {
+      if (id == "codex" && n == "primary") return "5h"
+      if (id == "codex" && n == "secondary") return "weekly"
+      s = clean(n)
+      if (s != "") return s
+      return (id == "gemini" ? "model " : "window ") k
+    }
+    # best: the highest pct of the window named <n> over the groups in G.
+    function best(n, i, g, k, b) {
+      b = ""
+      for (i = 1; i <= ng; i++) {
+        g = G[i]
+        for (k = 1; k <= nwin[g]; k++)
+          if (WN[g, k] == n && (b == "" || WP[g, k] > b)) b = WP[g, k]
+      }
+      return b
     }
     function addrow(name, label, lb, nb) {
-      nrow++; rname[nrow] = name; rlabel[nrow] = label; rband[nrow] = lb; rnb[nrow] = nb
+      nrow++; RN[nrow] = name; RL[nrow] = label; RB[nrow] = lb; RNB[nrow] = nb
     }
     BEGIN {
       US = sprintf("%c", 31)
@@ -211,17 +258,19 @@ summarise() {
       norder = split("claude codex gemini grok openrouter ollama-cloud", ORDER, " ")
       split("Claude Codex Gemini Grok OpenRouter", DISP, " ")
       for (k = 1; k <= norder; k++) { KNOWN[ORDER[k]] = k; DISPLAY[ORDER[k]] = DISP[k] }
-      DISPLAY["ollama-cloud"] = "Ollama Cloud"
       WORD["unauthenticated"] = "sign in"; WORD["notRunning"] = "not running"
       WORD["stale"] = "stale"; WORD["error"] = "error"
+      # The metrics that name one window: its name and its bar suffix.
+      split("claude 5h 5h 5h claude 7d 7d 7d claude sonnet 7d-sonnet 7d-s claude opus 7d-opus 7d-o " \
+        "codex 5h primary 5h codex weekly secondary wk grok billing billing -", M, " ")
+      for (k = 1; k in M; k += 4) { WNAME[M[k], M[k + 1]] = M[k + 2]; WSUF[M[k], M[k + 1]] = M[k + 3] == "-" ? "" : M[k + 3] }
     }
     $1 == "asof" { asof = epoch($2) }
-    $1 == "total" { total = money($2) }
-    $1 == "tokens" { tokens = $2 ~ /^[0-9]+$/ ? $2 : "" }
     $1 == "prov" {
       if (!($3 in KNOWN) || ($3 in idx)) next
       idx[$3] = $2; id_of[$2] = $3
       status[$3] = $4; pcost[$3] = money($5); pbal[$3] = money($6); pfrac[$3] = pct($7)
+      ptok[$3] = $8 ~ /^[0-9]+$/ ? $8 : ""; plim[$3] = money($9); pused[$3] = money($10)
     }
     $1 == "acct" {
       if (!($2 in id_of)) next
@@ -235,72 +284,103 @@ summarise() {
       p = pct($5)
       if (p == "") next
       g = $2 SUBSEP $3
-      nwin[g]++
-      if (!(g in gpct) || p > gpct[g]) { gpct[g] = p; gwin[g] = $4; greset[g] = epoch($6) }
-      if (suffix($4) == "5h" && (!(g in g5) || p > g5[g])) g5[g] = p
-      if (suffix($4) == "7d" && (!(g in g7) || p > g7[g])) g7[g] = p
+      k = ++nwin[g]; WN[g, k] = $4; WP[g, k] = p; WR[g, k] = epoch($6)
+      if (!(g in gpct) || p > gpct[g]) { gpct[g] = p; gwin[g] = $4 }
+      if (($4 == "5h" || $4 == "primary") && (!(g in g5) || p > g5[g])) g5[g] = p
+      if (($4 == "7d" || $4 == "secondary") && (!(g in g7) || p > g7[g])) g7[g] = p
     }
     END {
-      worst = ""
-      for (k = 1; k <= norder; k++) {
-        id = ORDER[k]
-        if (!(id in idx)) continue
-        i = idx[id]
-        if (status[id] != "ok") {
-          if (id in DISPLAY && status[id] in WORD) addrow(DISPLAY[id], WORD[status[id]], "grey", "grey")
-          continue
-        }
-        ng = 0
-        for (a = 1; a <= nacct[i]; a++) {
-          g = i SUBSEP acct[i, a]
-          if (nwin[g]) groups[++ng] = g
-        }
-        if (!ng && nwin[i SUBSEP "-"]) groups[++ng] = i SUBSEP "-"
-        for (n = 1; n <= ng; n++) {
-          g = groups[n]
-          if ((want == "all" || want == id) && (worst == "" || gpct[g] > gpct[worst])) worst = g
-        }
-        if (ng >= 2) {
-          addrow(DISPLAY[id], pcost[id] != "" ? sprintf("$%.2f spent", pcost[id]) : "", "white", "white")
-          for (n = 1; n <= ng; n++) {
-            g = groups[n]
-            addrow("  " aname[g], line(g, acost[g]), band(gpct[g]), "white")
-          }
-        } else if (ng == 1) {
-          g = groups[1]
-          addrow(DISPLAY[id], line(g, g in aname ? acost[g] : pcost[id]), band(gpct[g]), "white")
-        } else if (pbal[id] != "" && pfrac[id] != "") {
-          addrow(DISPLAY[id], bar(pfrac[id]) " " sprintf("%3d%%", pfrac[id]) sprintf("  $%.2f left", pbal[id]),
-            band(pfrac[id]), "white")
-        } else if (pbal[id] != "") {
-          addrow(DISPLAY[id], sprintf("$%.2f left", pbal[id]), "white", "white")
-        }
-      }
-
       stale = (asof == "" || now - asof > stale_secs || asof - now > ahead_secs) ? 1 : 0
-      if (worst == "") state = "nodata"
-      else if (stale) state = "stale"
-      else state = band(gpct[worst])
-      out("state", state)
+      print "asof" US asof US stale
+      nw = split(want, W, " ")
+      for (w = 1; w <= nw; w++) {
+        split(W[w], f, ":"); id = f[1]; m = f[2]; auto = f[3] == 1
+        ng = 0; nrow = 0; toplevel = 0; worst = ""; i = ""
+        if (id in idx) {
+          i = idx[id]
+          for (a = 1; a <= nacct[i]; a++) {
+            g = i SUBSEP acct[i, a]
+            if (nwin[g]) G[++ng] = g
+          }
+          toplevel = !ng && nwin[i SUBSEP "-"]
+          if (toplevel) G[++ng] = i SUBSEP "-"
+          for (n = 1; n <= ng; n++) if (worst == "" || gpct[G[n]] > gpct[worst]) worst = G[n]
+        }
+        ok = (id in idx) && status[id] == "ok"
 
-      if (worst == "") label = "--"
-      else label = sprintf("%3d%%", gpct[worst]) (suffix(gwin[worst]) != "" ? " " suffix(gwin[worst]) : "")
-      if (view == "cost") label = total != "" ? dollars(total) : "$--"
-      out("label", label)
-      if (view == "windows" && worst != "" && (worst in g5 || worst in g7)) {
-        b5 = worst in g5 && !stale ? band(g5[worst]) : "grey"
-        b7 = worst in g7 && !stale ? band(g7[worst]) : "grey"
-        out("lines", "5h " (worst in g5 ? sprintf("%3d%%", g5[worst]) : " --"), b5,
-          "7d " (worst in g7 ? sprintf("%3d%%", g7[worst]) : " --"), b7)
-      }
+        value = ""
+        if (m == "worst" || m == "windows") {
+          if (worst != "") value = pctlabel(gpct[worst], suffix(gwin[worst], id))
+        } else if (m == "cost") {
+          if (pcost[id] != "") value = usd(pcost[id], 10)
+        } else if (m == "balance") {
+          if (pbal[id] != "") value = usd(pbal[id], 1000)
+        } else if (m == "quota") {
+          if (pfrac[id] != "") value = pctlabel(pfrac[id], "")
+        } else if ((id, m) in WNAME) {
+          b = best(WNAME[id, m])
+          if (b != "") value = pctlabel(b, WSUF[id, m])
+        }
+        tagp = id == "openrouter" ? pfrac[id] : worst != "" ? gpct[worst] : ""
 
-      out("head", total != "" ? sprintf("$%.2f", total) : "$--", tok(tokens), asof, stale)
-      if (nrow > rows) {
-        hidden = nrow - (rows - 1)
-        nrow = rows - 1
-        addrow("", "+" hidden " more", "grey", "white")
+        top = topb = bot = botb = ""
+        if (ok && value != "") {
+          shown = 1; label = value
+          if (stale) { tb = "grey"; lb = "grey" }
+          else { tb = tagp != "" ? band(tagp) : "white"; lb = "white" }
+          if (m == "windows" && ((worst in g5) || (worst in g7))) {
+            top = "5h " ((worst in g5) ? sprintf("%3d%%", g5[worst]) : " --")
+            topb = (worst in g5) && !stale ? band(g5[worst]) : "grey"
+            bot = (id == "codex" ? "wk " : "7d ") ((worst in g7) ? sprintf("%3d%%", g7[worst]) : " --")
+            botb = (worst in g7) && !stale ? band(g7[worst]) : "grey"
+          }
+        } else if (auto) {
+          shown = 0; label = tb = lb = ""
+        } else {
+          shown = 1; tb = lb = "grey"
+          label = (id in idx) && status[id] == "unauthenticated" ? "sign in" : "--"
+        }
+        print "seg" US id US shown US label US tb US lb US top US topb US bot US botb
+        print "head" US id US (pcost[id] != "" ? sprintf("$%.2f", pcost[id]) : "") US \
+          (ptok[id] != "" ? tok(ptok[id]) " tok" : "")
+
+        if (!(id in idx)) {
+        } else if (status[id] != "ok") {
+          if (status[id] in WORD) addrow(DISPLAY[id], WORD[status[id]], "grey", "grey")
+        } else {
+          for (a = 1; a <= nacct[i]; a++) {
+            g = i SUBSEP acct[i, a]
+            if (!nwin[g]) { addrow(aname[g], "no limit", "grey", "grey"); continue }
+            addrow(aname[g], acost[g] != "" ? sprintf("$%.2f", acost[g]) : "", "white", "white")
+            for (k = 1; k <= nwin[g]; k++)
+              addrow("  " wrow(id, WN[g, k], k), line(WP[g, k], WR[g, k]), band(WP[g, k]), "white")
+          }
+          if (toplevel) {
+            g = i SUBSEP "-"
+            for (k = 1; k <= nwin[g]; k++) {
+              l = line(WP[g, k], WR[g, k])
+              if (id == "grok" && WN[g, k] == "billing" && pused[id] != "" && plim[id] != "")
+                l = l "  " amount(pused[id]) " / " amount(plim[id])
+              addrow(wrow(id, WN[g, k], k), l, band(WP[g, k]), "white")
+            }
+          }
+          if (id == "openrouter") {
+            if (pfrac[id] != "")
+              addrow("credits", bar(pfrac[id]) " " sprintf("%3d%%", pfrac[id]) \
+                (pbal[id] != "" ? sprintf("  $%.2f left", pbal[id]) : ""), band(pfrac[id]), "white")
+            else if (pbal[id] != "")
+              addrow("credits", sprintf("$%.2f left", pbal[id]), "white", "white")
+            if (plim[id] != "") addrow("limit", sprintf("$%.2f", plim[id]), "white", "white")
+          }
+        }
+        if (nrow > rows) {
+          hidden = nrow - (rows - 1)
+          nrow = rows - 1
+          addrow("", "+" hidden " more", "grey", "white")
+        }
+        for (n = 1; n <= nrow; n++) print "row" US RN[n] US RL[n] US RB[n] US RNB[n]
+        print "end" US id
       }
-      for (n = 1; n <= nrow; n++) out("row", rname[n], rlabel[n], rband[n], rnb[n])
     }
   ' "$WORK/rec"
 }
@@ -315,8 +395,105 @@ color_of() {
   esac
 }
 
-field() {
-  /usr/bin/awk -F"$US" -v k="$1" -v n="${2:-2}" '$1 == k { print $n; exit }' "$WORK/sum"
+# Everything sent to sketchybar, one argument per line (no value holds a
+# newline), for one call at the end.
+emit() {
+  printf '%s\n' "$@" >>"$WORK/args"
+}
+
+# segment <p> — make <p> the segment the next show / hide / popup acts on.
+segment() {
+  p=$1
+  seg=$NAME.$p
+  for x in $enabled; do
+    case $x in "$p":*)
+      metric=${x#*:}
+      metric=${metric%%:*}
+      ;;
+    esac
+  done
+  case $p in
+    claude) cw=${STM_AI_CW_CLAUDE:-} pad=${STM_AI_PAD_CLAUDE:-} ;;
+    codex) cw=${STM_AI_CW_CODEX:-} pad=${STM_AI_PAD_CODEX:-} ;;
+    gemini) cw=${STM_AI_CW_GEMINI:-} pad=${STM_AI_PAD_GEMINI:-} ;;
+    grok) cw=${STM_AI_CW_GROK:-} pad=${STM_AI_PAD_GROK:-} ;;
+    *) cw=${STM_AI_CW_OPENROUTER:-} pad=${STM_AI_PAD_OPENROUTER:-} ;;
+  esac
+  windows=0
+  [ "$metric" = windows ] && windows=1
+  icon_item=0
+  [ "${STM_AI_SHAPE:-}" = split ] || [ "$windows" = 1 ] && icon_item=1
+  pill=0
+  [ "${STM_AI_SHAPE:-}" = pill ] && [ "$windows" = 1 ] && pill=1
+}
+
+# show <label> <tag band> <label band> [<top> <band> <bottom> <band>] — the
+# segment drawn: the windows metric stacks <top> over <bottom> when it has
+# them; the tag colour goes on the split tag's background, on the tag that
+# the windows metric moves to <segment>.icon, or on the segment's own tag.
+show() {
+  emit --set "$seg" drawing=on
+  text=$1
+  measured=$1
+  label_color=$(color_of "$3")
+  if [ "$windows" = 1 ]; then
+    if [ -n "${4:-}" ]; then
+      emit icon.drawing=on "icon=$4"
+      c=$(color_of "$5")
+      [ -n "$c" ] && emit "icon.color=$c"
+      text=$6
+      label_color=$(color_of "$7")
+      measured=$6
+      [ ${#4} -gt ${#6} ] && measured=$4
+    else
+      emit icon.drawing=off
+    fi
+  fi
+  emit "label=$text"
+  [ -n "$label_color" ] && emit "label.color=$label_color"
+  if [ "$windows" = 1 ]; then
+    if [ -n "${4:-}" ]; then
+      emit label.y_offset=-5
+    else
+      emit label.y_offset=0
+    fi
+  fi
+  # label.width is the whole label, paddings included.
+  case "$cw:$pad" in
+    *[!0-9.:]* | :* | *:) ;;
+    *)
+      emit "label.width=$(/usr/bin/awk -v n=${#measured} -v cw="$cw" -v pad="$pad" \
+        'BEGIN { w = n * cw; i = int(w); if (i < w) i++; print pad + i }')"
+      ;;
+  esac
+  tag_color=$(color_of "$2")
+  if [ "${STM_AI_SHAPE:-}" = split ]; then
+    emit --set "$seg.icon" drawing=on
+    [ -n "$tag_color" ] && emit "background.color=$tag_color"
+  elif [ "$windows" = 1 ]; then
+    emit --set "$seg.icon" drawing=on
+    [ -n "$tag_color" ] && emit "icon.color=$tag_color"
+  elif [ -n "$tag_color" ]; then
+    emit "icon.color=$tag_color"
+  fi
+  [ "$pill" = 1 ] && emit --set "$seg.pill" drawing=on
+  return 0
+}
+
+hide() {
+  emit --set "$seg" drawing=off popup.drawing=off
+  [ "$icon_item" = 1 ] && emit --set "$seg.icon" drawing=off
+  [ "$pill" = 1 ] && emit --set "$seg.pill" drawing=off
+  return 0
+}
+
+# popup_end — hide the unused rows from row $n on; set the foot.
+popup_end() {
+  while [ "$n" -lt "$ROWS" ]; do
+    emit --set "$seg.row.$n" drawing=off
+    n=$((n + 1))
+  done
+  emit --set "$seg.row.foot" "label=$foot"
 }
 
 aub=$(find_aub)
@@ -332,125 +509,92 @@ fi
 now=${STM_NOW:-$(/bin/date +%s)}
 case $now in "" | *[!0-9]*) now=0 ;; esac
 
-# state: missing (no aub), fail (aub gave nothing usable), else summarise's.
-: >"$WORK/sum"
+# state: missing (no aub), fail (aub gave nothing usable), else ok.
+: >"$WORK/args"
 state=missing
 if [ -n "$aub" ]; then
   state=fail
   if run_aub "$aub" && [ -s "$WORK/out.json" ]; then
-    if parse >"$WORK/rec"; then
-      summarise >"$WORK/sum"
-      state=$(field state)
-    fi
+    parse >"$WORK/rec" && summarise >"$WORK/sum" && state=ok
   fi
 fi
 
-case $state in
-  missing) label="no aub" ;;
-  fail) label=-- ;;
-  *) label=$(field label) ;;
-esac
-[ "$state" = fail ] && [ "${STM_AI_VIEW:-}" = cost ] && label='$--'
-
-case $state in
-  green | yellow | red)
-    state_color=$(color_of "$state")
-    label_color=${STM_WHITE:-}
-    ;;
-  *)
-    state_color=${STM_GREY:-}
-    label_color=${STM_GREY:-}
-    ;;
-esac
-
-set -- --set "$NAME"
-text=$label
-measured=$label
-if [ "${STM_AI_VIEW:-}" = windows ]; then
-  top=$(field lines 2)
-  if [ -n "$top" ]; then
-    text=$(field lines 4)
-    set -- "$@" icon.drawing=on "icon=$top"
-    c=$(color_of "$(field lines 3)")
-    [ -n "$c" ] && set -- "$@" "icon.color=$c"
-    label_color=$(color_of "$(field lines 5)")
-    measured=$text
-    [ ${#top} -gt ${#text} ] && measured=$top
-  else
-    set -- "$@" icon.drawing=off
-  fi
-fi
-set -- "$@" "label=$text"
-[ -n "$label_color" ] && set -- "$@" "label.color=$label_color"
-if [ "${STM_AI_VIEW:-}" = windows ]; then
-  if [ -n "$top" ]; then
-    set -- "$@" label.y_offset=-5
-  else
-    set -- "$@" label.y_offset=0
-  fi
-fi
-
-# label.width is the whole label, paddings included.
-case "${STM_AI_CW:-}:${STM_AI_PAD:-}" in
-  *[!0-9.:]* | :* | *:) ;;
-  *)
-    width=$(/usr/bin/awk -v n=${#measured} -v cw="$STM_AI_CW" -v pad="$STM_AI_PAD" \
-      'BEGIN { w = n * cw; i = int(w); if (i < w) i++; print pad + i }')
-    set -- "$@" "label.width=$width"
-    ;;
-esac
-
-# The state colour: on the split icon's background, on the glyph that the
-# windows view moves to <name>.icon, or on the main item's glyph.
-if [ -n "$state_color" ]; then
-  if [ "${STM_AI_SHAPE:-}" = split ]; then
-    set -- "$@" --set "$NAME.icon" "background.color=$state_color"
-  elif [ "${STM_AI_VIEW:-}" = windows ]; then
-    set -- "$@" --set "$NAME.icon" "icon.color=$state_color"
-  else
-    set -- "$@" "icon.color=$state_color"
-  fi
-fi
-
-# The popup.
-n=0
 foot="Open Agents Usage Bar"
-case $state in
-  missing | fail)
-    if [ "$state" = missing ]; then
-      head="aub not found"
-      hint="install Agents Usage Bar, then run aub install"
-      foot="Get Agents Usage Bar"
+if [ "$state" = ok ]; then
+  # One segment after another, in bar order: its bar text, then its popup.
+  while IFS="$US" read -r kind a b c d e f g h i; do
+    case $kind in
+      asof)
+        stale=$b
+        hhmm=""
+        [ -n "$a" ] && hhmm=$(/bin/date -r "$a" +%H:%M 2>/dev/null)
+        ;;
+      seg)
+        segment "$a"
+        shown=$b
+        if [ "$shown" = 1 ]; then
+          show "$c" "$d" "$e" "$f" "$g" "$h" "$i"
+        else
+          hide
+        fi
+        ;;
+      head)
+        [ "$shown" = 1 ] || continue
+        head=$b
+        [ -n "$c" ] && head="${head:+$head · }$c"
+        when=""
+        [ -n "$hhmm" ] && when="as of $hhmm"
+        [ "$stale" = 1 ] && when="stale${when:+ · $when}"
+        [ -n "$when" ] && head="${head:+$head · }$when"
+        emit --set "$seg.row.head" icon=today "label=$head"
+        n=0
+        ;;
+      row)
+        [ "$shown" = 1 ] || continue
+        emit --set "$seg.row.$n" drawing=on "icon=$a"
+        c2=$(color_of "$d")
+        [ -n "$c2" ] && emit "icon.color=$c2"
+        emit "label=$b"
+        c2=$(color_of "$c")
+        [ -n "$c2" ] && emit "label.color=$c2"
+        n=$((n + 1))
+        ;;
+      end)
+        [ "$shown" = 1 ] && popup_end
+        ;;
+    esac
+  done <"$WORK/sum"
+else
+  # No usable data: say so on the first enabled segment only, with the popup
+  # telling how to fix it, and hide the rest.
+  if [ "$state" = missing ]; then
+    label="no aub"
+    head="aub not found"
+    hint="install Agents Usage Bar, then run aub install"
+    foot="Get Agents Usage Bar"
+  else
+    label=--
+    head="no cached usage yet"
+    hint="open the app to start polling"
+  fi
+  first=1
+  for e in $enabled; do
+    segment "${e%%:*}"
+    if [ "$first" = 1 ]; then
+      show "$label" grey grey
+      emit --set "$seg.row.head" icon=aub "label=$head" --set "$seg.row.0" drawing=on icon= "label=$hint"
+      [ -n "${STM_GREY:-}" ] && emit "label.color=$STM_GREY"
+      n=1
+      popup_end
+      first=0
     else
-      head="no cached usage yet"
-      hint="open the app to start polling"
+      hide
     fi
-    set -- "$@" --set "$NAME.row.head" icon=aub "label=$head" --set "$NAME.row.0" drawing=on icon= "label=$hint"
-    [ -n "${STM_GREY:-}" ] && set -- "$@" "label.color=$STM_GREY"
-    n=1
-    ;;
-  *)
-    head="$(field head 2) · $(field head 3) tok"
-    [ "$(field head 5)" = 1 ] && head="$head · stale"
-    asof=$(field head 4)
-    [ -n "$asof" ] && head="$head · as of $(/bin/date -r "$asof" +%H:%M 2>/dev/null)"
-    set -- "$@" --set "$NAME.row.head" icon=today "label=$head"
-    while IFS="$US" read -r kind rname rlabel rband rnb; do
-      [ "$kind" = row ] || continue
-      set -- "$@" --set "$NAME.row.$n" drawing=on "icon=$rname"
-      c=$(color_of "$rnb")
-      [ -n "$c" ] && set -- "$@" "icon.color=$c"
-      set -- "$@" "label=$rlabel"
-      c=$(color_of "$rband")
-      [ -n "$c" ] && set -- "$@" "label.color=$c"
-      n=$((n + 1))
-    done <"$WORK/sum"
-    ;;
-esac
-while [ "$n" -lt "$ROWS" ]; do
-  set -- "$@" --set "$NAME.row.$n" drawing=off
-  n=$((n + 1))
-done
-set -- "$@" --set "$NAME.row.foot" "label=$foot"
+  done
+fi
 
+set --
+while IFS= read -r arg; do
+  set -- "$@" "$arg"
+done <"$WORK/args"
 sketchybar "$@"
