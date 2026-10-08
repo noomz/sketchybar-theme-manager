@@ -698,6 +698,7 @@ narrow = "right" # right | center | always — where to sit on a narrow screen
 view = "unified" # unified | separate — one graph for both rates, or one item each
 
 [item.ai]
+icon = "tag"        # tag | image — a text tag, or a provider image (below)
 claude = "auto"     # auto | worst | 5h | 7d | sonnet | opus | windows | cost | off
 codex = "auto"      # auto | worst | 5h | weekly | windows | cost | off
 gemini = "auto"     # auto | worst | off
@@ -719,6 +720,23 @@ Grok, OpenRouter from left to right, wherever the item sits. A segment starts
 with a text tag — `CL`, `CX`, `GE`, `GK`, `OR` — not a logo, coloured by that
 provider's most used window: green, yellow from 50%, red from 80% (the bands
 Agents Usage Bar uses). Click a segment, or its tag, for its own popup.
+
+stm ships no logos. With `icon = "image"`, each segment shows, first match
+wins:
+
+1. your own PNG, `icons/ai/<provider>.png` in your SketchyBar config folder
+   (eg `~/.config/sketchybar/icons/ai/claude.png`), where `<provider>` is
+   `claude`, `codex`, `gemini`, `grok` or `openrouter`. Make it 40×40 px; it
+   is drawn at 20 pt. It must be a plain file named exactly that (lower case,
+   `.png`), not a symlink.
+2. the installed app's icon: Claude for `claude`; Codex, then ChatGPT for
+   `codex`. Gemini, Grok and OpenRouter have no app.
+3. the text tag.
+
+The lookup runs when the bar reloads and when the Mac wakes, so reload the bar
+(`sketchybar --reload`) after adding or removing a file. An image keeps its own
+colours, so with `plain` and `pill` the provider's colour goes on the segment's
+text instead; with `split` it stays behind the image.
 
 One key per provider picks what its segment shows, or `off` for no segment at
 all:
