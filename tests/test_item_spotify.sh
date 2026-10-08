@@ -380,6 +380,44 @@ assert_eq "$HIDDEN_SPLIT" "$SB" "hidden"
 assert_eq "" "$QUERIES" "hidden: no queries"
 done_it
 
+it "narrow = always: right on every display, width never asked (V43)"
+RIGHT_SPLIT=$(argv_of --set stm.spotify position=right popup.align=right --move stm.spotify after stm.tailscale.row.2 \
+  --set stm.spotify.icon position=right --move stm.spotify.icon after stm.spotify)
+# A wide main display: still right, leftmost of the right items, icon left.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off STM_SP_NARROW=always DISPLAYS_OUT="$(displays 2560)" \
+  ITEM_OUT="$(placed center)" BAR_OUT="$BAR"
+assert_eq "$VISIBLE
+$RIGHT_SPLIT" "$SB" "wide, split"
+assert_eq "query stm.spotify
+query bar" "$QUERIES" "no displays query"
+# Width unknown: no width needed.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off STM_SP_NARROW=always DISPLAYS_OUT="" \
+  ITEM_OUT="$(placed center)" BAR_OUT="$BAR"
+assert_eq "$VISIBLE
+$RIGHT_SPLIT" "$SB" "width unknown"
+# Already right: nothing to move.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off STM_SP_NARROW=always DISPLAYS_OUT="$(displays 2560)" ITEM_OUT="$(placed right)"
+assert_eq "$VISIBLE" "$SB" "already right"
+# pill: no icon sub-item to move.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off STM_SP_NARROW=always STM_SP_SHAPE=pill ITEM_OUT="$(placed center)" BAR_OUT="$BAR"
+assert_eq "$(argv_of --set stm.spotify position=right popup.align=right --move stm.spotify after stm.tailscale.row.2)" \
+  "$(printf '%s\n' "$SB" | tail -n 8)" "pill"
+assert_not_contains "$SB" "stm.spotify.icon"
+# display_change: placement only, only while shown.
+run_plugin 1 "$PLAYING" SENDER=display_change STM_SP_NARROW=always DISPLAYS_OUT="$(displays 2560)" \
+  ITEM_OUT="$(placed center)" BAR_OUT="$BAR"
+assert_eq "$RIGHT_SPLIT" "$SB" "display_change, shown"
+assert_eq "" "$CALLS" "display_change: no pgrep, no osascript"
+run_plugin 1 "$PLAYING" SENDER=display_change STM_SP_NARROW=always ITEM_OUT="$(placed right)"
+assert_eq "" "$SB" "display_change, already placed"
+run_plugin 1 "$PLAYING" SENDER=display_change STM_SP_NARROW=always ITEM_OUT="$(placed center off)"
+assert_eq "" "$SB" "display_change, hidden"
+# A position of your own: never moved.
+run_plugin 1 "$PLAYING" STM_SP_COVER=off STM_SP_NARROW=always STM_SP_POSITION=left ITEM_OUT="$(placed left)"
+assert_eq "$VISIBLE" "$SB" "configured left"
+assert_eq "" "$QUERIES" "configured left: no queries"
+done_it
+
 LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   mkdir -p "$SANDBOX/lua"

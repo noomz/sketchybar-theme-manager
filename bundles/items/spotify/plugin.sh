@@ -5,7 +5,8 @@
 #   NAME, SENDER     the SketchyBar item and event
 #   STM_SP_SHAPE     plain | pill | split
 #   STM_SP_COVER     on | off
-#   STM_SP_NARROW    right | center: where to sit on a narrow main display
+#   STM_SP_NARROW    right | center | always: where to sit on a narrow main
+#                    display; always = on the right on every display
 #   STM_SP_POSITION  the item's configured position
 #   STM_SP_ACTION    play | next | back | shuffle | repeat, on a control's click
 # Colours live in item.lua; this sets the text, glyphs, visibility and cover.
@@ -34,17 +35,24 @@ hide() {
 # main display (a laptop screen) runs into the right items: move it to their
 # left end, popup aligned right, and back to the centre on a wide one. Only from
 # the centre, and only when the bar has it elsewhere, so a tick never
-# reorders the bar. The main display decides for every display the bar is on.
+# reorders the bar. The main display decides for every display the bar is on;
+# with narrow = always the item goes right whatever the width.
 place() {
   move="" drawing=""
-  [ "${STM_SP_POSITION:-center}" = center ] && [ "${STM_SP_NARROW:-right}" = right ] || return 0
-  w=$(sketchybar --query displays 2>/dev/null | /usr/bin/awk '
-    /"arrangement-id"/ { id = $0; gsub(/[^0-9]/, "", id) }
-    /"w"/ && id == "1" { sub(/^[^:]*: */, ""); sub(/[.,].*$/, ""); print; exit }')
-  case "$w" in
-    "" | *[!0-9]*) return 0 ;;
+  [ "${STM_SP_POSITION:-center}" = center ] || return 0
+  case "${STM_SP_NARROW:-right}" in
+    always) want=right ;;
+    right)
+      w=$(sketchybar --query displays 2>/dev/null | /usr/bin/awk '
+        /"arrangement-id"/ { id = $0; gsub(/[^0-9]/, "", id) }
+        /"w"/ && id == "1" { sub(/^[^:]*: */, ""); sub(/[.,].*$/, ""); print; exit }')
+      case "$w" in
+        "" | *[!0-9]*) return 0 ;;
+      esac
+      if [ "$w" -lt 1800 ]; then want=right; else want=center; fi
+      ;;
+    *) return 0 ;;
   esac
-  if [ "$w" -lt 1800 ]; then want=right; else want=center; fi
   # The first "drawing" and "position" are the item's own (geometry).
   state=$(sketchybar --query "$NAME" 2>/dev/null | /usr/bin/awk -F'"' '
     $2 == "drawing" && d == "" { d = $4 }
