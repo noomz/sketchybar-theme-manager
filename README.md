@@ -692,7 +692,7 @@ label = "type"   # type | ip — Wi-Fi, Ethernet, VPN, offline; or the local IPv
 
 [item.spotify]
 cover = "on"     # on | off — download the album cover for the popup
-narrow = "right" # right | center — where to sit on a narrow screen
+narrow = "right" # right | center | always — where to sit on a narrow screen
 
 [item.netspeed]
 view = "unified" # unified | separate — one graph for both rates, or one item each
@@ -774,6 +774,7 @@ characters instead of growing into the items beside it. On a narrow main
 display (under 1800 points wide — a laptop screen) a centred `spotify` moves
 to the left end of the right items, its popup aligned right, and returns to the centre on a
 wider one; the main display decides for every display the bar is on.
+`narrow = "always"` puts it there on every display, whatever the width.
 `narrow = "center"`, or a position of your own in `[items]`, keeps it put.
 
 `cpu`, `mem`, `disk` and `netspeed` read stock macOS tools only, with no

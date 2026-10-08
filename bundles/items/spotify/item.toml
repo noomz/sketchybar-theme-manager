@@ -3,7 +3,7 @@
 # Installed with `stm install item:spotify`; options go in stm.config.toml
 # (or a theme's palette) under [item.spotify].
 name = "spotify"
-version = "0.1.0"
+version = "0.2.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["magenta", "green", "red", "white", "black", "bg1", "popup_bg", "popup_border"]
@@ -26,7 +26,8 @@ default = "on"
 
 # right: on a narrow main display (under 1800 points wide, i.e. a laptop
 # screen) move from the centre to the right, beside the right items; center:
-# stay centred. Only applies while the item's position is center.
+# stay centred; always: on the right, beside the right items, on every
+# display. Only applies while the item's position is center.
 [options.narrow]
-values = ["right", "center"]
+values = ["right", "center", "always"]
 default = "right"
