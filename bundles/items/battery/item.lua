@@ -67,9 +67,17 @@ return function(sbar, opts, colors)
     sbar.add("item", opts.name .. ".icon", sub)
   end
 
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_BATTERY: full | icon | hidden. Anything else is full. plugin.sh
+  -- gets the form and sets `drawing`; the label is turned off here.
+  local forms = { full = true, icon = true, hidden = true }
+  local form = "full"
+  local key = "STM_FORM_" .. opts.name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
+
   local function run(e)
     local sender = (e and e.SENDER) or "forced"
-    sbar.exec(string.format("%s NAME=%s SENDER=%s %s", env, quote(opts.name), quote(sender), plugin))
+    sbar.exec(string.format("%s STM_FORM=%s NAME=%s SENDER=%s %s", env, quote(form), quote(opts.name),
+      quote(sender), plugin))
   end
 
   local events = { "routine", "forced" }
@@ -77,5 +85,20 @@ return function(sbar, opts, colors)
     events[#events + 1] = ev
   end
   item:subscribe(events, run)
+
+  sbar.add("event", "stm_compact")
+  item:subscribe("stm_compact", function(e)
+    local f = e and e[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      form = f
+      if not sub then
+        item:set({ label = { drawing = form == "full" } })
+      end
+      run(e)
+    end
+  end)
   run()
 end

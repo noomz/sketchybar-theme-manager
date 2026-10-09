@@ -2,13 +2,18 @@
 # Installed with `stm install item:clock`; options go in stm.config.toml
 # (or a theme's palette) under [item.clock].
 name = "clock"
-version = "0.1.0"
+version = "0.2.0"
 dialects = ["lua"]
 files = ["item.lua"]
 colors = ["yellow", "bg1", "black"]
 default_position = "right"
 update_freq = 1
 events = ["system_woke"]
+
+# The forms compact mode (item:compact) may ask for, widest first:
+#   full  the icon and the time
+#   short the time alone
+compact = "full short"
 
 # How the item is drawn (a theme may set this in its palette):
 #   plain  <icon> <text>, no background
@@ -27,3 +32,9 @@ default = "24"
 [options.seconds]
 values = ["off", "on"]
 default = "off"
+
+# Compact mode steps low items down first, then normal, then high; pin never
+# leaves its full form.
+[options.priority]
+values = ["pin", "high", "normal", "low"]
+default = "pin"

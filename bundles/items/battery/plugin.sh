@@ -5,12 +5,27 @@
 #   NAME, SENDER                  the SketchyBar item and event
 #   STM_GREEN STM_YELLOW STM_RED  palette colours as 0xAARRGGBB (may be empty)
 #   STM_BAT_SHAPE                 plain | pill | split
+#   STM_FORM                      compact mode form: full | icon | hidden
+#                                 (anything else is full)
 # Colours are never hard-coded here: they follow the palette.
 #
 # STM_PMSET overrides /usr/bin/pmset (tests).
 
 NAME=${NAME:-stm.battery}
 shape=${STM_BAT_SHAPE:-split}
+form=${STM_FORM:-full}
+case "$form" in
+  full | icon | hidden) ;;
+  *) form=full ;;
+esac
+
+# Hidden by compact mode: nothing to read.
+if [ "$form" = hidden ]; then
+  set -- --set "$NAME" drawing=off
+  [ "$shape" = split ] && set -- "$@" --set "$NAME.icon" drawing=off
+  sketchybar "$@"
+  exit 0
+fi
 
 batt=$("${STM_PMSET:-/usr/bin/pmset}" -g batt 2>/dev/null)
 # The Mac's own battery only: a UPS is listed too, on its own line.
@@ -53,8 +68,12 @@ esac
 
 # split: the icon and its state colour live on the icon sub-item (item.lua
 # keeps that icon black); otherwise the colour goes on the icon itself.
+# The icon form: split hides the label part; plain and pill have the label
+# turned off by item.lua.
 if [ "$shape" = split ]; then
-  set -- --set "$NAME" drawing=on label="$pct%" --set "$NAME.icon" drawing=on icon="$glyph"
+  main=on
+  [ "$form" = icon ] && main=off
+  set -- --set "$NAME" drawing=$main label="$pct%" --set "$NAME.icon" drawing=on icon="$glyph"
   [ -n "$color" ] && set -- "$@" background.color="$color"
 else
   set -- --set "$NAME" drawing=on icon="$glyph" label="$pct%"

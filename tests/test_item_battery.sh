@@ -69,8 +69,9 @@ run_plugin() {
     STM_GREEN=$GREEN STM_YELLOW=$YELLOW STM_RED=$RED \
     "$@" /bin/sh "$PLUGIN" >/dev/null 2>&1
   SB=$(cat "$SB_LOG" 2>/dev/null || true)
-  # I.bat: one pmset call per run; one sketchybar call carries every update.
-  assert_eq call "$(cat "$SB_LOG.pmset" 2>/dev/null)" "pmset calls per run"
+  # I.bat: one pmset call per run (none when hidden by compact mode); one
+  # sketchybar call carries every update.
+  assert_eq "${PMSET_CALLS-call}" "$(cat "$SB_LOG.pmset" 2>/dev/null)" "pmset calls per run"
 }
 
 argv_of() {
@@ -124,6 +125,25 @@ assert_eq 'default = "split"' "$(awk '/^\[options\.shape\]/ { s = 1; next } /^\[
   "$BUNDLE/item.toml")" "manifest shape default"
 done_it
 
+it "compact forms: icon hides the split label part, hidden skips pmset, bad form is full (I.form)"
+run_plugin "$(pmset_batt 14 'Battery Power')" STM_BAT_SHAPE=split STM_FORM=icon
+assert_eq "$(argv_of --set stm.battery drawing=off label=14% \
+  --set stm.battery.icon drawing=on "icon=$G10" background.color=$RED)" "$SB" "split icon"
+run_plugin "$(pmset_batt 14 'Battery Power')" STM_BAT_SHAPE=plain STM_FORM=icon
+assert_eq "$(argv_of --set stm.battery drawing=on "icon=$G10" label=14% icon.color=$RED)" "$SB" "plain icon: label off is item.lua's"
+for f in full bogus ""; do
+  run_plugin "$(pmset_batt 14 'Battery Power')" STM_BAT_SHAPE=split "STM_FORM=$f"
+  assert_eq "$(argv_of --set stm.battery drawing=on label=14% \
+    --set stm.battery.icon drawing=on "icon=$G10" background.color=$RED)" "$SB" "form [$f] = full"
+done
+PMSET_CALLS=""
+run_plugin "$(pmset_batt 14 'Battery Power')" STM_BAT_SHAPE=split STM_FORM=hidden
+assert_eq "$(argv_of --set stm.battery drawing=off --set stm.battery.icon drawing=off)" "$SB" "split hidden"
+run_plugin "$(pmset_batt 14 'Battery Power')" STM_BAT_SHAPE=pill STM_FORM=hidden
+assert_eq "$(argv_of --set stm.battery drawing=off)" "$SB" "pill hidden"
+unset PMSET_CALLS
+done_it
+
 it "no battery: the item (and split icon sub-item) hides (V38)"
 run_plugin "$DESKTOP" STM_BAT_SHAPE=split
 assert_eq "$(argv_of --set stm.battery drawing=off --set stm.battery.icon drawing=off)" "$SB" "split"
@@ -165,18 +185,30 @@ local function dump(v)
   end
   return "{" .. table.concat(parts, " ") .. "}"
 end
+local handlers = {}
 local sbar = {}
 function sbar.add(kind, name, props)
   print(kind .. " " .. name .. " " .. dump(props))
-  return { subscribe = function() end, set = function() end }
+  return {
+    subscribe = function(_, events, fn)
+      if type(events) == "string" then events = { events } end
+      for _, e in ipairs(events) do handlers[e] = fn end
+    end,
+    set = function(_, p) print("set " .. name .. " " .. dump(p)) end,
+  }
 end
 function sbar.exec(cmd) print("exec " .. cmd) end
 local opts = { name = "stm.battery", position = position, update_freq = 120,
   plugin_dir = "/p", events = { "power_source_change" }, options = { shape = shape } }
 dofile(item_lua)(sbar, opts, { green = 1, yellow = 2, red = 3, bg1 = 21, black = 22 })
+-- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
+for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
+  print("form " .. f)
+  handlers.stm_compact({ SENDER = "stm_compact", STM_FORM_BATTERY = f ~= "-" and f or nil })
+end
 EOF
   items_of() {
-    "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "$BUNDLE/item.lua" 2>&1 | grep -v '^exec '
+    "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "$BUNDLE/item.lua" 2>&1 | grep '^item '
   }
   # icon_props <colour> — the initial icon table, flattened.
   icon_props() {
@@ -208,7 +240,35 @@ $(main "$pos")" "$(items_of split "$pos")" "split $pos"
 
   it "item.lua hands plugin.sh its palette colours and shape (I.bundle, V14)"
   out=$("$LUA_BIN" "$SANDBOX/lua/probe.lua" pill right "$BUNDLE/item.lua" 2>&1)
-  assert_contains "$out" "exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_BAT_SHAPE='pill' NAME='stm.battery' SENDER='forced' '/p/battery.sh'"
+  assert_contains "$out" "exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_BAT_SHAPE='pill' STM_FORM='full' NAME='stm.battery' SENDER='forced' '/p/battery.sh'"
+  done_it
+
+  it "item.lua compact forms: label off in icon (plain|pill), form to plugin.sh, bad | missing = full (I.form, V42)"
+  exec_of() {
+    printf "exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_BAT_SHAPE='%s' STM_FORM='%s' NAME='stm.battery' SENDER='stm_compact' '/p/battery.sh'" "$1" "$2"
+  }
+  out=$(PROBE_FORMS=icon,icon,bogus,hidden,-,full "$LUA_BIN" "$SANDBOX/lua/probe.lua" pill right "$BUNDLE/item.lua" 2>&1 | sed -n '/^form /,$p')
+  assert_eq "form icon
+set stm.battery {label={drawing=false}}
+$(exec_of pill icon)
+form icon
+form bogus
+set stm.battery {label={drawing=true}}
+$(exec_of pill full)
+form hidden
+set stm.battery {label={drawing=false}}
+$(exec_of pill hidden)
+form -
+set stm.battery {label={drawing=true}}
+$(exec_of pill full)
+form full" "$out"
+  out=$(PROBE_FORMS=icon,hidden "$LUA_BIN" "$SANDBOX/lua/probe.lua" split right "$BUNDLE/item.lua" 2>&1 | sed -n '/^form /,$p')
+  assert_eq "form icon
+$(exec_of split icon)
+form hidden
+$(exec_of split hidden)" "$out" "split: drawing is plugin.sh's"
+  all=$("$LUA_BIN" "$SANDBOX/lua/probe.lua" split right "$BUNDLE/item.lua" 2>&1)
+  assert_contains "$all" "event stm_compact nil"
   done_it
 elif [ -n "${CI:-}" ]; then
   it "lua is available to run item.lua"

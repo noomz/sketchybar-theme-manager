@@ -8,7 +8,8 @@ return function(sbar, opts, colors)
   local o = opts.options
 
   -- os.date formats, picked by the (validated) option; never built from it.
-  local formats = { iso = "%Y-%m-%d", short = "%a %d %b" }
+  -- The compact `short` form shows the day of the month alone.
+  local formats = { iso = "%Y-%m-%d", short = "%a %d %b", compact = "%d" }
   local format = formats[o.format]
   local label = os.date(format)
 
@@ -16,6 +17,9 @@ return function(sbar, opts, colors)
   local props = {
     position = opts.position,
     update_freq = opts.update_freq,
+    -- compact mode may hide the item; a hidden item gets no events unless it
+    -- asks for them (SketchyBar's default is when_shown).
+    updates = true,
     icon = icon,
     label = { string = label },
   }
@@ -40,17 +44,35 @@ return function(sbar, opts, colors)
     props.background = { drawing = true, color = colors.bg1, padding_left = 0 }
   end
 
+  local icon_item
   if sub and opts.position ~= "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
   end
   local item = sbar.add("item", opts.name, props)
   if sub and opts.position == "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
+  end
+
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_DATE: full | short (day of the month) | icon | hidden. Anything
+  -- else is full.
+  local forms = { full = true, short = true, icon = true, hidden = true }
+  local form = "full"
+  local key = "STM_FORM_" .. opts.name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
+
+  local function draw_form()
+    local shown = form ~= "hidden"
+    if icon_item then
+      icon_item:set({ drawing = shown })
+      item:set({ drawing = shown and form ~= "icon" })
+    else
+      item:set({ drawing = shown, label = { drawing = form ~= "icon" } })
+    end
   end
 
   -- Redraw only when the day changes.
   local function update()
-    local s = os.date(format)
+    local s = os.date(form == "short" and formats.compact or format)
     if s ~= label then
       label = s
       item:set({ label = { string = s } })
@@ -62,4 +84,17 @@ return function(sbar, opts, colors)
     events[#events + 1] = ev
   end
   item:subscribe(events, update)
+
+  sbar.add("event", "stm_compact")
+  item:subscribe("stm_compact", function(env)
+    local f = env and env[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      form = f
+      draw_form()
+      update()
+    end
+  end)
 end

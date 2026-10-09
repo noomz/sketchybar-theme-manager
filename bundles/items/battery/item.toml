@@ -2,13 +2,18 @@
 # Installed with `stm install item:battery`; options go in stm.config.toml
 # (or a theme's palette) under [item.battery].
 name = "battery"
-version = "0.1.0"
+version = "0.2.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["green", "yellow", "red", "bg1", "black"]
 default_position = "right"
 update_freq = 120
 events = ["power_source_change", "system_woke"]
+
+# The forms compact mode (item:compact) may ask for, widest first:
+#   full  the icon and the level
+#   icon  the icon alone
+compact = "full icon"
 
 # How the item is drawn (a theme may set this in its palette):
 #   plain  <icon> <text>, no background
@@ -17,3 +22,9 @@ events = ["power_source_change", "system_woke"]
 [options.shape]
 values = ["plain", "pill", "split"]
 default = "split"
+
+# Compact mode steps low items down first, then normal, then high; pin never
+# leaves its full form.
+[options.priority]
+values = ["pin", "high", "normal", "low"]
+default = "high"

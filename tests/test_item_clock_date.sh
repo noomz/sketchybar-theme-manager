@@ -109,14 +109,15 @@ local real_date = os.date
 os.date = function(f, t) return real_date(f, t or now) end
 os.execute = function() print("fork") end
 io.popen = function() print("fork") end
-local callback
+local handlers = {}
 local sbar = {}
 function sbar.add(kind, n, props)
   print(kind .. " " .. n .. " " .. dump(props))
   return {
     subscribe = function(_, events, fn)
+      if type(events) == "string" then events = { events } end
       print("subscribe " .. table.concat(events, " "))
-      callback = fn
+      for _, e in ipairs(events) do handlers[e] = fn end
     end,
     set = function(_, props) print("set " .. n .. " " .. dump(props)) end,
   }
@@ -125,6 +126,7 @@ function sbar.exec() print("fork") end
 local opts = { name = "stm." .. name, position = position, update_freq = 7,
   plugin_dir = "/p", events = { "system_woke" }, options = options }
 dofile(item_lua)(sbar, opts, { yellow = 2, blue = 4, bg1 = 21, black = 22 })
+local callback = handlers.routine
 print("tick")
 callback({ SENDER = "routine" })
 now = now + 1
@@ -136,6 +138,12 @@ callback({ SENDER = "routine" })
 now = now + 86400
 print("tick +1d")
 callback({ SENDER = "system_woke" })
+-- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
+local key = "STM_FORM_" .. name:upper()
+for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
+  print("form " .. f)
+  handlers.stm_compact({ SENDER = "stm_compact", [key] = f ~= "-" and f or nil })
+end
 EOF
   # probe <bundle> <position> [key=value...] — everything the probe prints.
   probe() {
@@ -180,14 +188,14 @@ EOF
     freq=7
 
     it "$b plain and pill: one item, accent on the icon, pill on bg1 (V32, V39, V14)"
-    assert_eq "item stm.$b {icon={color=$accent string=$glyph} label={string=$label} position=right update_freq=$freq}" \
+    assert_eq "item stm.$b {icon={color=$accent string=$glyph} label={string=$label} position=right update_freq=$freq updates=true}" \
       "$(items_of "$b" right shape=plain "$@")" "plain"
-    assert_eq "item stm.$b {background={color=21 drawing=true} icon={color=$accent string=$glyph} label={string=$label} position=left update_freq=$freq}" \
+    assert_eq "item stm.$b {background={color=21 drawing=true} icon={color=$accent string=$glyph} label={string=$label} position=left update_freq=$freq updates=true}" \
       "$(items_of "$b" left shape=pill "$@")" "pill"
     done_it
 
     it "$b split: icon sub-item on the accent, left of the label at every position (V32, V33, V10)"
-    main="item stm.$b {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=$label} position=POS update_freq=$freq}"
+    main="item stm.$b {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=$label} position=POS update_freq=$freq updates=true}"
     sub="item stm.$b.icon {background={color=$accent drawing=true} icon={color=22 string=$glyph} label={drawing=false} position=POS}"
     assert_eq "${main//POS/right}
 ${sub//POS/right}" "$(items_of "$b" right shape=split "$@")" "split right"
@@ -203,6 +211,67 @@ ${main//POS/$pos}" "$(items_of "$b" "$pos" shape=split "$@")" "split $pos"
     assert_not_contains "$out" "fork"
     done_it
   done
+
+  # forms_of <bundle> <forms> [key=value...] — what the compact events set.
+  forms_of() {
+    local b="$1" f="$2"
+    shift 2
+    PROBE_FORMS="$f" probe "$b" right "$@" | sed -n '/^form /,$p'
+  }
+
+  it "clock compact forms: short drops the icon, hidden draws nothing, bad | missing = full (I.form, I.clk)"
+  assert_eq "form short
+set stm.clock.icon {drawing=false}
+set stm.clock {drawing=true}
+form short
+form bogus
+set stm.clock.icon {drawing=true}
+set stm.clock {drawing=true}
+form hidden
+set stm.clock.icon {drawing=false}
+set stm.clock {drawing=false}
+form icon
+set stm.clock.icon {drawing=true}
+set stm.clock {drawing=true}
+form hidden
+set stm.clock.icon {drawing=false}
+set stm.clock {drawing=false}
+form -
+set stm.clock.icon {drawing=true}
+set stm.clock {drawing=true}" "$(forms_of clock short,short,bogus,hidden,icon,hidden,- shape=split hours=24 seconds=off)" "split (icon is not a clock form)"
+  assert_eq "form short
+set stm.clock {drawing=true icon={drawing=false}}
+form hidden
+set stm.clock {drawing=false icon={drawing=false}}
+form full
+set stm.clock {drawing=true icon={drawing=true}}" "$(forms_of clock short,hidden,full shape=pill hours=24 seconds=off)" "pill"
+  done_it
+
+  it "date compact forms: short = day of the month, icon drops the label (I.form, I.date, V39)"
+  # The probe clock is a day on (2026-10-02) by the time the forms arrive.
+  assert_eq "form short
+set stm.date {drawing=true label={drawing=true}}
+set stm.date {label={string=02}}
+form icon
+set stm.date {drawing=true label={drawing=false}}
+set stm.date {label={string=2026-10-02}}
+form hidden
+set stm.date {drawing=false label={drawing=true}}
+form bogus
+set stm.date {drawing=true label={drawing=true}}" "$(forms_of date short,icon,hidden,bogus shape=plain format=iso)" "plain"
+  assert_eq "form icon
+set stm.date.icon {drawing=true}
+set stm.date {drawing=false}
+form hidden
+set stm.date.icon {drawing=false}
+set stm.date {drawing=false}
+form full
+set stm.date.icon {drawing=true}
+set stm.date {drawing=true}" "$(forms_of date icon,hidden,full shape=split format=short)" "split"
+  out=$(probe date right shape=split format=iso)
+  assert_contains "$out" "event stm_compact nil"
+  assert_contains "$out" "subscribe stm_compact"
+  done_it
 
   it "clock sets its label only when the text changes (V39)"
   # Seconds off: the +1s tick stays in 14:05, the +61s tick reaches 14:06.

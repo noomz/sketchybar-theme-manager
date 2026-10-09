@@ -19,6 +19,9 @@ return function(sbar, opts, colors)
   local props = {
     position = opts.position,
     update_freq = opts.update_freq,
+    -- compact mode may hide the item; a hidden item gets no events unless it
+    -- asks for them (SketchyBar's default is when_shown).
+    updates = true,
     icon = icon,
     label = { string = label },
   }
@@ -43,12 +46,29 @@ return function(sbar, opts, colors)
     props.background = { drawing = true, color = colors.bg1, padding_left = 0 }
   end
 
+  local icon_item
   if sub and opts.position ~= "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
   end
   local item = sbar.add("item", opts.name, props)
   if sub and opts.position == "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
+  end
+
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_CLOCK: full | short (no icon) | hidden. Anything else is full.
+  local forms = { full = true, short = true, hidden = true }
+  local form = "full"
+  local key = "STM_FORM_" .. opts.name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
+
+  local function draw_form()
+    local shown = form ~= "hidden"
+    if icon_item then
+      icon_item:set({ drawing = shown and form == "full" })
+      item:set({ drawing = shown })
+    else
+      item:set({ drawing = shown, icon = { drawing = form == "full" } })
+    end
   end
 
   -- The tick is every second; redraw only when the text changes.
@@ -65,4 +85,17 @@ return function(sbar, opts, colors)
     events[#events + 1] = ev
   end
   item:subscribe(events, update)
+
+  sbar.add("event", "stm_compact")
+  item:subscribe("stm_compact", function(env)
+    local f = env and env[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      form = f
+      draw_form()
+      update()
+    end
+  end)
 end
