@@ -358,6 +358,9 @@ BEGIN {
       fail("item name \"" key "\" is too long (max 32)")
     if (key in items)
       fail("duplicate item \"" key "\"")
+    # Compact mode places its chevron itself, beside the last stm item.
+    if (key == "stm.compact" || index(key, "stm.compact.") == 1)
+      fail("\"" key "\" has a fixed position; remove it from [items]")
     if (val != "left" && val != "right" && val != "center")
       fail("invalid item slot \"" val "\" for \"" key "\" (want left, right or center)")
     items[key] = val

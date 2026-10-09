@@ -542,6 +542,21 @@ assert_status 0
 assert_file_contains "$LOADER" 'position = "left",'
 done_it
 
+it "a theme may not place stm.compact: lint and apply refuse, nothing written (V63)"
+{
+  sed 's/^slug = .*/slug = "pinned"/;s/^name = .*/name = "pinned"/' "$REPO_ROOT/palettes/nord.toml"
+  printf '\n[items]\nstm.ok = "left"\nstm.compact = "left"\n'
+} >"$P/pinned.toml"
+run_stm --palette-dir "$P" lint "$P/pinned.toml"
+assert_ne 0 "$STM_STATUS" "lint must refuse it"
+assert_contains "$STM_ERR" '"stm.compact" has a fixed position'
+before=$(snapshot)
+run_stm --dir "$D" --palette-dir "$P" --no-reload apply pinned
+assert_ne 0 "$STM_STATUS" "apply must refuse it"
+assert_contains "$STM_ERR" "fixed position"
+assert_eq "$before" "$(snapshot)" "a refused apply writes nothing"
+done_it
+
 it "install item: refuses a config dir path that cannot be a Lua string"
 W="$SANDBOX/we\"ird"
 make_lua_config "$W"

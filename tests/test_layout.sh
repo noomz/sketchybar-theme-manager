@@ -90,6 +90,8 @@ reject bad-layout-key        "an unknown [layout] key"              "unsupported
 reject layout-lua-injection  "a hostile [layout] value"             "invalid layout value"
 reject item-path             "a path-like item name"                ""
 reject item-slot-invalid     "an item slot that is not left/right/center" "invalid item slot"
+reject item-compact-pinned   "an [items] slot for stm.compact (V63)"  "fixed position"
+reject item-compact-row      "an [items] slot for a stm.compact row (V63)" "fixed position"
 reject layout-negative       "a negative bar height"                "invalid layout value"
 reject itemopt-bad-name       "an [item.<name>] header with a bad name" "unsupported table"
 reject itemopt-bad-key        "an upper-case [item.<name>] key"      "invalid item option key"
