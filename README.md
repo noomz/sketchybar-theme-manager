@@ -547,6 +547,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 | `ai` | how much of your AI providers' quota is used: one segment each for Claude, Codex, Gemini, Grok and OpenRouter, coloured by use, each with its own popup. Needs [Agents Usage Bar](https://github.com/noomz/agents_usage_bar) | `right` |
 | `battery` | battery level, coloured by level; a bolt on power | `right` |
 | `clock` | the time | `right` |
+| `compact` | compact mode: shrinks the other items to fit beside the notch; a `»` lists the ones it hides | `right` (fixed) |
 | `cpu` | CPU load: a graph and a percentage, coloured by load | `right` |
 | `date` | the date | `right` |
 | `disk` | how full the startup disk is, coloured by use | `right` |
@@ -585,7 +586,8 @@ need a Lua config; a shell bar is refused. The SketchyBar item is always
 named `stm.<name>` (`netspeed` adds `stm.netspeed.up`, `stm.netspeed.rates`
 and `stm.netspeed.pill`; `ai` is a hidden `stm.ai` that drives one segment per
 provider, `stm.ai.<provider>`, with `stm.ai.<provider>.icon` and
-`stm.ai.<provider>.pill` as its shape needs). These files are kept out of the `verify` baseline and go
+`stm.ai.<provider>.pill` as its shape needs; `compact` adds the chevron
+`stm.compact` and its popup rows). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -824,6 +826,68 @@ on its own, and an interface that resets its counters shows `--` once.
 
 Whatever cannot be read shows `--`: `cpu` and `mem` then add nothing to the
 graph, and the `cpu` graph and the `disk` icon turn grey.
+
+#### Compact mode
+
+On a MacBook with a notch the bar's right half is short: the notch takes the
+middle, and stm items run under it and into your own items. `item:compact`
+fits them into the room each display has:
+
+```console
+$ stm install item:compact
+```
+
+Installing it turns compact mode on; `stm uninstall item:compact` turns it off
+and every item goes back to its full form. Every 30 seconds, and when a display
+is added, removed or switched and when the Mac wakes, it measures the bar: the
+room from the notch's right edge (or, on a display without a notch, the end of
+the left items) to the bar's right edge, minus your own right items. stm never
+changes your items; it only counts them. When the bar shows on several displays
+at once, the tightest one decides, because an item looks the same everywhere. A
+closed lid takes the built-in screen out.
+
+When the items do not fit, they step down, one form at a time:
+
+| Form | Looks like |
+| --- | --- |
+| `full` | the item as usual |
+| `short` | a shorter label, or none |
+| `icon` | the icon alone |
+| `hidden` | not drawn; listed behind `»` |
+
+Every item drops to `short` before any drops to `icon`, and to `icon` before
+any is hidden. Within one step, `low` priority items go first, then `normal`,
+then `high`, starting with the item farthest from the right edge. An item grows
+back only when it would still fit with 24 points to spare, so the bar does not
+flicker. While anything is hidden a `»` shows left of the stm items; click it
+for the list of hidden items.
+
+Each item offers the forms it can draw, and a `priority` option — `pin`,
+`high`, `normal` or `low` — that `stm.config.toml` or a theme may set like any
+other option. `pin` never leaves `full`.
+
+| Item | `short` | `icon` | Default priority |
+| --- | --- | --- | --- |
+| `clock` | the time without the icon | — | `pin` |
+| `battery` | — | the icon | `high` |
+| `ai` | — | the tags, every segment at once | `normal` |
+| `date` | the day of the month | the icon | `normal` |
+| `tailscale` | — | the icon | `normal` |
+| `cpu`, `mem` | the icon and the graph | — | `low` |
+| `disk`, `net` | — | the icon | `low` |
+| `netspeed` | the graphs | — | `low` |
+| `spotify` | 12 characters | the icon | `low` |
+
+```toml
+[item.battery]
+priority = "pin"   # pin | high | normal | low
+```
+
+The notch comes from macOS (`NSScreen`, one `osascript` run); widths come from
+`sketchybar --query`. Measured widths are kept in your own temp folder, so the
+first fit after a reload may take a second run. A centred `spotify` is not
+counted until `narrow` moves it to the right. `stm.compact` has a fixed
+position: a theme's `[items]` slot for it is an error.
 
 | Command | What it does |
 | --- | --- |
