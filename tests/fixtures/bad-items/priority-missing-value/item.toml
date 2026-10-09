@@ -1,0 +1,14 @@
+name = "priority-missing-value"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["green", "yellow", "red", "grey"]
+default_position = "right"
+update_freq = 30
+events = ["system_woke"]
+
+compact = "full icon"
+
+[options.priority]
+values = ["high", "normal", "low"]
+default = "normal"

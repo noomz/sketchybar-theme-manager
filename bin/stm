@@ -1209,6 +1209,9 @@ BEGIN {
         # bundle must mean the same three things by it.
         if (opt == "shape" && elem[i] != "plain" && elem[i] != "pill" && elem[i] != "split")
           fail("invalid shape \"" elem[i] "\" (want plain, pill or split)")
+        # priority too: compact mode reads it from every bundle alike.
+        if (opt == "priority" && elem[i] != "pin" && elem[i] != "high" && elem[i] != "normal" && elem[i] != "low")
+          fail("invalid priority \"" elem[i] "\" (want pin, high, normal or low)")
         if ((opt SUBSEP elem[i]) in isval)
           fail("duplicate value \"" elem[i] "\" for option \"" opt "\"")
         isval[opt SUBSEP elem[i]] = 1
@@ -1285,8 +1288,27 @@ BEGIN {
         fail("invalid event \"" elem[i] "\" (want [a-z][a-z0-9_]*, max 32)")
       lists = lists "event\t" elem[i] "\n"
     }
+  } else if (key == "compact") {
+    # The forms the bundle draws for compact mode, widest first: full, then
+    # short and icon in that order. hidden is implied.
+    want("a string")
+    n = split(val, elem, " ")
+    if (n == 0 || elem[1] != "full")
+      fail("compact must start with full (want \"full [short] [icon]\")")
+    last = 0
+    for (i = 2; i <= n; i++) {
+      r = (elem[i] == "short") ? 1 : (elem[i] == "icon") ? 2 : 0
+      if (r == 0)
+        fail("invalid compact form \"" elem[i] "\" (want short, icon)")
+      if (r <= last)
+        fail("compact forms out of order or repeated at \"" elem[i] "\" (want \"full [short] [icon]\")")
+      last = r
+    }
+    forms = elem[1]
+    for (i = 2; i <= n; i++) forms = forms " " elem[i]
+    meta = meta "meta\tcompact\t" forms "\n"
   } else {
-    fail("unknown field \"" key "\" (want name, version, dialects, files, colors, default_position, update_freq, events, [options.<key>])")
+    fail("unknown field \"" key "\" (want name, version, dialects, files, colors, default_position, update_freq, events, compact, [options.<key>])")
   }
 }
 END {
@@ -1296,6 +1318,16 @@ END {
   if (!("dialects" in seen)) fail_end("missing field \"dialects\"")
   if (!("default_position" in seen)) fail_end("missing field \"default_position\"")
   if (!("item.lua" in isfile)) fail_end("files must list item.lua")
+  if ("compact" in seen) {
+    if (!("priority" in isopt))
+      fail_end("a bundle with compact forms needs [options.priority] (values pin, high, normal, low)")
+    split("pin high normal low", pri, " ")
+    for (i = 1; i <= 4; i++)
+      if (!(("priority" SUBSEP pri[i]) in isval))
+        fail_end("option \"priority\" must offer \"" pri[i] "\" (want pin, high, normal, low)")
+  } else if ("priority" in isopt) {
+    fail_end("option \"priority\" needs a compact field (the forms the bundle draws)")
+  }
   for (i = 1; i <= nopt; i++) {
     o = opt_order[i]
     if (values[o] == "") fail_end("option \"" o "\" has no values")
@@ -1463,7 +1495,7 @@ stm_current_palette_records() {
 # palette [items] slot for stm.<name>, else the manifest default_position.
 # An item no longer bundled is left out with a warning.
 stm_items_loader_render() {
-  local names="$1" precs="$2" dir n recs pos freq ev events opts theme
+  local names="$1" precs="$2" dir n recs pos freq ev events opts theme blocks units forms prio
   dir=$(cd -- "$RESOLVED_DIR" && pwd) || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
   case "$dir" in
     *[\"\\]* | *[[:cntrl:]]*)
@@ -1489,7 +1521,11 @@ stm_items_loader_render() {
   printf '  end\n'
   printf 'end\n'
 
+  # Blocks are buffered: the compact item gets one <name>:<priority>:<forms>
+  # entry per installed item that declares forms, wherever it sits in the
+  # ledger. Every part of an entry is a validated manifest or option value.
   theme=$(stm_records_meta "$precs" slug)
+  blocks="" units=""
   for n in $names; do
     validate_item_name "$n"
     if ! recs=$(stm_item_load "$n" && printf '%s\n' "$STM_ITEM_RECORDS"); then
@@ -1513,16 +1549,27 @@ stm_items_loader_render() {
       events="$events \"$ev\","
     done
 
-    printf '\nstm_item("%s", {\n' "$n"
-    printf '  name = "stm.%s",\n' "$n"
-    printf '  position = "%s",\n' "$pos"
-    printf '  plugin_dir = dir .. "/plugins/stm",\n'
-    [ -n "$freq" ] && printf '  update_freq = %s,\n' "$freq"
-    printf '  events = {%s },\n' "${events%,}"
-    printf '  options = {\n%s  },\n' "${opts:+$opts
+    forms=$(printf '%s\n' "$recs" | awk -F'\t' '$1=="meta" && $2=="compact" { print $3; exit }')
+    if [ -n "$forms" ]; then
+      prio=$(printf '%s\n' "$opts" | awk -F'"' '$2=="priority" { print $4; exit }')
+      units="$units \"$n:$prio:$forms\","
+    fi
+
+    blocks="$blocks$(
+      printf '\nstm_item("%s", {\n' "$n"
+      printf '  name = "stm.%s",\n' "$n"
+      printf '  position = "%s",\n' "$pos"
+      printf '  plugin_dir = dir .. "/plugins/stm",\n'
+      [ -n "$freq" ] && printf '  update_freq = %s,\n' "$freq"
+      printf '  events = {%s },\n' "${events%,}"
+      [ "$n" = compact ] && printf '  compact_units = {@STM_COMPACT_UNITS@ },\n'
+      printf '  options = {\n%s  },\n' "${opts:+$opts
 }"
-    printf '})\n'
+      printf '})'
+    )
+"
   done
+  printf '%s' "${blocks/@STM_COMPACT_UNITS@/${units%,}}"
 }
 
 # ---------------------------------------------------------------------------

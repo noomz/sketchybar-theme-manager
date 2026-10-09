@@ -127,7 +127,14 @@ check_bad_manifests() {
     'files-dotdot:../plugin.sh' \
     'files-absolute:/etc/hosts' \
     'files-unknown:extra.sh' \
-    'file-missing:plugin.sh'
+    'file-missing:plugin.sh' \
+    'compact-not-full-first:compact must start with full' \
+    'compact-bad-form:invalid compact form "tiny"' \
+    'compact-out-of-order:compact forms out of order' \
+    'compact-no-priority:needs [options.priority]' \
+    'priority-not-in-vocab:invalid priority "urgent"' \
+    'priority-missing-value:must offer "pin"' \
+    'priority-without-compact:needs a compact field'
    do
     name=${c%%:*}
     ship_bundle "$BAD_ITEMS/$name" "$name"
@@ -231,6 +238,45 @@ default = "split"
 EOF
 run_stm --dir "$D" lint item:shaped
 assert_status 0
+done_it
+
+it "compact forms + priority: the loader lists every unit for the compact item only (V9, I.form, I.cmp)"
+L="$SANDBOX/cmp"
+make_lua_config "$L"
+ship_ok_as compact
+for u in fa fb; do
+  ship_ok_as "$u"
+done
+# add_forms <bundle> <forms> <priority values> <default> — top-level compact
+# field (before the option tables) + [options.priority].
+add_forms() {
+  sed "s/^events = .*/&\\
+compact = \"$2\"/" "$BUNDLES/$1/item.toml" >"$SANDBOX/forms.toml"
+  printf '\n[options.priority]\nvalues = [%s]\ndefault = "%s"\n' "$3" "$4" >>"$SANDBOX/forms.toml"
+  mv "$SANDBOX/forms.toml" "$BUNDLES/$1/item.toml"
+}
+add_forms fa "full short icon" '"pin", "high", "normal", "low"' low
+add_forms fb "full icon" '"low", "normal", "high", "pin"' pin
+printf '[item.fb]\npriority = "high"\n' >"$L/stm.config.toml"
+for u in fa compact fb; do
+  run_stm --dir "$L" lint "item:$u"
+  assert_status 0 "lint item:$u"
+  run_stm --dir "$L" --no-reload install "item:$u"
+  assert_status 0 "install item:$u"
+done
+loader=$(cat "$L/items_generated.lua")
+assert_contains "$loader" '  compact_units = { "fa:low:full short icon", "fb:high:full icon" },'
+assert_eq 1 "$(printf '%s\n' "$loader" | grep -c compact_units)" "only the compact item gets compact_units"
+assert_contains "$loader" '["priority"] = "high",'
+printf '[item.fb]\npriority = "top"\n' >"$L/stm.config.toml"
+run_stm --dir "$L" --no-reload install --force item:fb
+assert_status 1
+assert_contains "$STM_ERR" "priority"
+assert_eq "$loader" "$(cat "$L/items_generated.lua")" "a bad priority leaves the loader as it was"
+rm "$L/stm.config.toml"
+run_stm --dir "$L" --no-reload uninstall item:compact
+assert_status 0
+assert_not_contains "$(cat "$L/items_generated.lua")" "compact_units"
 done_it
 
 # --- the bundles shipped in this repo -------------------------------------
