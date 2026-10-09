@@ -21,7 +21,10 @@
 #
 # Widths are measured from bounding_rects and cached per form in the per-user
 # temp dir (stm-compact.widths); the last forms sent and the refresh rate in
-# stm-compact.state. Both are checked on read: a bad row is dropped.
+# stm-compact.state. Both are checked on read: a bad row is dropped. A
+# trigger can land before a unit takes it (a reload, a display switch), so
+# each change is sent once more on the next run, and widths are fitted and
+# cached only when the run before sent nothing.
 #
 # STM_OSASCRIPT overrides /usr/bin/osascript (tests).
 
@@ -228,6 +231,7 @@ kind == "state" {
   else if ($1 == "freq" && NF == 2 && ($2 == "2" || $2 == "30")) sfreq = $2
   else if ($1 == "calm" && NF == 2 && $2 ~ /^[0-9]$/) calm = $2 + 0
   else if ($1 == "hid" && NF == 2 && $2 ~ /^[a-z0-9_,-]+$/) shid = $2
+  else if ($1 == "sent" && NF == 2 && $2 ~ /^[012]$/) psent = $2 + 0
   next
 }
 kind == "screens" {
@@ -260,9 +264,22 @@ END {
     else start = (d in leftend ? leftend[d] - frame[d, "x"] : bar["margin"] + bar["padding_left"]) + 8
     a = W - bar["margin"] - bar["padding_right"] - start - foreign[d]
     if (avail == "" || a < avail) avail = a
-    for (i = 1; i <= nu; i++) if (mwd[un[i], d] > mw[un[i]]) mw[un[i]] = mwd[un[i], d]
+    # Every display shows the same items: a unit measured differently on
+    # two of them is mid-redraw.
+    for (i = 1; i <= nu; i++) {
+      u = un[i]
+      if (mwd[u, d] > mw[u]) mw[u] = mwd[u, d]
+      if (!(u in mwlo) || mwd[u, d] < mwlo[u]) mwlo[u] = mwd[u, d]
+    }
   }
   if (avail == "") exit
+
+  # icon drops the label: a cached icon width as wide as full was measured
+  # before the unit redrew.
+  for (i = 1; i <= nu; i++) {
+    u = un[i]
+    if (((u SUBSEP "icon") in cw) && ((u SUBSEP "full") in cw) && cw[u, "icon"] >= cw[u, "full"]) delete cw[u, "icon"]
+  }
 
   # Rightmost first: right items are laid out right to left by index.
   m = 0
@@ -281,8 +298,11 @@ END {
     absent[u] = present[u] && cur0[u] != "hidden" && mw[u] <= 0
   }
 
-  nf = split("short icon hidden", FD, " "); split("low normal high", PD, " ")
-  if (need() > avail) {
+  # Right after a trigger the widths may still be those of the old forms: keep the
+  # forms sent until a run has passed with none sent.
+  split("short icon hidden", FD, " "); split("low normal high", PD, " ")
+  if (psent && !forced) {
+  } else if (need() > avail) {
     for (a = 1; a <= 3; a++) for (p = 1; p <= 3; p++) for (k = m; k >= 1; k--) {
       if (need() <= avail) break
       u = ord[k]
@@ -306,24 +326,29 @@ END {
     } while (grew)
   }
 
+  # A trigger may land before a unit can take it (a reload, a display
+  # switch): each change is sent once more on the next run.
   changed = forced
   for (i = 1; i <= nu; i++) {
     u = un[i]
     if (form[u] != ((u in last) ? last[u] : "full")) changed = 1
   }
-  if (changed) {
+  sent = changed ? 2 : (psent == 2 ? 1 : 0)
+  if (sent) {
     for (i = 1; i <= nu; i++) {
       key = toupper(un[i]); gsub(/[.-]/, "_", key)
       print "T STM_FORM_" key "=" form[un[i]]
     }
   }
 
-  # Cache the width of the form each unit is drawn in (not on a reload: the
-  # bar may still be filling in).
-  unsettled = changed
+  # Cache the width of the form each unit is drawn in, only when the run
+  # before sent no trigger (the units have had a run to redraw) and never on
+  # a reload (the bar may still be filling in).
+  unsettled = sent
   for (i = 1; i <= nu; i++) {
     u = un[i]
-    if (forced || !present[u] || mw[u] <= 0) continue
+    if (forced || psent || !present[u] || mw[u] <= 0) continue
+    if (mw[u] - mwlo[u] > 1) { unsettled = 1; continue }
     w = rnd(mw[u])
     if (w < 1 || w > 4000) continue
     if (!((u SUBSEP cur0[u]) in cw) || cw[u, cur0[u]] != w) { unsettled = 1; cw[u, cur0[u]] = w }
@@ -345,6 +370,7 @@ END {
   print "X freq " freq
   print "X calm " calm
   print "X hid " hid
+  print "X sent " sent
 
   ns_ = 0
   if (forced || hid != shid) {

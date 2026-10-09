@@ -164,12 +164,64 @@ query --query logo --query stm.a --query stm.b --query stm.b.icon --query stm.c 
 osascript -l JavaScript" "$QUERIES"
 done_it
 
-it "no trigger when every form is what was last sent; widths measured again (V60, V61)"
+it "no trigger when every form is what was last sent (after its one repeat); widths measured again (V60, V61)"
 scene 150 200 30 125 100
+run_plugin
+assert_eq "$(trigger_of short full short)" "$(triggers)" "the one repeat"
+run_plugin
+assert_eq "" "$(triggers)"
 run_plugin
 assert_eq "" "$(triggers)"
 assert_contains "$(cat "$TMPD/stm-compact.widths")" "a short 150"
 assert_contains "$(cat "$TMPD/stm-compact.widths")" "c short 125"
+done_it
+
+it "a missed trigger heals: one repeat, widths cached only a run after the last trigger (V60, V61, B20)"
+fresh
+scene 300 200 30 250 100
+run_plugin
+assert_eq "$(trigger_of short full short)" "$(triggers)" "change"
+# The units missed it: still full. The repeat re-sends; nothing cached.
+run_plugin
+assert_eq "$(trigger_of short full short)" "$(triggers)" "one repeat"
+assert_not_contains "$(cat "$TMPD/stm-compact.widths")" "a short"
+assert_not_contains "$(cat "$TMPD/stm-compact.widths")" "c short"
+scene 150 200 30 125 100
+run_plugin
+assert_eq "" "$(triggers)" "no second repeat"
+assert_not_contains "$(cat "$TMPD/stm-compact.widths")" "a short" "the run after a trigger caches nothing"
+run_plugin
+assert_eq "" "$(triggers)"
+assert_contains "$(cat "$TMPD/stm-compact.widths")" "a short 150"
+assert_contains "$(cat "$TMPD/stm-compact.widths")" "c short 125"
+done_it
+
+it "displays disagree on a unit's width: not cached, unsettled (V61, B20)"
+fresh
+printf 'form a full\nform b full\nform c full\nfreq 30\ncalm 5\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
+displays "1 0 2560 1440" "2 -2560 2560 1440" >"$FIX/displays"
+item logo left on item "1 20 40" "2 -2540 40"
+item stm.a right on item "1 2200 300" "2 -360 250"
+item stm.b right on item "1 2000 200" "2 -560 200"
+item stm.b.icon right on item "1 1970 30" "2 -590 30"
+item stm.c right on item "1 1700 250" "2 -860 250"
+item vpn right on item "1 1500 100" "2 -1060 100"
+run_plugin OSA_OUT="$(printf '0 2560 1440 -\n-2560 2560 1440 -')"
+assert_not_contains "$(cat "$TMPD/stm-compact.widths")" "a full"
+assert_contains "$(cat "$TMPD/stm-compact.widths")" "b full 230"
+assert_contains "$(cat "$TMPD/stm-compact.state")" "calm 0"
+done_it
+
+it "an icon row as wide as full is dropped on read (B20)"
+fresh
+printf 'a full 300\na icon 300\nb full 230\nb icon 230\n' >"$TMPD/stm-compact.widths"
+printf 'form a full\nform b full\nform c full\nfreq 30\ncalm 5\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
+scene 300 200 30 250 100
+run_plugin
+assert_not_contains "$(cat "$TMPD/stm-compact.widths")" "a icon"
+assert_not_contains "$(cat "$TMPD/stm-compact.widths")" "b icon"
+# b icon at the guess (24), not 230: still short short + full b fits.
+assert_eq "$(trigger_of short full short)" "$(triggers)"
 done_it
 
 it "only stm.compact* is ever set or moved (V60)"
@@ -177,15 +229,24 @@ assert_eq "" "$(printf '%s\n' "$SB" | awk 'prev == "--set" || prev == "--move" {
 done_it
 
 it "settle: 2 s while widths move, 30 s after two calm runs (V61)"
-assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 2"
+fresh
+scene 150 200 30 125 100
+printf 'a full 300\na short 150\nb full 230\nc full 250\nc short 125\n' >"$TMPD/stm-compact.widths"
+printf 'form a short\nform b full\nform c short\nfreq 2\ncalm 0\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
 run_plugin
 assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 2"
+assert_contains "$(cat "$TMPD/stm-compact.state")" "calm 1"
 assert_eq "" "$(printf '%s\n' "$SB" | grep update_freq)" "no --set while the rate stays"
 run_plugin
 assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 30"
 assert_contains "$SB" "update_freq=30"
 run_plugin
 assert_eq "" "$SB" "calm: nothing sent at all"
+# A width that moves unsettles it again.
+scene 160 200 30 125 100
+run_plugin
+assert_contains "$(cat "$TMPD/stm-compact.state")" "calm 0"
+assert_contains "$SB" "update_freq=2"
 done_it
 
 it "hysteresis: grow back only with 24 to spare, at a cached width (V59)"
