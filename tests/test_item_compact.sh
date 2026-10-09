@@ -255,6 +255,22 @@ run_plugin OSA_OUT="0 2560 1440 -"
 assert_eq "" "$(triggers)"
 done_it
 
+it "rects are global: a display not at x 0 measures its left items from its own edge (V58, B19)"
+fresh
+scene 300 200 30 250 100
+# A 1478 external left of the main one, no notch: left items end at local 900.
+displays "1 0 2560 1440" "3 -1478 1478 900" >"$FIX/displays"
+item logo left on item "3 -1458 878"
+item stm.a right on item "3 -500 300"
+item stm.b right on item "3 -720 200"
+item stm.b.icon right on item "3 -750 30"
+item stm.c right on item "3 -1010 250"
+item vpn right on item "3 -1110 100"
+# room = 1478 - 22 - (900 + 8) - 100 = 448
+run_plugin OSA_OUT="$(printf '0 2560 1440 -\n-1478 1478 900 -')"
+assert_eq "$(trigger_of short icon short)" "$(triggers)"
+done_it
+
 it "two displays: the tightest wins (V58)"
 fresh
 scene 300 200 30 250 100

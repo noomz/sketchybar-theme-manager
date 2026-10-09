@@ -174,7 +174,7 @@ function end_item(   k, d, u) {
     if (!(d in rw) || !isnum(rw[d])) continue
     shows[d] = 1
     if (ipos == "left") {
-      if (rx[d] + rw[d] > leftend[d]) leftend[d] = rx[d] + rw[d]
+      if (!(d in leftend) || rx[d] + rw[d] > leftend[d]) leftend[d] = rx[d] + rw[d]
     } else if (u != "") {
       mwd[u, d] += rw[d]
     } else if (iname != name && index(iname, name ".") != 1) {
@@ -254,8 +254,10 @@ END {
       if (sn[k] == "-" || abs(sx[k] - frame[d, "x"]) >= 1 || abs(sw[k] - W) >= 1 || abs(sh[k] - frame[d, "h"]) >= 1) continue
       if (sn[k] - sx[k] > 0 && sn[k] - sx[k] < W) notch = sn[k] - sx[k]
     }
+    # bounding_rects are in global coordinates: the left items end at
+    # their right edge minus the x of the display.
     if (notch > 0 && bar["position"] != "bottom") start = notch + 8
-    else start = (d in leftend ? leftend[d] : bar["margin"] + bar["padding_left"]) + 8
+    else start = (d in leftend ? leftend[d] - frame[d, "x"] : bar["margin"] + bar["padding_left"]) + 8
     a = W - bar["margin"] - bar["padding_right"] - start - foreign[d]
     if (avail == "" || a < avail) avail = a
     for (i = 1; i <= nu; i++) if (mwd[un[i], d] > mw[un[i]]) mw[un[i]] = mwd[un[i], d]
