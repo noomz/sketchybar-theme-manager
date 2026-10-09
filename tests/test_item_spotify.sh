@@ -149,6 +149,22 @@ run_plugin 0 "" STM_SP_SHAPE=pill
 assert_eq "$(argv_of --set stm.spotify drawing=off popup.drawing=off)" "$SB" "pill"
 done_it
 
+it "compact forms: hidden asks Spotify nothing, icon hides the split label part, short | bad = full argv (I.form, I.spot)"
+run_plugin 1 "$(osa playing T A L "$COVER_URL" false false)" STM_FORM=hidden
+assert_eq "$HIDDEN_SPLIT" "$SB" "hidden"
+assert_eq "" "$CALLS" "hidden: no pgrep, no osascript"
+run_plugin 1 "$(osa playing T A L "$COVER_URL" false false)" STM_SP_COVER=off
+full=$SB
+for f in full short bogus; do
+  run_plugin 1 "$(osa playing T A L "$COVER_URL" false false)" STM_SP_COVER=off "STM_FORM=$f"
+  assert_eq "$full" "$SB" "form $f: the label length is item.lua's"
+done
+run_plugin 1 "$(osa playing T A L "$COVER_URL" false false)" STM_SP_COVER=off STM_FORM=icon
+assert_eq "$(printf '%s\n' "$full" | sed '3s/drawing=on/drawing=off/')" "$SB" "split icon: label part off, icon part on"
+run_plugin 1 "$(osa playing T A L "$COVER_URL" false false)" STM_SP_COVER=off STM_SP_SHAPE=pill STM_FORM=icon
+assert_contains "$SB" "$(argv_of --set stm.spotify drawing=on)" "pill icon: drawn (label off is item.lua's)"
+done_it
+
 it "stopped or no answer: hidden (I.spot)"
 run_plugin 1 stopped
 assert_eq "$HIDDEN_SPLIT" "$SB" "stopped"
@@ -480,6 +496,11 @@ if click then
     handlers["stm.spotify.icon mouse.clicked"]({ SENDER = "mouse.clicked" })
   end
 end
+-- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
+for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
+  print("form " .. f)
+  handlers["stm.spotify stm_compact"]({ SENDER = "stm_compact", STM_FORM_SPOTIFY = f ~= "-" and f or nil })
+end
 EOF
   probe() {
     "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "${3:-flat}" "$BUNDLE/item.lua" ${4:+"$4"} 2>&1
@@ -509,16 +530,19 @@ bracket stm.spotify.row.controls"
   assert_eq "event stm_spotify_change
 item stm.spotify
 item stm.spotify.icon
-$rows" "$(names split right)" "split right"
+$rows
+event stm_compact" "$(names split right)" "split right"
   for pos in left center; do
     assert_eq "event stm_spotify_change
 item stm.spotify.icon
 item stm.spotify
-$rows" "$(names split "$pos")" "split $pos"
+$rows
+event stm_compact" "$(names split "$pos")" "split $pos"
   done
   assert_eq "event stm_spotify_change
 item stm.spotify
-$rows" "$(names pill center)" "pill"
+$rows
+event stm_compact" "$(names pill center)" "pill"
   assert_eq "event stm_spotify_change com.spotify.client.PlaybackStateChanged" \
     "$(line_of stm_spotify_change split center)" "notification event"
   done_it
@@ -556,13 +580,35 @@ $rows" "$(names pill center)" "pill"
   done
   done_it
 
+  it "item.lua compact forms: short = 12 characters, icon drops the label (plain|pill), form to plugin.sh (I.form, I.spot)"
+  forms_of() {
+    PROBE_FORMS="$2" probe "$1" right | sed -n '/^form /,$p' | sed -E "s/^exec .*(STM_FORM='[a-z]*').*(SENDER='[a-z_]*').*/\\1 \\2/"
+  }
+  assert_eq "form short
+set stm.spotify {label={drawing=true max_chars=12}}
+STM_FORM='short' SENDER='stm_compact'
+form short
+form icon
+set stm.spotify {label={drawing=false max_chars=24}}
+STM_FORM='icon' SENDER='stm_compact'
+form bogus
+set stm.spotify {label={drawing=true max_chars=24}}
+STM_FORM='full' SENDER='stm_compact'
+form hidden
+set stm.spotify {label={drawing=true max_chars=24}}
+STM_FORM='hidden' SENDER='stm_compact'" "$(forms_of pill short,short,icon,bogus,hidden)" "pill"
+  assert_eq "form icon
+set stm.spotify {label={max_chars=24}}
+STM_FORM='icon' SENDER='stm_compact'" "$(forms_of split icon)" "split: drawing is plugin.sh's"
+  done_it
+
   it "item.lua subscribes the change event and runs the plugin per click (I.spot, V33)"
   out=$(probe split center flat click)
   assert_contains "$out" "subscribe stm.spotify routine forced stm_spotify_change system_woke display_change"
   env="STM_SP_SHAPE='split' STM_SP_COVER='on' STM_SP_NARROW='right' STM_SP_POSITION='center'"
-  assert_contains "$out" "exec $env STM_SP_ACTION='' NAME='stm.spotify' SENDER='forced' '/p/spotify.sh'"
+  assert_contains "$out" "exec $env STM_FORM='full' STM_SP_ACTION='' NAME='stm.spotify' SENDER='forced' '/p/spotify.sh'"
   for a in shuffle back play next repeat; do
-    assert_contains "$out" "exec $env STM_SP_ACTION='$a' NAME='stm.spotify' SENDER='mouse.clicked' '/p/spotify.sh'"
+    assert_contains "$out" "exec $env STM_FORM='full' STM_SP_ACTION='$a' NAME='stm.spotify' SENDER='mouse.clicked' '/p/spotify.sh'"
   done
   assert_eq "set stm.spotify {popup={drawing=toggle}}
 set stm.spotify {popup={drawing=false}}

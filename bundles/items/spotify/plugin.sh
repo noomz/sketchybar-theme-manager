@@ -9,6 +9,8 @@
 #                    display; always = on the right on every display
 #   STM_SP_POSITION  the item's configured position
 #   STM_SP_ACTION    play | next | back | shuffle | repeat, on a control's click
+#   STM_FORM         compact mode form: full | short | icon | hidden (hidden:
+#                    nothing asked of Spotify). Anything else is full.
 # Colours live in item.lua; this sets the text, glyphs, visibility and cover.
 #
 # STM_PGREP, STM_OSASCRIPT and STM_CURL override /usr/bin/pgrep,
@@ -29,6 +31,12 @@ hide() {
   sketchybar "$@"
   exit 0
 }
+
+case "${STM_FORM:-full}" in
+  hidden) hide ;;
+  short | icon) form=$STM_FORM ;;
+  *) form=full ;;
+esac
 
 # place — sets $move to the commands that put the item where it belongs, or
 # to nothing; $drawing to whether the bar shows it. A centred item on a narrow
@@ -222,7 +230,11 @@ if [ "${STM_SP_COVER:-on}" = on ]; then
   esac
 fi
 
-set -- --set "$NAME" drawing=on label="$label"
+# The icon form: split hides the label part; on plain and pill item.lua turns
+# the label off.
+main=on
+[ "$form" = icon ] && [ "$shape" = split ] && main=off
+set -- --set "$NAME" drawing=$main label="$label"
 [ "$shape" = split ] && set -- "$@" --set "$NAME.icon" drawing=on
 set -- "$@" --set "$NAME.row.title" label="$track" \
   --set "$NAME.row.artist" label="$artist" \

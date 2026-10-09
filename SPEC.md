@@ -223,7 +223,7 @@ step 1f (#30): compact mode. notched built-in (1728 pt, notch 771.5-956.5) → s
 | T66 | x | position pin: lint + apply refuse `[items] stm.compact`; `--move` after last stm right unit only when ≠ | V63 |
 | T67 | x | forms in clock (`full` `short`, pin), battery (`full` `icon`, high), date (`full` `short` `icon`); Lua probe: each form + bad value → full + hidden → drawing off | I.form,I.clk,I.bat,I.date |
 | T68 | x | forms in ai (all segments one unit), tailscale, net, disk (`full` `icon`); cpu, mem, netspeed (`full` `short`, T63); tests per bundle each form + bad value | I.form,I.ais,I.cpu,I.mem,I.disk,I.ns,I.net |
-| T69 | . | forms in spotify (`full` 24 ch, `short` 12 ch, `icon`); V43 kept (center → right first, then fit) | I.form,I.spot,V43 |
+| T69 | x | forms in spotify (`full` 24 ch, `short` 12 ch, `icon`); V43 kept (center → right first, then fit) | I.form,I.spot,V43 |
 | T70 | . | ship: README Items `compact` (install = on, forms, priority, chevron, display rule), manifests bumped; real-bar smoke (user OK): 16" built-in, + external, lid closed, Spotify playing | C18,V58,V63 |
 
 ## §B bugs

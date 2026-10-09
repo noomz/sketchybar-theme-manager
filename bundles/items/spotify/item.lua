@@ -24,10 +24,17 @@ return function(sbar, opts, colors)
   }, " ")
   local plugin = quote(opts.plugin_dir .. "/spotify.sh")
 
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_SPOTIFY: full (24 characters) | short (12) | icon | hidden.
+  -- Anything else is full. plugin.sh gets the form and sets `drawing`.
+  local forms = { full = 24, short = 12, icon = 24, hidden = 24 }
+  local form = "full"
+  local key = "STM_FORM_" .. name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
+
   local function run(e, action)
     local sender = (e and e.SENDER) or "forced"
-    sbar.exec(string.format("%s STM_SP_ACTION=%s NAME=%s SENDER=%s %s",
-      env, quote(action or ""), quote(name), quote(sender), plugin))
+    sbar.exec(string.format("%s STM_FORM=%s STM_SP_ACTION=%s NAME=%s SENDER=%s %s",
+      env, quote(form), quote(action or ""), quote(name), quote(sender), plugin))
   end
 
   -- Spotify posts this distributed notification on every play, pause and
@@ -173,5 +180,22 @@ return function(sbar, opts, colors)
   if icon_item then
     icon_item:subscribe("mouse.clicked", toggle)
   end
+
+  sbar.add("event", "stm_compact")
+  item:subscribe("stm_compact", function(e)
+    local f = e and e[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      form = f
+      local label = { max_chars = forms[f] }
+      if not icon_item then
+        label.drawing = f ~= "icon"
+      end
+      item:set({ label = label })
+      run(e)
+    end
+  end)
   run()
 end
