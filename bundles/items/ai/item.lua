@@ -189,6 +189,14 @@ return function(sbar, opts, colors)
     return "STM_AI_CW_" .. P .. "=" .. quote(m[1]) .. " STM_AI_PAD_" .. P .. "=" .. quote(m[2])
   end
 
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_AI: full | icon (the tags alone) | hidden, for every segment at
+  -- once. Anything else is full. plugin.sh gets the form and sets `drawing`;
+  -- a segment that carries its own tag has its label turned off here.
+  local forms = { full = true, icon = true, hidden = true }
+  local form = "full"
+  local key = "STM_FORM_" .. name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
+
   local function run(e, action)
     local sender = (e and e.SENDER) or "forced"
     local metrics = {}
@@ -196,8 +204,8 @@ return function(sbar, opts, colors)
       metrics[#metrics + 1] = measure_segment(s)
     end
     metrics[#metrics + 1] = "STM_AI_ACTION=" .. quote(action or "")
-    sbar.exec(string.format("%s %s NAME=%s SENDER=%s %s",
-      env, table.concat(metrics, " "), quote(name), quote(sender), plugin))
+    sbar.exec(string.format("%s STM_FORM=%s %s NAME=%s SENDER=%s %s",
+      env, quote(form), table.concat(metrics, " "), quote(name), quote(sender), plugin))
   end
 
   -- Each segment's popup: a totals line, up to ROWS account and window rows
@@ -245,5 +253,22 @@ return function(sbar, opts, colors)
     events[#events + 1] = ev
   end
   driver:subscribe(events, run)
+
+  sbar.add("event", "stm_compact")
+  driver:subscribe("stm_compact", function(e)
+    local f = e and e[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      form = f
+      for _, s in ipairs(segments) do
+        if not s.icon_item then
+          s.item:set({ label = { drawing = form == "full" } })
+        end
+      end
+      run(e)
+    end
+  end)
   run()
 end

@@ -200,6 +200,30 @@ run_plugin "$FIXTURE" STM_AI_CLAUDE=evil STM_AI_CODEX=off STM_AI_GEMINI=off STM_
 assert_eq "" "$AUB_ARGS" "a value outside the manifest counts as off"
 done_it
 
+it "compact forms: icon keeps the tag part only, hidden sets every segment off and reads nothing (I.form, V56)"
+mk_json "$J" claude 5h 0.42
+run_plugin "$J" STM_AI_CODEX=off STM_AI_GEMINI=off STM_AI_GROK=off STM_AI_OPENROUTER=off STM_FORM=icon
+assert_eq drawing=off "$(seg stm.ai.claude | head -n 1)" "split icon: the label part goes"
+assert_eq drawing=on "$(seg stm.ai.claude.icon | head -n 1)" "split icon: the tag stays"
+run_plugin "$J" STM_AI_CODEX=off STM_AI_GEMINI=off STM_AI_GROK=off STM_AI_OPENROUTER=off STM_AI_SHAPE=plain STM_FORM=icon
+assert_eq drawing=on "$(seg stm.ai.claude | head -n 1)" "plain icon: one item (its label off is item.lua's)"
+run_plugin "$J" STM_AI_CODEX=off STM_AI_GEMINI=off STM_AI_GROK=off STM_AI_OPENROUTER=off STM_AI_CLAUDE=windows STM_AI_SHAPE=pill STM_FORM=icon
+assert_eq drawing=off "$(seg stm.ai.claude | head -n 1)" "windows icon: the lines go"
+full=""
+for f in full bogus ""; do
+  run_plugin "$J" STM_AI_CODEX=off STM_AI_GEMINI=off STM_AI_GROK=off STM_AI_OPENROUTER=off "STM_FORM=$f"
+  [ -n "$full" ] || full=$SB
+  assert_eq "$full" "$SB" "form [$f] = full"
+  assert_eq drawing=on "$(seg stm.ai.claude | head -n 1)"
+done
+run_plugin "$J" STM_AI_GEMINI=off STM_AI_CLAUDE=windows STM_AI_SHAPE=pill STM_FORM=hidden
+assert_eq "$(lines --set stm.ai.claude drawing=off popup.drawing=off --set stm.ai.claude.icon drawing=off \
+  --set stm.ai.claude.pill drawing=off --set stm.ai.codex drawing=off popup.drawing=off \
+  --set stm.ai.grok drawing=off popup.drawing=off --set stm.ai.openrouter drawing=off popup.drawing=off)" "$SB" "hidden"
+assert_eq "" "$AUB_ARGS" "hidden: no aub run"
+assert_eq 1 "$SB_CALLS" "hidden: one sketchybar call"
+done_it
+
 it "aub absent: no aub on the first enabled segment only (V54, V55)"
 run_plugin "$FIXTURE" STM_AUB="$SANDBOX/no-such-aub"
 assert_eq "$(shown x "no aub" "$GREY" 60)" "$(seg stm.ai.claude)" "first segment"
@@ -740,7 +764,7 @@ it "lint and install item:ai (V4, V9, I.fs, I.cfg)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:ai
 assert_status 0
 assert_eq "ok	item:ai" "$STM_OUT"
-assert_file_contains "$BUNDLE/item.toml" 'version = "0.3.0"'
+assert_file_contains "$BUNDLE/item.toml" 'version = "0.4.0"'
 D="$SANDBOX/cfg"
 make_lua_config "$D"
 STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install item:ai
@@ -836,7 +860,12 @@ fire("stm.ai routine", "routine")
 if clicks and clicks ~= "" then
   for key in clicks:gmatch("[^,]+") do
     print("fire " .. key)
-    fire(key, key:match("%S+$"))
+    local f = key:match("^stm_compact=(.*)$")
+    if f then
+      handlers["stm.ai stm_compact"]({ SENDER = "stm_compact", STM_FORM_AI = f ~= "-" and f or nil })
+    else
+      fire(key, key:match("%S+$"))
+    end
   end
   return
 end
@@ -906,9 +935,32 @@ EOF
   assert_not_contains "$out" "stm.ai.grok"
   done_it
 
+  it "item.lua compact forms: one form for all segments, label off where the tag is on the segment, form to plugin.sh (I.form, I.ais)"
+  out=$(probe plain right "codex=windows gemini=off" ok "stm_compact=icon,stm_compact=icon,stm_compact=bogus,stm_compact=hidden")
+  assert_eq "fire stm_compact=icon
+set stm.ai.claude {label={drawing=false}}
+set stm.ai.grok {label={drawing=false}}
+set stm.ai.openrouter {label={drawing=false}}
+STM_FORM='icon' SENDER='stm_compact'
+fire stm_compact=icon
+fire stm_compact=bogus
+set stm.ai.claude {label={drawing=true}}
+set stm.ai.grok {label={drawing=true}}
+set stm.ai.openrouter {label={drawing=true}}
+STM_FORM='full' SENDER='stm_compact'
+fire stm_compact=hidden
+set stm.ai.claude {label={drawing=false}}
+set stm.ai.grok {label={drawing=false}}
+set stm.ai.openrouter {label={drawing=false}}
+STM_FORM='hidden' SENDER='stm_compact'" \
+    "$(printf '%s\n' "$out" | sed -n '/^fire /,$p' | sed -E "s/^exec .*(STM_FORM='[a-z]*').*(SENDER='[a-z_]*').*/\\1 \\2/")"
+  assert_contains "$out" "event stm_compact"
+  assert_contains "$out" "subscribe stm.ai stm_compact"
+  done_it
+
   it "item.lua runs plugin.sh with options, colours and per-segment metrics (V14, V46, V56)"
   out=$(probe split right "codex=windows gemini=off")
-  env="exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_GREY='0xff445566' STM_WHITE='0x00000005' STM_AI_SHAPE='split' STM_AI_ICON='tag' STM_AI_ICON_DIR='' STM_AI_CLAUDE='auto' STM_AI_CODEX='windows' STM_AI_GEMINI='off' STM_AI_GROK='auto' STM_AI_OPENROUTER='auto'"
+  env="exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_GREY='0xff445566' STM_WHITE='0x00000005' STM_AI_SHAPE='split' STM_AI_ICON='tag' STM_AI_ICON_DIR='' STM_AI_CLAUDE='auto' STM_AI_CODEX='windows' STM_AI_GEMINI='off' STM_AI_GROK='auto' STM_AI_OPENROUTER='auto' STM_FORM='full'"
   m="STM_AI_CW_CLAUDE='7.93' STM_AI_PAD_CLAUDE='12' STM_AI_CW_CODEX='6.10' STM_AI_PAD_CODEX='12' STM_AI_CW_GROK='7.93' STM_AI_PAD_GROK='12' STM_AI_CW_OPENROUTER='7.93' STM_AI_PAD_OPENROUTER='12'"
   assert_eq "$env $m STM_AI_ACTION='' NAME='stm.ai' SENDER='forced' '/p/ai.sh'
 $env $m STM_AI_ACTION='' NAME='stm.ai' SENDER='routine' '/p/ai.sh'

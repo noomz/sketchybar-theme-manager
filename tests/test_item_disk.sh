@@ -139,12 +139,16 @@ local function dump(v)
   end
   return "{" .. table.concat(parts, " ") .. "}"
 end
-local sbar = {}
+local sbar, handlers = {}, {}
 function sbar.add(kind, name, props)
   print(kind .. " " .. name .. " " .. dump(props))
   return {
-    subscribe = function(_, events) print("subscribe " .. table.concat(events, " ")) end,
-    set = function() end,
+    subscribe = function(_, events, fn)
+      if type(events) == "string" then events = { events } end
+      print("subscribe " .. table.concat(events, " "))
+      for _, e in ipairs(events) do handlers[e] = fn end
+    end,
+    set = function(_, p) print("set " .. name .. " " .. dump(p)) end,
   }
 end
 function sbar.query(name)
@@ -155,21 +159,26 @@ function sbar.exec(cmd) print("exec " .. cmd) end
 local opts = { name = "stm.disk", position = position, update_freq = 60,
   plugin_dir = "/p", events = { "system_woke" }, options = { shape = shape } }
 dofile(item_lua)(sbar, opts, { green = 1, yellow = 2, red = 3, grey = 4, bg1 = 21, black = 22 })
+-- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
+for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
+  print("form " .. f)
+  handlers.stm_compact({ SENDER = "stm_compact", [os.getenv("PROBE_KEY")] = f ~= "-" and f or nil })
+end
 EOF
   items_of() {
     "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "$BUNDLE/item.lua" 2>&1 | grep '^item '
   }
 
   it "item.lua plain and pill: one item, grey until plugin.sh reads df (V32, V14)"
-  assert_eq "item stm.disk {icon={color=4 string=$DISK} label={string=--} position=right update_freq=60}" \
+  assert_eq "item stm.disk {icon={color=4 string=$DISK} label={string=--} position=right update_freq=60 updates=true}" \
     "$(items_of plain right)" "plain"
-  assert_eq "item stm.disk {background={color=21 drawing=true} icon={color=4 string=$DISK} label={string=--} position=left update_freq=60}" \
+  assert_eq "item stm.disk {background={color=21 drawing=true} icon={color=4 string=$DISK} label={string=--} position=left update_freq=60 updates=true}" \
     "$(items_of pill left)" "pill"
   done_it
 
   it "item.lua split: icon sub-item left of the label at every position (V32, V33, V10)"
   main() {
-    printf 'item stm.disk {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=--} position=%s update_freq=60}' "$1"
+    printf 'item stm.disk {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=--} position=%s update_freq=60 updates=true}' "$1"
   }
   sub() {
     printf 'item stm.disk.icon {background={color=4 drawing=true} icon={color=22 string=%s} label={drawing=false} position=%s}' \
@@ -188,6 +197,32 @@ $(main "$pos")" "$(items_of split "$pos")" "split $pos"
   assert_contains "$out" "subscribe routine forced system_woke"
   assert_contains "$out" "query stm.disk"
   assert_contains "$out" "exec STM_GREEN='0x00000001' STM_YELLOW='0x00000002' STM_RED='0x00000003' STM_GREY='0x00000004' STM_DISK_SHAPE='pill' STM_DISK_CW='7.93' STM_DISK_PAD='12' NAME='stm.disk' SENDER='forced' '/p/disk.sh'"
+  done_it
+  it "item.lua compact forms: icon drops the label (split: the label part), hidden draws nothing, bad | missing = full (I.form)"
+  # forms_of <shape> <forms> — what the compact events set.
+  forms_of() {
+    PROBE_FORMS="$2" PROBE_KEY=STM_FORM_DISK "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" right "$BUNDLE/item.lua" 2>&1 | sed -n '/^form /,$p'
+  }
+  assert_eq "form icon
+set stm.disk {drawing=true label={drawing=false}}
+form icon
+form hidden
+set stm.disk {drawing=false label={drawing=false}}
+form short
+set stm.disk {drawing=true label={drawing=true}}
+form icon
+set stm.disk {drawing=true label={drawing=false}}
+form -
+set stm.disk {drawing=true label={drawing=true}}" "$(forms_of plain icon,icon,hidden,short,icon,-)" "plain (short is not a disk form)"
+  assert_eq "form icon
+set stm.disk.icon {drawing=true}
+set stm.disk {drawing=false}
+form hidden
+set stm.disk.icon {drawing=false}
+set stm.disk {drawing=false}
+form full
+set stm.disk.icon {drawing=true}
+set stm.disk {drawing=true}" "$(forms_of split icon,hidden,full)" "split"
   done_it
 elif [ -n "${CI:-}" ]; then
   it "lua is available to run item.lua"

@@ -35,6 +35,9 @@ return function(sbar, opts, colors)
   local props = {
     position = opts.position,
     update_freq = opts.update_freq,
+    -- compact mode may hide the item; a hidden item gets no events unless it
+    -- asks for them (SketchyBar's default is when_shown).
+    updates = true,
     icon = icon,
     label = { string = "--" },
     graph = { color = colors.grey, fill_color = fill_of(colors.grey), line_width = 1.0 },
@@ -57,12 +60,13 @@ return function(sbar, opts, colors)
 
   -- Right items are laid out right to left, so on the right the graph goes in
   -- first.
+  local icon_item
   if sub and opts.position ~= "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
   end
   local item = sbar.add("graph", opts.name, 30, props)
   if sub and opts.position == "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
   end
 
   -- A config batching its setup (sbar.begin_config) has not sent this item
@@ -92,5 +96,30 @@ return function(sbar, opts, colors)
     events[#events + 1] = ev
   end
   item:subscribe(events, run)
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_MEM: full | short (no label: the graph keeps its width) |
+  -- hidden. Anything else is full.
+  local forms = { full = true, short = true, hidden = true }
+  local form = "full"
+  local key = "STM_FORM_" .. opts.name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
+  local function draw_form()
+    local shown = form ~= "hidden"
+    if icon_item then
+      icon_item:set({ drawing = shown })
+    end
+    item:set({ drawing = shown, label = { drawing = form == "full" } })
+  end
+
+  sbar.add("event", "stm_compact")
+  item:subscribe("stm_compact", function(e)
+    local f = e and e[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      form = f
+      draw_form()
+    end
+  end)
   run()
 end

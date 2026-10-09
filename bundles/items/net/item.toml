@@ -2,13 +2,18 @@
 # Installed with `stm install item:net`; options go in stm.config.toml
 # (or a theme's palette) under [item.net].
 name = "net"
-version = "0.1.0"
+version = "0.2.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["magenta", "red", "bg1", "black"]
 default_position = "right"
 update_freq = 10
 events = ["wifi_change", "system_woke"]
+
+# The forms compact mode (item:compact) may ask for, widest first:
+#   full  the icon and the link
+#   icon  the icon alone
+compact = "full icon"
 
 # How the item is drawn (a theme may set this in its palette):
 #   plain  <icon> <text>, no background
@@ -23,3 +28,9 @@ default = "split"
 [options.label]
 values = ["type", "ip"]
 default = "type"
+
+# Compact mode steps low items down first, then normal, then high; pin never
+# leaves its full form.
+[options.priority]
+values = ["pin", "high", "normal", "low"]
+default = "low"

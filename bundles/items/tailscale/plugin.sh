@@ -9,6 +9,9 @@
 #   STM_TS_CLICK                        popup | app
 #   STM_TS_ICON                         text | nerd | app
 #   STM_TS_SHAPE                        plain | pill | split
+#   STM_FORM                            compact mode form: full | icon (no
+#                                       label) | hidden (item.lua hides the
+#                                       item; nothing to do). Else full.
 # Colours are never hard-coded here: they follow the palette.
 #
 # STM_TAILSCALE overrides the CLI lookup (tests, unusual installs). Stock
@@ -16,6 +19,11 @@
 # from PATH; jq is optional (plutil fallback).
 
 NAME=${NAME:-stm.tailscale}
+case "${STM_FORM:-full}" in
+  hidden) exit 0 ;;
+  icon) form=icon ;;
+  *) form=full ;;
+esac
 TIMEOUT_SECS=3 # `tailscale status` gets this much wall clock, then it is killed
 MAX_PEERS=20
 tab=$(printf '\t')
@@ -205,6 +213,10 @@ if [ "$icon_mode" = app ]; then
   esac
 fi
 
+# The icon form draws no label at all.
+shown=$label
+[ "$form" = icon ] && shown=""
+
 # The icon's updates first, then the label's --set goes in front of them.
 set --
 if [ -n "$app_icon" ]; then
@@ -218,7 +230,7 @@ if [ "$shape" = split ]; then
   [ -n "$color" ] && set -- "$@" background.color="$color"
   [ $# -gt 0 ] && set -- --set "$icon_item" "$@"
   # No label text: hide the label part's bg1 too, so only the icon part shows.
-  if [ -n "$label" ]; then
+  if [ -n "$shown" ]; then
     set -- background.drawing=on "$@"
   else
     set -- background.drawing=off "$@"
@@ -230,7 +242,7 @@ elif [ -n "$color" ]; then
   [ "$icon_mode" = app ] && set -- "$@" label.color="$color"
   [ -z "$app_icon" ] && set -- "$@" icon.color="$color"
 fi
-if [ -n "$label" ]; then
+if [ -n "$shown" ]; then
   set -- --set "$NAME" label.drawing=on label="$label" "$@"
 else
   set -- --set "$NAME" label.drawing=off "$@"

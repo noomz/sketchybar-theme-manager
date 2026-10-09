@@ -42,7 +42,7 @@ return function(sbar, opts, colors)
   end
 
   local measured, small
-  local items
+  local items, pill
   if o.view == "separate" then
     local function rate(icon, color, extra)
       local props = {
@@ -60,7 +60,7 @@ return function(sbar, opts, colors)
       return props
     end
     items = add({
-      { name = name, kind = "graph", props = rate("\u{F01DA}", colors.blue, { update_freq = opts.update_freq }) },
+      { name = name, kind = "graph", props = rate("\u{F01DA}", colors.blue, { update_freq = opts.update_freq, updates = true }) },
       { name = name .. ".up", kind = "graph", props = rate("\u{F0552}", colors.magenta) },
     })
     measured = name
@@ -72,6 +72,9 @@ return function(sbar, opts, colors)
       { name = name, kind = "graph", props = {
         position = opts.position,
         update_freq = opts.update_freq,
+        -- compact mode may hide the item; a hidden item gets no events unless
+        -- it asks for them (SketchyBar's default is when_shown).
+        updates = true,
         icon = { string = "\u{F06F3}", color = colors.blue },
         label = { drawing = false },
         graph = { color = colors.blue, fill_color = fill_of(colors.blue), line_width = 1.0 },
@@ -95,7 +98,7 @@ return function(sbar, opts, colors)
       } },
     })
     if o.shape == "pill" then
-      sbar.add("bracket", name .. ".pill", { name, name .. ".up", name .. ".rates" }, {
+      pill = sbar.add("bracket", name .. ".pill", { name, name .. ".up", name .. ".rates" }, {
         background = { drawing = true, color = colors.bg1 },
       })
     end
@@ -140,5 +143,39 @@ return function(sbar, opts, colors)
     events[#events + 1] = ev
   end
   items[name]:subscribe(events, run)
+
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_NETSPEED: full | short (the graphs alone: no rates, no labels) |
+  -- hidden. Anything else is full.
+  local forms = { full = true, short = true, hidden = true }
+  local form = "full"
+  local key = "STM_FORM_" .. name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
+  local function draw_form()
+    local shown = form ~= "hidden"
+    if o.view == "separate" then
+      for _, n in ipairs({ name, name .. ".up" }) do
+        items[n]:set({ drawing = shown, label = { drawing = form == "full" } })
+      end
+    else
+      items[name]:set({ drawing = shown })
+      items[name .. ".up"]:set({ drawing = shown })
+      items[name .. ".rates"]:set({ drawing = form == "full" })
+      if pill then
+        pill:set({ drawing = shown })
+      end
+    end
+  end
+
+  sbar.add("event", "stm_compact")
+  items[name]:subscribe("stm_compact", function(e)
+    local f = e and e[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      form = f
+      draw_form()
+    end
+  end)
   run()
 end

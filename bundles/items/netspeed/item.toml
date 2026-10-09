@@ -3,13 +3,18 @@
 # Installed with `stm install item:netspeed`; options go in stm.config.toml
 # (or a theme's palette) under [item.netspeed].
 name = "netspeed"
-version = "0.1.0"
+version = "0.2.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["blue", "magenta", "bg1"]
 default_position = "right"
 update_freq = 2
 events = ["system_woke", "wifi_change"]
+
+# The forms compact mode (item:compact) may ask for, widest first:
+#   full  the graphs and the rates
+#   short the graphs alone
+compact = "full short"
 
 # How the item is drawn (a theme may set this in its palette):
 #   plain  no background
@@ -24,3 +29,9 @@ default = "pill"
 [options.view]
 values = ["unified", "separate"]
 default = "unified"
+
+# Compact mode steps low items down first, then normal, then high; pin never
+# leaves its full form.
+[options.priority]
+values = ["pin", "high", "normal", "low"]
+default = "low"

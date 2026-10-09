@@ -16,6 +16,9 @@
 #                                paddings (empty until the bar has told
 #                                item.lua its font)
 #   STM_AI_ACTION                open (a popup's last row was clicked) or empty
+#   STM_FORM                     compact mode form: full | icon (the tags
+#                                alone) | hidden (every segment off, nothing
+#                                read). Anything else is full.
 #
 # The numbers come from the Agents Usage Bar cache: `aub usage --json` reads
 # it without touching the network. This plugin never calls a provider and
@@ -59,6 +62,10 @@ for p in claude codex gemini grok openrouter; do
   esac
 done
 [ -n "$enabled" ] || exit 0
+case "${STM_FORM:-full}" in
+  icon | hidden) form=$STM_FORM ;;
+  *) form=full ;;
+esac
 
 # SketchyBar runs plugins without TMPDIR; the per-user temp dir is private.
 tmp=${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null)}
@@ -472,7 +479,13 @@ icon_set() {
 # An image is never tinted: on plain and pill its tag colour goes on the
 # label; the windows lines keep their own colours.
 show() {
-  emit --set "$seg" drawing=on
+  # The icon form: a segment whose tag sits on <segment>.icon shows that
+  # alone; item.lua turns the other segments' labels off.
+  if [ "$form" = icon ] && [ "$icon_item" = 1 ]; then
+    emit --set "$seg" drawing=off
+  else
+    emit --set "$seg" drawing=on
+  fi
   text=$1
   measured=$1
   label_color=$(color_of "$3")
@@ -569,6 +582,22 @@ icon_ok() {
 # answers (file, app.<id> or none per segment) are cached in the per-user
 # temp dir and looked for again only on forced (reload, --update) and
 # system_woke, or without a valid cache.
+# Hidden by compact mode: every segment off, no aub, no probe.
+if [ "$form" = hidden ]; then
+  for e in $enabled; do
+    segment "${e%%:*}"
+    emit --set "$seg" drawing=off popup.drawing=off
+    [ "$icon_item" = 1 ] && emit --set "$seg.icon" drawing=off
+    [ "$pill" = 1 ] && emit --set "$seg.pill" drawing=off
+  done
+  set --
+  while IFS= read -r arg; do
+    set -- "$@" "$arg"
+  done <"$WORK/args"
+  sketchybar "$@"
+  exit 0
+fi
+
 icons=""
 probing=0
 icon_dir=""

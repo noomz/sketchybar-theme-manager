@@ -2,13 +2,18 @@
 # Installed with `stm install item:tailscale`; options go in stm.config.toml
 # under [item.tailscale], one key per option below.
 name = "tailscale"
-version = "0.2.0"
+version = "0.3.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["green", "yellow", "red", "grey", "popup_bg", "popup_border", "bg1", "black"]
 default_position = "right"
 update_freq = 30
 events = ["system_woke", "wifi_change"]
+
+# The forms compact mode (item:compact) may ask for, widest first:
+#   full  the icon and the status
+#   icon  the icon alone
+compact = "full icon"
 
 # Label fields.
 [options.exit_node]
@@ -41,3 +46,9 @@ default = "text"
 [options.shape]
 values = ["plain", "pill", "split"]
 default = "plain"
+
+# Compact mode steps low items down first, then normal, then high; pin never
+# leaves its full form.
+[options.priority]
+values = ["pin", "high", "normal", "low"]
+default = "normal"

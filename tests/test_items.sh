@@ -582,6 +582,7 @@ if [ -n "$LUA_BIN" ]; then
   cat >"$SANDBOX/lua/sketchybar.lua" <<'EOF'
 local sbar = {}
 function sbar.add(kind, name, props)
+  if kind == "event" then return {} end
   print("add " .. kind .. " " .. name .. " " .. tostring(props.position) .. " " .. tostring(props.update_freq))
   print("icon " .. tostring(props.icon.string))
   return { subscribe = function() end, set = function() end }
@@ -608,7 +609,8 @@ EOF
 -- Runs item.lua with one icon mode and prints the icon it creates.
 local mode, item_lua = ...
 local sbar = {}
-function sbar.add(_, _, props)
+function sbar.add(kind, _, props)
+  if kind == "event" then return {} end
   local i, bg = props.icon, props.icon.background or {}
   print(string.format("string=%s color=%s bg.drawing=%s bg.color=%s scale=%s",
     i.string, tostring(i.color), tostring(bg.drawing), tostring(bg.color),
@@ -633,6 +635,45 @@ EOF
   assert_eq "string= color=nil bg.drawing=true bg.color=0 scale=0.625" "$(icon_of app)" "app icon"
   done_it
 
+  it "tailscale item.lua compact forms: hidden hides both parts + popup, form to plugin.sh, bad = full (I.form, V42)"
+  cat >"$SANDBOX/lua/form_probe.lua" <<'EOF'
+local item_lua, forms = ...
+local handlers = {}
+local sbar = {}
+function sbar.add(kind, name)
+  return {
+    subscribe = function(_, events, fn)
+      if type(events) == "string" then events = { events } end
+      for _, e in ipairs(events) do handlers[e] = fn end
+    end,
+    set = function(_, p)
+      local pop = p.popup and (" popup=" .. tostring(p.popup.drawing)) or ""
+      print("set " .. name .. " drawing=" .. tostring(p.drawing) .. pop)
+    end,
+  }
+end
+function sbar.exec(cmd) print("exec " .. cmd:match("STM_FORM=%S+") .. " " .. cmd:match("SENDER=%S+")) end
+dofile(item_lua)(sbar, { name = "stm.tailscale", position = "right", update_freq = 30, plugin_dir = "/p", events = {},
+  options = { exit_node = "on", peers = "on", ip = "on", click = "popup", icon = "text", shape = "split" } }, {})
+for f in forms:gmatch("[^,]+") do
+  print("form " .. f)
+  handlers.stm_compact({ SENDER = "stm_compact", STM_FORM_TAILSCALE = f })
+end
+EOF
+  assert_eq "exec STM_FORM='full' SENDER='forced'
+form icon
+exec STM_FORM='icon' SENDER='stm_compact'
+form hidden
+set stm.tailscale.icon drawing=false
+set stm.tailscale drawing=false popup=false
+exec STM_FORM='hidden' SENDER='stm_compact'
+form bogus
+set stm.tailscale.icon drawing=true
+set stm.tailscale drawing=true popup=false
+exec STM_FORM='full' SENDER='stm_compact'
+form full" "$("$LUA_BIN" "$SANDBOX/lua/form_probe.lua" "$ITEM_LUA" icon,hidden,bogus,full 2>&1)"
+  done_it
+
   cat >"$SANDBOX/lua/shape_probe.lua" <<'EOF'
 -- Runs item.lua with one shape, icon mode and position; prints each item it
 -- adds, in order, with its props flattened (keys sorted).
@@ -654,6 +695,7 @@ local function dump(v)
 end
 local sbar = {}
 function sbar.add(kind, name, props)
+  if kind == "event" then return {} end
   print(kind .. " " .. name .. " " .. dump(props))
   return { subscribe = function() end, set = function() end }
 end
@@ -673,22 +715,22 @@ EOF
 
   it "tailscale shape=plain adds exactly what 0.6.0 did (V34)"
   # Captured from the 0.6.0 item.lua: no background, one item.
-  assert_eq "item stm.tailscale {$TS_CLICK icon={color=7 string=TS} label={string=tailscale} $TS_POPUP position=right update_freq=30}" \
+  assert_eq "item stm.tailscale {$TS_CLICK icon={color=7 string=TS} label={string=tailscale} $TS_POPUP position=right update_freq=30 updates=true}" \
     "$(shape_of plain text right)" "plain text"
-  assert_eq "item stm.tailscale {$TS_CLICK icon={$TS_APP_ICON string=} label={string=tailscale} $TS_POPUP position=right update_freq=30}" \
+  assert_eq "item stm.tailscale {$TS_CLICK icon={$TS_APP_ICON string=} label={string=tailscale} $TS_POPUP position=right update_freq=30 updates=true}" \
     "$(shape_of plain app right)" "plain app"
   done_it
 
   it "tailscale shape=pill: one item on a bg1 background (V32, V34, V14)"
-  assert_eq "item stm.tailscale {background={color=21 drawing=true} $TS_CLICK icon={color=7 string=TS} label={string=tailscale} $TS_POPUP position=right update_freq=30}" \
+  assert_eq "item stm.tailscale {background={color=21 drawing=true} $TS_CLICK icon={color=7 string=TS} label={string=tailscale} $TS_POPUP position=right update_freq=30 updates=true}" \
     "$(shape_of pill text right)" "pill text"
-  assert_eq "item stm.tailscale {background={color=21 drawing=true} $TS_CLICK icon={$TS_APP_ICON string=} label={string=tailscale} $TS_POPUP position=left update_freq=30}" \
+  assert_eq "item stm.tailscale {background={color=21 drawing=true} $TS_CLICK icon={$TS_APP_ICON string=} label={string=tailscale} $TS_POPUP position=left update_freq=30 updates=true}" \
     "$(shape_of pill app left)" "pill app"
   done_it
 
   it "tailscale shape=split: icon sub-item left of the label item at every position (V32, V33, V10)"
   ts_main() {
-    printf 'item stm.tailscale {background={color=21 drawing=true padding_left=0} %s icon={drawing=false} label={string=tailscale} %s position=%s update_freq=30}' \
+    printf 'item stm.tailscale {background={color=21 drawing=true padding_left=0} %s icon={drawing=false} label={string=tailscale} %s position=%s update_freq=30 updates=true}' \
       "$TS_CLICK" "$TS_POPUP" "$1"
   }
   ts_icon() {
@@ -1141,7 +1183,7 @@ done_it
 it "doctor: lists installed items, loader and wiring; tailscale CLI note (V18, I.ts)"
 assert_contains "$STM_OUT" "Items"
 assert_contains "$STM_OUT" "tailscale"
-assert_contains "$STM_OUT" "0.2.0"
+assert_contains "$STM_OUT" "0.3.0"
 assert_contains "$STM_OUT" "init.lua"
 assert_contains "$STM_OUT" "$SANDBOX/tailscale"
 STM_TAILSCALE="$SANDBOX/no-such-cli" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor

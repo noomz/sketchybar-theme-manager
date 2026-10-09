@@ -187,7 +187,7 @@ local function dump(v)
   end
   return "{" .. table.concat(parts, " ") .. "}"
 end
-local sbar, handler = {}, nil
+local sbar, handlers = {}, {}
 function sbar.add(kind, name, a, b)
   if kind == "bracket" then
     print(kind .. " " .. name .. " " .. table.concat(a, ",") .. " " .. dump(b))
@@ -199,8 +199,9 @@ function sbar.add(kind, name, a, b)
   return {
     name = name,
     subscribe = function(_, events, fn)
+      if type(events) == "string" then events = { events } end
       print("subscribe " .. name .. " " .. table.concat(events, " "))
-      handler = fn
+      for _, e in ipairs(events) do handlers[e] = fn end
     end,
     set = function(_, props) print("set " .. name .. " " .. dump(props)) end,
   }
@@ -217,7 +218,12 @@ function sbar.exec(cmd) print("exec " .. cmd) end
 local opts = { name = "stm.netspeed", position = position, update_freq = 2,
   plugin_dir = "/p", events = { "system_woke", "wifi_change" }, options = { shape = shape, view = view } }
 dofile(item_lua)(sbar, opts, { blue = 0xff336699, magenta = 0x80aa00aa, bg1 = 21 })
-handler({ SENDER = "routine" })
+handlers.routine({ SENDER = "routine" })
+-- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
+for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
+  print("form " .. f)
+  handlers.stm_compact({ SENDER = "stm_compact", STM_FORM_NETSPEED = f ~= "-" and f or nil })
+end
 EOF
   probe() {
     "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "$3" "${4:-13.00}" "$BUNDLE/item.lua" 2>&1
@@ -252,7 +258,7 @@ graph stm.netspeed" "$(names_of plain unified right)" "plain: no bracket"
   done_it
 
   it "item.lua unified: upload graph overlaid on the download graph (V47)"
-  assert_eq "graph stm.netspeed 30 {background={color=0 drawing=true padding_right=-30} graph={color=$BLUE fill_color=$BLUE_SOFT line_width=1.0} icon={color=$BLUE string=$SWAP} label={drawing=false} position=right update_freq=2}" \
+  assert_eq "graph stm.netspeed 30 {background={color=0 drawing=true padding_right=-30} graph={color=$BLUE fill_color=$BLUE_SOFT line_width=1.0} icon={color=$BLUE string=$SWAP} label={drawing=false} position=right update_freq=2 updates=true}" \
     "$(line_of stm.netspeed pill unified right)" "download"
   assert_eq "graph stm.netspeed.up 30 {background={color=0 drawing=true padding_left=0} graph={color=$MAGENTA fill_color=0 line_width=1.5} icon={drawing=false} label={drawing=false} position=right}" \
     "$(line_of stm.netspeed.up pill unified right)" "upload"
@@ -278,7 +284,7 @@ exec STM_NS_VIEW='unified' STM_NS_CW='6.10' STM_NS_PAD='5' NAME='stm.netspeed' S
 graph stm.netspeed" "$(names_of pill separate right)" "right"
   assert_eq "graph stm.netspeed
 graph stm.netspeed.up" "$(names_of pill separate left)" "left"
-  assert_eq "graph stm.netspeed 30 {background={color=21 drawing=true} graph={color=$BLUE fill_color=$BLUE_SOFT line_width=1.0} icon={color=$BLUE string=$DL} label={string=--} position=left update_freq=2}" \
+  assert_eq "graph stm.netspeed 30 {background={color=21 drawing=true} graph={color=$BLUE fill_color=$BLUE_SOFT line_width=1.0} icon={color=$BLUE string=$DL} label={string=--} position=left update_freq=2 updates=true}" \
     "$(line_of stm.netspeed pill separate left)" "download pill"
   assert_eq "graph stm.netspeed.up 30 {graph={color=$MAGENTA fill_color=$MAGENTA_SOFT line_width=1.0} icon={color=$MAGENTA string=$UL} label={string=--} position=left}" \
     "$(line_of stm.netspeed.up plain separate left)" "upload plain"
@@ -286,6 +292,41 @@ graph stm.netspeed.up" "$(names_of pill separate left)" "left"
   assert_contains "$out" "query stm.netspeed"
   assert_not_contains "$out" "set stm.netspeed" "separate keeps the label font"
   assert_contains "$out" "exec STM_NS_VIEW='separate' STM_NS_CW='7.93' STM_NS_PAD='11' NAME='stm.netspeed' SENDER='forced'"
+  done_it
+  it "item.lua compact forms: short = graphs alone, hidden draws nothing (pill too), bad | missing = full (I.form, I.ns, T63)"
+  forms_of() {
+    PROBE_FORMS="$3" probe "$1" "$2" right | sed -n '/^form /,$p'
+  }
+  assert_eq "form short
+set stm.netspeed {drawing=true}
+set stm.netspeed.up {drawing=true}
+set stm.netspeed.rates {drawing=false}
+set stm.netspeed.pill {drawing=true}
+form hidden
+set stm.netspeed {drawing=false}
+set stm.netspeed.up {drawing=false}
+set stm.netspeed.rates {drawing=false}
+set stm.netspeed.pill {drawing=false}
+form icon
+set stm.netspeed {drawing=true}
+set stm.netspeed.up {drawing=true}
+set stm.netspeed.rates {drawing=true}
+set stm.netspeed.pill {drawing=true}" "$(forms_of pill unified short,hidden,icon)" "unified pill (no icon form)"
+  assert_eq "form short
+set stm.netspeed {drawing=true}
+set stm.netspeed.up {drawing=true}
+set stm.netspeed.rates {drawing=false}
+form -
+set stm.netspeed {drawing=true}
+set stm.netspeed.up {drawing=true}
+set stm.netspeed.rates {drawing=true}" "$(forms_of plain unified short,-)" "unified plain: no bracket"
+  assert_eq "form short
+set stm.netspeed {drawing=true label={drawing=false}}
+set stm.netspeed.up {drawing=true label={drawing=false}}
+form hidden
+set stm.netspeed {drawing=false label={drawing=false}}
+set stm.netspeed.up {drawing=false label={drawing=false}}" "$(forms_of pill separate short,hidden)" "separate"
+  assert_contains "$(probe plain unified right)" "subscribe stm.netspeed stm_compact"
   done_it
 elif [ -n "${CI:-}" ]; then
   it "lua is available to run item.lua"

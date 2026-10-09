@@ -323,6 +323,26 @@ assert_eq "$(argv_of --set stm.tailscale label.drawing=on label=stopped backgrou
   --set stm.tailscale.icon background.color=$RED)" "$SB" "split stopped argv"
 done_it
 
+it "compact forms: icon sends no label (split: no label part), hidden runs nothing, bad form is full (I.form)"
+run_state plutil running STM_TS_SHAPE=split STM_FORM=icon STM_TS_CLICK=app
+assert_eq "$(argv_of --set stm.tailscale label.drawing=off background.drawing=off \
+  --set stm.tailscale.icon background.color=$GREEN)" "$SB" "split icon"
+run_state plutil running STM_TS_SHAPE=pill STM_FORM=icon STM_TS_CLICK=app
+assert_eq "$(argv_of --set stm.tailscale label.drawing=off icon.color=$GREEN)" "$SB" "pill icon"
+run_state plutil running STM_TS_SHAPE=split STM_TS_CLICK=app
+full=$SB
+for f in full bogus ""; do
+  run_state plutil running STM_TS_SHAPE=split STM_TS_CLICK=app "STM_FORM=$f"
+  assert_eq "$full" "$SB" "form [$f] = full"
+done
+printf '#!/bin/sh\n: >"%s/ts-ran"\n' "$SANDBOX" >"$SANDBOX/ts-touch"
+chmod 755 "$SANDBOX/ts-touch"
+rm -f "$SANDBOX/ts-ran"
+run_plugin plutil "$SANDBOX/ts-touch" STM_FORM=hidden
+assert_eq "" "$SB" "hidden: item.lua hides it, nothing sent"
+assert_file_absent "$SANDBOX/ts-ran" "hidden: no tailscale call"
+done_it
+
 it "shape=split, icon=app: probe and image on the icon sub-item, over the state colour (V34, V25)"
 run_state plutil running STM_TS_SHAPE=split STM_TS_ICON=app SB_APPS=io.tailscale.ipn.macsys \
   STM_TS_EXIT_NODE=off STM_TS_PEERS=off STM_TS_IP=off STM_TS_CLICK=app

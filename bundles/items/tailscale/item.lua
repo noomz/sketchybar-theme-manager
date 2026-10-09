@@ -55,6 +55,9 @@ return function(sbar, opts, colors)
   local props = {
     position = opts.position,
     update_freq = opts.update_freq,
+    -- compact mode may hide the item; a hidden item gets no events unless it
+    -- asks for them (SketchyBar's default is when_shown).
+    updates = true,
     icon = icon,
     label = { string = "tailscale" },
     click_script = click_script,
@@ -91,17 +94,26 @@ return function(sbar, opts, colors)
     props.background = { drawing = true, color = colors.bg1, padding_left = 0 }
   end
 
+  local icon_item
   if sub and opts.position ~= "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
   end
   local item = sbar.add("item", opts.name, props)
   if sub and opts.position == "right" then
-    sbar.add("item", opts.name .. ".icon", sub)
+    icon_item = sbar.add("item", opts.name .. ".icon", sub)
   end
+
+  -- compact mode (item:compact) sends the `stm_compact` event with
+  -- STM_FORM_TAILSCALE: full | icon | hidden. Anything else is full. Hidden is
+  -- drawn here; plugin.sh gets the form and leaves the label out in icon.
+  local forms = { full = true, icon = true, hidden = true }
+  local form = "full"
+  local key = "STM_FORM_" .. opts.name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
 
   local function run(e)
     local sender = (e and e.SENDER) or "forced"
-    sbar.exec(string.format("%s NAME=%s SENDER=%s %s", env, quote(opts.name), quote(sender), plugin))
+    sbar.exec(string.format("%s STM_FORM=%s NAME=%s SENDER=%s %s", env, quote(form), quote(opts.name),
+      quote(sender), plugin))
   end
 
   local events = { "routine", "forced" }
@@ -111,6 +123,25 @@ return function(sbar, opts, colors)
   item:subscribe(events, run)
   item:subscribe("mouse.exited.global", function()
     item:set({ popup = { drawing = false } })
+  end)
+
+  sbar.add("event", "stm_compact")
+  item:subscribe("stm_compact", function(e)
+    local f = e and e[key]
+    if not forms[f] then
+      f = "full"
+    end
+    if f ~= form then
+      local shown = f ~= "hidden"
+      if shown ~= (form ~= "hidden") then
+        if icon_item then
+          icon_item:set({ drawing = shown })
+        end
+        item:set({ drawing = shown, popup = { drawing = false } })
+      end
+      form = f
+      run(e)
+    end
   end)
   run()
 end

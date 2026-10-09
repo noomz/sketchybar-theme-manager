@@ -226,18 +226,27 @@ local function dump(v)
   end
   return "{" .. table.concat(parts, " ") .. "}"
 end
-local sbar = {}
+local sbar, handlers = {}, {}
 function sbar.add(kind, name, props)
   print(kind .. " " .. name .. " " .. dump(props))
   return {
-    subscribe = function(_, events) print("subscribe " .. table.concat(events, " ")) end,
-    set = function() end,
+    subscribe = function(_, events, fn)
+      if type(events) == "string" then events = { events } end
+      print("subscribe " .. table.concat(events, " "))
+      for _, e in ipairs(events) do handlers[e] = fn end
+    end,
+    set = function(_, p) print("set " .. name .. " " .. dump(p)) end,
   }
 end
 function sbar.exec(cmd) print("exec " .. cmd) end
 local opts = { name = "stm.net", position = position, update_freq = 10,
   plugin_dir = "/p", events = { "wifi_change", "system_woke" }, options = { shape = shape, label = label } }
 dofile(item_lua)(sbar, opts, { magenta = 1, red = 3, bg1 = 21, black = 22 })
+-- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
+for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
+  print("form " .. f)
+  handlers.stm_compact({ SENDER = "stm_compact", [os.getenv("PROBE_KEY")] = f ~= "-" and f or nil })
+end
 EOF
   items_of() {
     "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" type "$BUNDLE/item.lua" 2>&1 | grep '^item '
@@ -248,15 +257,15 @@ EOF
   }
 
   it "item.lua plain and pill: one item, pill on bg1 (V32, V14)"
-  assert_eq "item stm.net {$(icon_props 1) label={string=--} position=right update_freq=10}" \
+  assert_eq "item stm.net {$(icon_props 1) label={string=--} position=right update_freq=10 updates=true}" \
     "$(items_of plain right)" "plain"
-  assert_eq "item stm.net {background={color=21 drawing=true} $(icon_props 1) label={string=--} position=left update_freq=10}" \
+  assert_eq "item stm.net {background={color=21 drawing=true} $(icon_props 1) label={string=--} position=left update_freq=10 updates=true}" \
     "$(items_of pill left)" "pill"
   done_it
 
   it "item.lua split: icon sub-item left of the label at every position (V32, V33, V10)"
   main() {
-    printf 'item stm.net {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=--} position=%s update_freq=10}' "$1"
+    printf 'item stm.net {background={color=21 drawing=true padding_left=0} icon={drawing=false} label={string=--} position=%s update_freq=10 updates=true}' "$1"
   }
   sub() {
     printf 'item stm.net.icon {background={color=1 drawing=true} %s label={drawing=false} position=%s}' \
@@ -274,6 +283,32 @@ $(main "$pos")" "$(items_of split "$pos")" "split $pos"
   out=$("$LUA_BIN" "$SANDBOX/lua/probe.lua" pill right ip "$BUNDLE/item.lua" 2>&1)
   assert_contains "$out" "subscribe routine forced wifi_change system_woke"
   assert_contains "$out" "exec STM_MAGENTA='0x00000001' STM_RED='0x00000003' STM_NET_SHAPE='pill' STM_NET_LABEL='ip' NAME='stm.net' SENDER='forced' '/p/net.sh'"
+  done_it
+  it "item.lua compact forms: icon drops the label (split: the label part), hidden draws nothing, bad | missing = full (I.form)"
+  # forms_of <shape> <forms> — what the compact events set.
+  forms_of() {
+    PROBE_FORMS="$2" PROBE_KEY=STM_FORM_NET "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" right type "$BUNDLE/item.lua" 2>&1 | sed -n '/^form /,$p'
+  }
+  assert_eq "form icon
+set stm.net {drawing=true label={drawing=false}}
+form icon
+form hidden
+set stm.net {drawing=false label={drawing=false}}
+form short
+set stm.net {drawing=true label={drawing=true}}
+form icon
+set stm.net {drawing=true label={drawing=false}}
+form -
+set stm.net {drawing=true label={drawing=true}}" "$(forms_of plain icon,icon,hidden,short,icon,-)" "plain (short is not a net form)"
+  assert_eq "form icon
+set stm.net.icon {drawing=true}
+set stm.net {drawing=false}
+form hidden
+set stm.net.icon {drawing=false}
+set stm.net {drawing=false}
+form full
+set stm.net.icon {drawing=true}
+set stm.net {drawing=true}" "$(forms_of split icon,hidden,full)" "split"
   done_it
 elif [ -n "${CI:-}" ]; then
   it "lua is available to run item.lua"

@@ -4,13 +4,19 @@
 # Installed with `stm install item:ai`; options go in stm.config.toml
 # (or a theme's palette) under [item.ai].
 name = "ai"
-version = "0.3.0"
+version = "0.4.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["green", "yellow", "red", "grey", "white", "black", "bg1", "popup_bg", "popup_border"]
 default_position = "right"
 update_freq = 60
 events = ["system_woke"]
+
+# The forms compact mode (item:compact) may ask for, widest first, for
+# every segment at once:
+#   full  the tags and the values
+#   icon  the tags alone
+compact = "full icon"
 
 # How each segment is drawn (a theme may set this in its palette):
 #   plain  <tag> <text>, no background
@@ -55,3 +61,9 @@ default = "auto"
 [options.openrouter]
 values = ["auto", "balance", "quota", "off"]
 default = "auto"
+
+# Compact mode steps low items down first, then normal, then high; pin never
+# leaves its full form.
+[options.priority]
+values = ["pin", "high", "normal", "low"]
+default = "normal"

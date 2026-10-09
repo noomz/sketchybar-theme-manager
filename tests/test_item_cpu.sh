@@ -148,7 +148,7 @@ local function dump(v)
   end
   return "{" .. table.concat(parts, " ") .. "}"
 end
-local sbar, handler, queries = {}, nil, 0
+local sbar, handlers, queries = {}, {}, 0
 function sbar.add(kind, name, a, b)
   if type(a) == "table" then
     print(kind .. " " .. name .. " " .. dump(a))
@@ -158,10 +158,11 @@ function sbar.add(kind, name, a, b)
   return {
     name = name,
     subscribe = function(_, events, fn)
+      if type(events) == "string" then events = { events } end
       print("subscribe " .. table.concat(events, " "))
-      handler = fn
+      for _, e in ipairs(events) do handlers[e] = fn end
     end,
-    set = function() end,
+    set = function(_, p) print("set " .. name .. " " .. dump(p)) end,
   }
 end
 function sbar.query(name)
@@ -177,7 +178,12 @@ local opts = { name = "stm.cpu", position = position, update_freq = 2,
   plugin_dir = "/p", events = { "system_woke" }, options = { shape = shape } }
 dofile(item_lua)(sbar, opts, { orange = 0xff336699, green = 0x7f112233, yellow = 4, red = 5, grey = 0xff445566,
   bg1 = 21, black = 22 })
-handler({ SENDER = "routine" })
+handlers.routine({ SENDER = "routine" })
+-- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
+for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
+  print("form " .. f)
+  handlers.stm_compact({ SENDER = "stm_compact", [os.getenv("PROBE_KEY")] = f ~= "-" and f or nil })
+end
 EOF
   probe() {
     "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" "$2" "$3" "$BUNDLE/item.lua" 2>&1
@@ -190,15 +196,15 @@ EOF
   LABEL='label={string=--}'
 
   it "item.lua plain and pill: one graph item 30 wide, orange icon, pill on bg1 (I.cpu, V32, V14)"
-  assert_eq "graph stm.cpu 30 {$GRAPH icon={color=4281558681 string=$CPU} $LABEL position=right update_freq=2}" \
+  assert_eq "graph stm.cpu 30 {$GRAPH icon={color=4281558681 string=$CPU} $LABEL position=right update_freq=2 updates=true}" \
     "$(items_of plain right)" "plain"
-  assert_eq "graph stm.cpu 30 {background={color=21 drawing=true} $GRAPH icon={color=4281558681 string=$CPU} $LABEL position=left update_freq=2}" \
+  assert_eq "graph stm.cpu 30 {background={color=21 drawing=true} $GRAPH icon={color=4281558681 string=$CPU} $LABEL position=left update_freq=2 updates=true}" \
     "$(items_of pill left)" "pill"
   done_it
 
   it "item.lua split: orange icon sub-item left of the graph at every position (V32, V33, V10)"
   main() {
-    printf 'graph stm.cpu 30 {background={color=21 drawing=true padding_left=0} %s icon={drawing=false} %s position=%s update_freq=2}' \
+    printf 'graph stm.cpu 30 {background={color=21 drawing=true padding_left=0} %s icon={drawing=false} %s position=%s update_freq=2 updates=true}' \
       "$GRAPH" "$LABEL" "$1"
   }
   sub() {
@@ -230,6 +236,25 @@ query stm.cpu
 $late STM_CPU_CW='7.93' STM_CPU_PAD='12' NAME='stm.cpu' SENDER='routine' '/p/cpu.sh'" \
     "$(probe plain right late | grep -E '^(query|exec) ')" "late answer"
   assert_not_contains "$(probe plain right none)" "STM_CPU_CW='7" "no answer, no width"
+  done_it
+  it "item.lua compact forms: short drops the label (the graph keeps its width), hidden draws nothing, bad | missing = full (I.form, T63)"
+  forms_of() {
+    PROBE_FORMS="$2" PROBE_KEY=STM_FORM_CPU "$LUA_BIN" "$SANDBOX/lua/probe.lua" "$1" right ok "$BUNDLE/item.lua" 2>&1 | sed -n '/^form /,$p'
+  }
+  assert_eq "form short
+set stm.cpu {drawing=true label={drawing=false}}
+form icon
+set stm.cpu {drawing=true label={drawing=true}}
+form hidden
+set stm.cpu {drawing=false label={drawing=false}}
+form -
+set stm.cpu {drawing=true label={drawing=true}}" "$(forms_of plain short,icon,hidden,-)" "plain (no icon form: a graph's width is fixed)"
+  assert_eq "form short
+set stm.cpu.icon {drawing=true}
+set stm.cpu {drawing=true label={drawing=false}}
+form hidden
+set stm.cpu.icon {drawing=false}
+set stm.cpu {drawing=false label={drawing=false}}" "$(forms_of split short,hidden)" "split"
   done_it
 elif [ -n "${CI:-}" ]; then
   it "lua is available to run item.lua"
