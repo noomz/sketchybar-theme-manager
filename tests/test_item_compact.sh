@@ -128,10 +128,17 @@ triggers() {
   printf '%s\n' "$SB" | awk '$0 == "--trigger" { on = 1 } on { print } $0 == "--" { on = 0 }'
 }
 
+# The own-name moves compact sends every run (V72), and what else it sent.
+MOVE_CHEVRON=$(printf '%s\n' --move stm.compact after stm.c)
+MOVE_PAGE=$(printf '%s\n' --move stm.compact after stm.c --move stm.compact.next before stm.a --move stm.compact.prev after stm.compact.next)
+MOVE_CLICK=$(printf '%s\n' --move stm.compact.prev after stm.compact.next)
+moves() { printf '%s\n' "$SB" | grep -c '^--move$'; }
+sets() { printf '%s\n' "$SB" | grep -c -E '^--(set|trigger)$'; }
+
 it "lint, manifest: position right, display + wake events, mode shrink|page, grey (I.cmp, I.pg, V4)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:compact
 assert_status 0
-assert_eq 'version = "0.2.0"' "$(grep '^version' "$BUNDLE/item.toml")"
+assert_eq 'version = "0.3.0"' "$(grep '^version' "$BUNDLE/item.toml")"
 assert_eq 'default_position = "right"' "$(grep '^default_position' "$BUNDLE/item.toml")"
 assert_eq 'events = ["display_change", "system_woke"]' "$(grep '^events' "$BUNDLE/item.toml")"
 assert_eq 'update_freq = 30' "$(grep '^update_freq' "$BUNDLE/item.toml")"
@@ -264,7 +271,9 @@ run_plugin
 assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 30"
 assert_contains "$SB" "update_freq=30"
 run_plugin
-assert_eq "" "$SB" "calm: nothing sent at all"
+assert_eq 0 "$(sets)" "calm: nothing set"
+assert_contains "$SB" "$MOVE_CHEVRON"
+assert_eq 1 "$(moves)" "calm: the chevron's move only (V72)"
 # A width that moves unsettles it again.
 scene 160 200 30 125 100
 run_plugin
@@ -327,11 +336,12 @@ assert_contains "$SB" "$(printf '%s\n' --move stm.compact after stm.c --)"
 assert_contains "$(cat "$TMPD/stm-compact.state")" "hid c"
 done_it
 
-it "chevron already beside the last unit: no move (V63)"
+it "chevron already beside the last unit: moved all the same, which stacks the bar again (V63, V72, B22)"
 fresh
 scene 300 200 30 250 600
 run_plugin
-assert_not_contains "$SB" "--move"
+assert_contains "$SB" "$MOVE_CHEVRON"
+assert_eq 1 "$(moves)"
 done_it
 
 it "pin never leaves full (V58)"
@@ -598,41 +608,46 @@ page_bar() {
   bar logo stm.a stm.b stm.b.icon stm.c "$@" stm.a.row.0 >"$FIX/bar"
 }
 
-it "page: arrows kept left of the chevron, next then prev, own names only (V63, I.pg)"
+it "page: arrows at the right end of the bar, prev left of next; chevron after the last unit; own names only (V63, V71, I.pg)"
 page_seed
 scene 300 200 30 250 100
 page_bar vpn stm.compact stm.compact.row.0 stm.compact.next stm.compact.prev
 page
-assert_contains "$SB" "$(printf '%s\n' --move stm.compact after stm.c --move stm.compact.next after stm.compact --move stm.compact.prev after stm.compact.next --)"
-assert_eq 3 "$(printf '%s\n' "$SB" | grep -c '^--move$')"
+assert_contains "$SB" "$MOVE_PAGE"
+assert_eq 3 "$(moves)"
 # prev before next: the arrows would read › ‹.
 page_seed
 page_bar stm.compact stm.compact.prev stm.compact.next vpn
 page
-assert_contains "$SB" "$(printf '%s\n' --move stm.compact after stm.c --move stm.compact.next after stm.compact --move stm.compact.prev after stm.compact.next --)"
+assert_contains "$SB" "$MOVE_PAGE"
 # a foreign item between the arrows
 page_seed
 page_bar stm.compact stm.compact.next vpn stm.compact.prev
 page
-assert_eq 3 "$(printf '%s\n' "$SB" | grep -c '^--move$')"
+assert_contains "$SB" "$MOVE_PAGE"
+assert_eq 3 "$(moves)"
 assert_not_contains "$SB" "$(printf '%s\n' --move vpn)"
 done_it
 
-it "page: arrows already in place: no move; shrink never moves them (V63, V69)"
+it "page: nothing changed: the same moves again; shrink never moves the arrows (V72, V69)"
 page_seed
 scene 300 200 30 250 100
 page_bar stm.compact stm.compact.row.0 stm.compact.next stm.compact.prev vpn
 page
-assert_not_contains "$SB" "--move"
+page
+page
+assert_eq 0 "$(sets)"
+assert_contains "$SB" "$MOVE_PAGE"
+assert_eq 3 "$(moves)"
 # shrink: the arrows are not its items (a bar still holding them from page).
 page_seed
 page_bar stm.compact stm.compact.prev stm.compact.next vpn
 run_plugin
-assert_not_contains "$SB" "--move"
+assert_eq "$MOVE_CHEVRON" "$(printf '%s\n' "$SB" | grep -A 3 '^--move$')"
 page_seed
 page_bar vpn stm.compact stm.compact.next stm.compact.prev
 run_plugin
-assert_eq "$(printf '%s\n' --move stm.compact after stm.c)" "$(printf '%s\n' "$SB" | grep -A 3 '^--move$')"
+assert_eq "$MOVE_CHEVRON" "$(printf '%s\n' "$SB" | grep -A 3 '^--move$')"
 done_it
 
 # --- page mode: offset, arrows, clicks (#31) ---------------------------------
@@ -698,19 +713,23 @@ assert_eq "stm-compact.state
 stm-compact.widths" "$(ls "$TMPD")"
 done_it
 
-it "page click on the arrow at its end: no trigger, no set, no state write; the other way steps back (V67)"
+it "page click on the arrow at its end: no trigger, no set, no state write, prev moved beside next; the other way steps back (V67, V71, V72)"
 before=$(cksum <"$ST")
 click prev
-assert_eq "" "$SB"
+assert_eq "$MOVE_CLICK" "$(printf '%s\n' "$SB" | grep -A 3 '^--move$')"
+assert_eq 0 "$(sets)"
 assert_eq "" "$QUERIES"
 assert_eq "$before" "$(cksum <"$ST")"
 click next
 assert_eq "$(trigger_of full full hidden)" "$(triggers)"
 assert_contains "$SB" "$(arrows "$WHITE" "$GREY")"
 assert_contains "$(cat "$ST")" "page 0"
+# A step sends the arrows nowhere new: prev beside next, as they are.
+assert_eq "$MOVE_CLICK" "$(printf '%s\n' "$SB" | grep -A 3 '^--move$')"
 before=$(cksum <"$ST")
 click next
-assert_eq "" "$SB"
+assert_eq 0 "$(sets)"
+assert_eq 1 "$(moves)"
 assert_eq "$before" "$(cksum <"$ST")"
 done_it
 
@@ -786,7 +805,7 @@ assert_contains "$(cat "$ST")" "page 1"
 assert_contains "$SB" "$(arrows "$WHITE" "$GREY")"
 before=$(cksum <"$ST")
 click next
-assert_eq "" "$SB"
+assert_eq 0 "$(sets)"
 assert_eq "$before" "$(cksum <"$ST")"
 done_it
 

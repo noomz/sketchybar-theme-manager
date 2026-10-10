@@ -5,7 +5,7 @@
 # `priority` option; hidden items are listed behind a » chevron.
 # Its position is fixed: a theme or stm.config.toml may not move it.
 name = "compact"
-version = "0.2.0"
+version = "0.3.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["white", "grey", "bg1", "popup_bg", "popup_border"]
@@ -15,8 +15,9 @@ events = ["display_change", "system_woke"]
 
 # How the items are fitted (#31):
 #   shrink  items step down full > short > icon > hidden; » lists the hidden
-#   page    items stay full; the bar shows the ones that fit, and ‹ › slide
-#           that window one item a click (pin items always stay)
+#   page    items stay full; the bar shows the ones that fit, and ‹ › at
+#           the right end slide that window one item a click (pin items
+#           always stay)
 [options.mode]
 values = ["shrink", "page"]
 default = "shrink"

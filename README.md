@@ -899,12 +899,17 @@ mode = "page"   # shrink | page
 
 In `page` mode the bar shows as many items as fit, counted from the right
 edge, and hides the rest. At least one item always shows, even one wider than
-the room. While an item is hidden, `‹` and `›` show left of the stm items:
-`‹` slides the shown items one item to the left, `›` one item to the right.
-One click moves one item. At the end of the list that arrow turns grey and a
+the room. While an item is hidden, `‹` and `›` show at the right end of the
+bar, where they stay put however many items show: `‹` slides the shown items
+one item to the left, `›` one item to the right. One click moves one item. At the end of the list that arrow turns grey and a
 click on it does nothing. A `pin` item always stays in the bar; `high`,
 `normal` and `low` mean nothing here, and the `»` is not used. The place you
 paged to is kept when the bar reloads or a display changes.
+
+A click on the bare bar, between two items, can make SketchyBar draw the bar
+over its own items, so the bar looks empty (seen with SketchyBar 2.24 on
+macOS 27). `compact` puts the items back on top every time it runs, in either
+mode: within 30 seconds, and at once on the next click on `‹` or `›`.
 
 The notch comes from macOS (`NSScreen`, one `osascript` run); widths come from
 `sketchybar --query`. Measured widths are kept in your own temp folder, so the

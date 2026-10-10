@@ -65,9 +65,10 @@ return function(sbar, opts, colors)
   end
 
   -- page mode (#31): ‹ › slide the window of items the bar shows, one item a
-  -- click. Added next then prev, so ‹ is the left one; plugin.sh keeps both
-  -- left of the items, shows them while an item is out of the window and
-  -- greys the one at its end. The » chevron stays hidden in this mode.
+  -- click. plugin.sh moves both to the right end of the bar, ‹ left of ›, so
+  -- a step never moves them from under the pointer; it shows them while an
+  -- item is out of the window and greys the one at its end. The » chevron
+  -- stays hidden in this mode.
   if mode == "page" then
     for _, a in ipairs({ { "next", "›" }, { "prev", "‹" } }) do
       local arrow = sbar.add("item", opts.name .. "." .. a[1], {

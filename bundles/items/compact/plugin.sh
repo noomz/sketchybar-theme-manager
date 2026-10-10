@@ -12,8 +12,9 @@
 # One run: query the bar, its displays and every bar item (one call), read
 # each screen's notch (one osascript), fit the units into the room the
 # tightest display has, then send one `stm_compact` trigger when a form
-# changed and one --set / --move batch on stm.compact* when the chevron
-# changed. Every unit draws its own form; this never sets another item.
+# changed and one --set / --move batch on stm.compact*: the chevron when it
+# changed, the own items' places every run (see restack). Every unit draws
+# its own form; this never sets another item.
 #
 # Room per display: from the notch's right edge (else the end of the left
 # items) + 8 to the bar's right edge, minus every other right item, 8 per
@@ -37,7 +38,8 @@
 # never measured costs nothing. The window grows only with 24 to spare and
 # shrinks at once. A click on an arrow moves the window one unit and on past
 # units that cost nothing; the arrow with nothing more to show is grey and
-# does nothing. A click run asks the bar nothing: it fits the cached widths
+# does nothing. The arrows sit at the right end of the bar, so a step never
+# moves them from under the pointer. A click run asks the bar nothing: it fits the cached widths
 # into the room the last full run wrote (`budget`), in the order that run
 # wrote the `form` rows (rightmost first). With no room or no width on file
 # yet, the click is a full run.
@@ -121,8 +123,9 @@ out.join("\n");' >"$WORK/screens" 2>/dev/null || : >"$WORK/screens"
 
 # fit <fast> <file>... — the fit over those files, into $WORK/out. One record
 # per line: `T <arg>` trigger argv, `S <arg>` set / move argv, `C <row>` widths
-# cache, `X <row>` state. Nothing when the bar, its displays or its items
-# could not be read, or a click had nothing to move. <fast> = 1: a click run
+# cache, `X <row>` state, `N` for a click that had nothing to move (its move
+# only, no file written). Nothing when the bar, its displays or its items
+# could not be read. <fast> = 1: a click run
 # over units, cache and state only; exit 3 when those are not enough.
 fit() {
   fast=$1
@@ -195,6 +198,22 @@ function unit_of(n,   i, u) {
   return ""
 }
 
+# Where the own items go, sent every run. The chevron goes just left of the
+# last stm unit on the right; the page arrows go to the right end of the bar, ‹
+# left of ›, so a step never moves them under the pointer. Sent also when
+# they are in place already: a click on bare bar makes SketchyBar raise the
+# bar over its own items, and any --move makes it stack them again. A click
+# run has not asked the bar for the units, so it moves ‹ beside › only.
+function mv(a, how, b) { print "S --move"; print "S " a; print "S " how; print "S " b }
+function restack() {
+  if (fast) { if (mode == "page") mv(name ".prev", "after", name ".next"); return }
+  if (lastname != "" && (name in idx)) mv(name, "after", lastname)
+  if (mode == "page" && firstname != "" && ((name ".next") in idx) && ((name ".prev") in idx)) {
+    mv(name ".next", "before", firstname)
+    mv(name ".prev", "after", name ".next")
+  }
+}
+
 # One queried item: keep drawn left / right items, never brackets.
 function end_item(   k, d, u) {
   if (iname == "" || !(iname in idx)) return
@@ -202,7 +221,7 @@ function end_item(   k, d, u) {
     u = unit_of(iname)
     if (u != "") { present[u] = 1; if (!(u in uidx) || idx[iname] < uidx[u]) uidx[u] = idx[iname] }
     if (u != "" && idx[iname] > lastidx) { lastidx = idx[iname]; lastname = iname }
-    if (u == "" && iname != name && index(iname, name ".") != 1) rights[++nrt] = iname
+    if (u != "" && (firstname == "" || idx[iname] < firstidx)) { firstidx = idx[iname]; firstname = iname }
   }
   if (idraw != "on" || itype == "bracket" || (ipos != "left" && ipos != "right")) return
   for (k = 1; k <= nr; k++) {
@@ -405,8 +424,8 @@ END {
         o--; while (pcost(P[o + 1]) == 0) o--; moved = 1
       }
     }
-    # A click on the arrow at its end: nothing sent, nothing written.
-    if (fast && !moved) exit
+    # A click on the arrow at its end: nothing written, only the move sent.
+    if (fast && !moved) { print "N"; restack(); exit }
     if (psent && !forced && !moved) {
       o = spage + 0
       for (j = 1; j <= np; j++) form[P[j]] = pform(P[j])
@@ -535,17 +554,7 @@ END {
     }
   }
 
-  # Keep the chevron just left of the last stm unit on the right; in page
-  # mode the arrows left of it, next then prev (prev is the left one).
-  nown = 0
-  own[++nown] = name
-  if (mode == "page" && ((name ".next") in idx) && ((name ".prev") in idx)) { own[++nown] = name ".next"; own[++nown] = name ".prev" }
-  if (lastname != "" && (name in idx)) {
-    mv = 0; at = lastidx
-    for (k = 1; k <= nown; k++) { if (idx[own[k]] < at) mv = 1; at = idx[own[k]] }
-    for (k = 1; k <= nrt; k++) if (idx[rights[k]] > lastidx && idx[rights[k]] < at) mv = 1
-    if (mv) for (k = 1; k <= nown; k++) { print "S --move"; print "S " own[k]; print "S after"; print "S " (k == 1 ? lastname : own[k - 1]) }
-  }
+  restack()
 }' "$@" >"$WORK/out"
 }
 
@@ -567,8 +576,11 @@ save() {
   t=$(/usr/bin/mktemp "$2.XXXXXX" 2>/dev/null) || return 0
   if /bin/cat "$WORK/save.$1" >"$t" && /bin/mv -f "$t" "$2"; then :; else /bin/rm -f "$t"; fi
 }
-save C "$cache"
-save X "$state"
+# N: a click with nothing to move; the files stay as they are.
+if ! /usr/bin/grep -q '^N$' "$WORK/out"; then
+  save C "$cache"
+  save X "$state"
+fi
 
 # One trigger with every unit's form, then one batch on stm.compact*. Each
 # record is one argv word.
