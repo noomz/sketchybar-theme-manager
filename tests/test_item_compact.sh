@@ -492,8 +492,10 @@ page_seed() {
   printf '%s\n' "$@" >"$TMPD/stm-compact.widths"
   printf 'form a full\nform b full\nform c full\nfreq 30\ncalm 5\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
 }
+WHITE=0xffffffff
+GREY=0xff7f8490
 page() {
-  run_plugin STM_CMP_MODE=page "$@"
+  run_plugin STM_CMP_MODE=page STM_WHITE="$WHITE" STM_GREY="$GREY" "$@"
 }
 
 it "page, 1728 notch: the window that fits stays full, the rest hidden (V66)"
@@ -631,6 +633,263 @@ page_seed
 page_bar vpn stm.compact stm.compact.next stm.compact.prev
 run_plugin
 assert_eq "$(printf '%s\n' --move stm.compact after stm.c)" "$(printf '%s\n' "$SB" | grep -A 3 '^--move$')"
+done_it
+
+# --- page mode: offset, arrows, clicks (#31) ---------------------------------
+# Default widths: a 308, b 238, c 258 with their gaps, a rightmost.
+
+ST="$TMPD/stm-compact.state"
+# page_scene <vpn> — the scene with the arrows in place (no --move).
+page_scene() {
+  scene 300 200 30 250 "$1"
+  page_bar stm.compact stm.compact.row.0 stm.compact.next stm.compact.prev vpn
+}
+# page_state <a> <b> <c> [<row>...] — those forms last sent, then those rows.
+page_state() {
+  printf 'form a %s\nform b %s\nform c %s\nfreq 30\ncalm 5\nhid -\nsent 0\n' "$1" "$2" "$3" >"$ST"
+  shift 3
+  [ "$#" -eq 0 ] || printf '%s\n' "$@" >>"$ST"
+}
+# click prev|next [VAR=value...] — a click on that arrow.
+click() {
+  local a="$1"
+  shift
+  page STM_CMP_ACTION="$a" SENDER=mouse.clicked "$@"
+}
+# arrows <prev colour> <next colour> — the argv that draws both arrows.
+arrows() {
+  printf '%s\n' --set stm.compact.prev drawing=on "icon.color=$1" --set stm.compact.next drawing=on "icon.color=$2"
+}
+
+it "page: a full run writes the offset and the room; arrows drawn, next grey at offset 0; never the chevron (V67, V68, I.pg)"
+page_seed
+page_scene 100 # room 641, with arrows 585: a + b 546
+page
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+assert_eq "form a full
+form b full
+form c hidden
+freq 2
+calm 0
+hid -
+sent 2
+page 0
+budget 641" "$(cat "$ST")"
+assert_contains "$SB" "$(arrows "$WHITE" "$GREY")"
+assert_not_contains "$SB" "$(printf '%s\n' stm.compact drawing=on)"
+done_it
+
+it "page click prev: the window slides one unit left; no osascript, no query; one trigger, one batch, one state write (V67, V68)"
+click prev
+assert_eq "" "$QUERIES"
+assert_eq "$(trigger_of hidden full full)" "$(triggers)"
+assert_contains "$SB" "$(arrows "$GREY" "$WHITE")"
+assert_eq 2 "$(printf '%s\n' "$SB" | grep -c '^--$')"
+assert_eq "form a hidden
+form b full
+form c full
+freq 2
+calm 0
+hid -
+sent 2
+page 1
+budget 641" "$(cat "$ST")"
+assert_eq "stm-compact.state
+stm-compact.widths" "$(ls "$TMPD")"
+done_it
+
+it "page click on the arrow at its end: no trigger, no set, no state write; the other way steps back (V67)"
+before=$(cksum <"$ST")
+click prev
+assert_eq "" "$SB"
+assert_eq "" "$QUERIES"
+assert_eq "$before" "$(cksum <"$ST")"
+click next
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+assert_contains "$SB" "$(arrows "$WHITE" "$GREY")"
+assert_contains "$(cat "$ST")" "page 0"
+before=$(cksum <"$ST")
+click next
+assert_eq "" "$SB"
+assert_eq "$before" "$(cksum <"$ST")"
+done_it
+
+it "page: an offset past the last window is clamped to it; a bad page row is 0 (V67, I.pg)"
+page_seed
+page_state full full hidden "page 9"
+page_scene 100
+page
+assert_eq "$(trigger_of hidden full full)" "$(triggers)"
+assert_contains "$(cat "$ST")" "page 1"
+for row in "page 64" "page -1" "page x" "page 1 2" "page 1.5"; do
+  page_seed
+  page_state full full hidden "$row"
+  page
+  assert_eq "" "$(triggers)" "[$row]"
+  assert_contains "$(cat "$ST")" "page 0" "[$row]"
+done
+done_it
+
+it "page click with no budget row, a bad one or no cached width: a full run with the click applied (V68)"
+for row in "" "budget 10001" "budget x" "budget -5" "budget 6 4"; do
+  page_seed
+  page_state full full hidden "page 0"
+  [ -z "$row" ] || printf '%s\n' "$row" >>"$ST"
+  page_scene 100
+  click prev
+  assert_contains "$QUERIES" "osascript -l JavaScript" "[$row]"
+  assert_eq "$(trigger_of hidden full full)" "$(triggers)" "[$row]"
+  assert_contains "$(cat "$ST")" "page 1" "[$row]"
+  assert_contains "$(cat "$ST")" "budget 641" "[$row]"
+done
+page_seed
+: >"$TMPD/stm-compact.widths"
+page_state full full hidden "page 0" "budget 641"
+click prev
+assert_contains "$QUERIES" "osascript -l JavaScript"
+assert_contains "$(cat "$TMPD/stm-compact.widths")" "a full 300"
+done_it
+
+it "page: an action outside prev|next is a plain run; shrink ignores a click (V68)"
+page_seed
+page_state full full hidden "page 0" "budget 641"
+page_scene 100
+page STM_CMP_ACTION=bogus SENDER=mouse.clicked
+assert_contains "$QUERIES" "osascript -l JavaScript"
+assert_eq "" "$(triggers)"
+assert_contains "$(cat "$ST")" "page 0"
+page_seed
+page_state full full full "page 0" "budget 641"
+scene 300 200 30 250 100
+run_plugin STM_CMP_ACTION=prev SENDER=mouse.clicked
+assert_contains "$QUERIES" "osascript -l JavaScript"
+assert_eq "$(trigger_of short full short)" "$(triggers)"
+assert_not_contains "$(cat "$ST")" "page"
+assert_not_contains "$(cat "$ST")" "budget"
+done_it
+
+it "page click steps on past a unit that costs nothing; next is grey once only such units are right of the window (V67)"
+page_seed "b full 230" "c full 250"
+page_scene 435 # room 306, with arrows 250: one of b, c at a time
+item stm.a right off item
+page
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+assert_contains "$SB" "$(arrows "$WHITE" "$GREY")"
+# prev: past a (dropping it shows no change), then past b.
+click prev
+assert_eq "$(trigger_of hidden hidden full)" "$(triggers)"
+assert_contains "$(cat "$ST")" "page 2"
+assert_contains "$SB" "$(arrows "$GREY" "$WHITE")"
+click next
+assert_eq "$(trigger_of hidden full hidden)" "$(triggers)"
+assert_contains "$(cat "$ST")" "page 1"
+assert_contains "$SB" "$(arrows "$WHITE" "$GREY")"
+before=$(cksum <"$ST")
+click next
+assert_eq "" "$SB"
+assert_eq "$before" "$(cksum <"$ST")"
+done_it
+
+it "page: a unit that stops drawing loses its cached width, so a click run counts nothing for it (V66, V67)"
+page_seed
+scene 300 200 30 250 170 # room 571: a + c need 566
+item stm.b right off item
+item stm.b.icon right off item
+page
+assert_eq "" "$(triggers)"
+assert_eq "a full 300
+c full 250" "$(cat "$TMPD/stm-compact.widths")"
+done_it
+
+it "page click: pin stays full, its width off the room on the click run too (V66, V68)"
+PIN="a:pin:full short icon,b:normal:full icon,c:low:full short"
+page_seed
+page_scene 300 # room 441 - a 308 = 133, with arrows 77: b or c
+page STM_COMPACT_UNITS="$PIN"
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+click prev STM_COMPACT_UNITS="$PIN"
+assert_eq "" "$QUERIES"
+assert_eq "$(trigger_of full hidden full)" "$(triggers)"
+click next STM_COMPACT_UNITS="$PIN"
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+done_it
+
+it "page: the window grows only with 24 to spare and shrinks at once (V69, V59)"
+page_seed
+page_state full hidden hidden "page 0"
+scene 300 200 30 250 130 # with arrows 555: a + b 546, 9 to spare
+page
+assert_eq "" "$(triggers)"
+page_seed
+page_state full hidden hidden "page 0"
+scene 300 200 30 250 110 # with arrows 575: 29 to spare
+page
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+page_seed
+page_state full full hidden "page 0"
+scene 300 200 30 250 160 # with arrows 525
+page
+assert_eq "$(trigger_of full hidden hidden)" "$(triggers)"
+# The arrows go only when every unit fits with 24 to spare (all need 704).
+page_seed "a full 300" "b full 230" "c full 150"
+page_state full full hidden "page 0"
+scene 300 200 30 150 30 # room 711
+page
+assert_eq "" "$(triggers)"
+page_seed "a full 300" "b full 230" "c full 150"
+page_state full full hidden "page 0"
+scene 300 200 30 150 10 # room 731
+page
+assert_eq "$(trigger_of full full full)" "$(triggers)"
+done_it
+
+it "page: a display change and a reload keep the offset; a reload sets the arrows again, chevron off (V69, V67)"
+page_seed
+page_state hidden full full "page 1" "budget 641"
+page_scene 100
+page SENDER=display_change
+assert_eq "" "$(triggers)"
+assert_contains "$(cat "$ST")" "page 1"
+page SENDER=forced
+assert_eq "$(trigger_of hidden full full)" "$(triggers)"
+assert_contains "$(cat "$ST")" "page 1"
+assert_contains "$SB" "$(arrows "$GREY" "$WHITE")"
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact drawing=off popup.drawing=off)"
+done_it
+
+it "page: a change is sent once more on the next run and the forms held till a run sent nothing (V60, V69)"
+page_seed
+page_state full full hidden "page 0" "budget 641"
+page_scene 100
+click prev
+assert_eq "$(trigger_of hidden full full)" "$(triggers)"
+page_scene 600 # the room shrank to 141: held
+page
+assert_eq "$(trigger_of hidden full full)" "$(triggers)" "the one repeat"
+page
+assert_eq "" "$(triggers)" "held"
+page
+assert_eq "$(trigger_of hidden full hidden)" "$(triggers)" "fitted again, offset kept"
+assert_contains "$(cat "$ST")" "page 1"
+done_it
+
+it "page, empty or bad query: nothing sent, state and offset as they were (V62)"
+page_seed
+page_state hidden full full "page 1" "budget 641"
+page_scene 100
+before=$(cksum <"$ST")
+printf '{' >"$FIX/bar"
+page
+assert_eq "" "$SB"
+assert_eq "$before" "$(cksum <"$ST")"
+done_it
+
+it "page: arrow colours that are not 0xAARRGGBB are never sent (V14)"
+page_seed
+page_scene 100
+page STM_WHITE="red" STM_GREY='0xff7f8490 drawing=off'
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact.prev drawing=on --set stm.compact.next drawing=on)"
+assert_not_contains "$SB" "icon.color"
 done_it
 
 LUA_BIN=$(command -v lua 2>/dev/null || true)

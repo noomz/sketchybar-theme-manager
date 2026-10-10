@@ -6,6 +6,8 @@
 #   STM_COMPACT_UNITS   <name>:<priority>:<forms>,... one per installed item
 #                       that draws compact forms (a "unit")
 #   STM_CMP_MODE        shrink | page (anything else is shrink)
+#   STM_CMP_ACTION      prev | next: a click on a page arrow (page mode only)
+#   STM_WHITE, STM_GREY the page arrows' colours, 0xAARRGGBB (page mode only)
 #
 # One run: query the bar, its displays and every bar item (one call), read
 # each screen's notch (one osascript), fit the units into the room the
@@ -27,6 +29,19 @@
 # each change is sent once more on the next run, and widths are fitted and
 # cached only when the run before sent nothing.
 #
+# page mode (#31): units are only full or hidden. The bar shows a window of
+# them: from the unit `page` places in from the right end, leftward while
+# their cached full widths + 8 each fit the room (the first is always in).
+# pin units stay, their width off the room first; the ‹ › arrows take 2 * 24
+# + 8 while a unit is out of the window. A unit that draws nothing or was
+# never measured costs nothing. The window grows only with 24 to spare and
+# shrinks at once. A click on an arrow moves the window one unit and on past
+# units that cost nothing; the arrow with nothing more to show is grey and
+# does nothing. A click run asks the bar nothing: it fits the cached widths
+# into the room the last full run wrote (`budget`), in the order that run
+# wrote the `form` rows (rightmost first). With no room or no width on file
+# yet, the click is a full run.
+#
 # STM_OSASCRIPT overrides /usr/bin/osascript (tests).
 
 LC_ALL=C
@@ -36,6 +51,12 @@ NAME=${NAME:-stm.compact}
 [ "$NAME" = stm.compact ] || exit 0
 mode=shrink
 [ "$STM_CMP_MODE" = page ] && mode=page
+act=""
+if [ "$mode" = page ]; then
+  case "$STM_CMP_ACTION" in
+    prev | next) act=$STM_CMP_ACTION ;;
+  esac
+fi
 
 tmp=${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null)}
 WORK=$(/usr/bin/mktemp -d "${tmp:-/tmp}/stm-compact.XXXXXX") || exit 0
@@ -55,29 +76,36 @@ printf '%s\n' "$STM_COMPACT_UNITS" | /usr/bin/tr ',' '\n' | /usr/bin/awk -F: '
   !seen[$1]++ { print $1, $2, $3 }' >"$WORK/units"
 [ -s "$WORK/units" ] || exit 0
 
-sketchybar --query bar >"$WORK/bar" 2>/dev/null
-sketchybar --query displays >"$WORK/displays" 2>/dev/null
+[ -n "$cache" ] && [ -f "$cache" ] && /bin/cat "$cache" >"$WORK/cache" 2>/dev/null
+[ -n "$state" ] && [ -f "$state" ] && /bin/cat "$state" >"$WORK/state" 2>/dev/null
+: >>"$WORK/cache"
+: >>"$WORK/state"
 
-# Every bar item but popup rows and this item's own, in one query call. A name
-# is only ever an argv word here.
-set --
-while IFS= read -r n; do
-  case "$n" in
-    "$NAME" | "$NAME".* | stm.*.row.*) continue ;;
-  esac
-  set -- "$@" --query "$n"
-done <<EOF
+# measure — the bar, its displays, its items and each screen's notch.
+measure() {
+  sketchybar --query bar >"$WORK/bar" 2>/dev/null
+  sketchybar --query displays >"$WORK/displays" 2>/dev/null
+
+  # Every bar item but popup rows and this item's own, in one query call. A
+  # name is only ever an argv word here.
+  set --
+  while IFS= read -r n; do
+    case "$n" in
+      "$NAME" | "$NAME".* | stm.*.row.*) continue ;;
+    esac
+    set -- "$@" --query "$n"
+  done <<EOF
 $(/usr/bin/awk -F'"' '
   /"items"[ \t]*:/ { on = 1; next }
   on && /^[ \t]*\]/ { exit }
   on && NF == 3 && $2 != "" && $2 !~ /\\/ { print $2 }' "$WORK/bar")
 EOF
-[ "$#" -gt 0 ] || exit 0
-sketchybar "$@" >"$WORK/items" 2>/dev/null
+  [ "$#" -gt 0 ] || exit 0
+  sketchybar "$@" >"$WORK/items" 2>/dev/null
 
-# Each screen: frame x, width, height, and the x where the notch ends (the
-# top-right auxiliary area's left edge, in global coordinates), or "-".
-"${STM_OSASCRIPT:-/usr/bin/osascript}" -l JavaScript -e '
+  # Each screen: frame x, width, height, and the x where the notch ends (the
+  # top-right auxiliary area's left edge, in global coordinates), or "-".
+  "${STM_OSASCRIPT:-/usr/bin/osascript}" -l JavaScript -e '
 ObjC.import("AppKit");
 var s = $.NSScreen.screens, out = [];
 for (var i = 0; i < s.count; i++) {
@@ -89,17 +117,19 @@ for (var i = 0; i < s.count; i++) {
   out.push([f.origin.x, f.size.width, f.size.height, n].join(" "));
 }
 out.join("\n");' >"$WORK/screens" 2>/dev/null || : >"$WORK/screens"
+}
 
-[ -n "$cache" ] && [ -f "$cache" ] && /bin/cat "$cache" >"$WORK/cache" 2>/dev/null
-[ -n "$state" ] && [ -f "$state" ] && /bin/cat "$state" >"$WORK/state" 2>/dev/null
-: >>"$WORK/cache"
-: >>"$WORK/state"
-
-# Output, one record per line: `T <arg>` trigger argv, `S <arg>` set / move
-# argv, `C <row>` widths cache, `X <row>` state. Nothing when the bar, its
-# displays or its items could not be read.
-# shellcheck disable=SC2016  # awk source
-/usr/bin/awk -v name="$NAME" -v sender="$SENDER" -v work="$WORK" -v mode="$mode" '
+# fit <fast> <file>... — the fit over those files, into $WORK/out. One record
+# per line: `T <arg>` trigger argv, `S <arg>` set / move argv, `C <row>` widths
+# cache, `X <row>` state. Nothing when the bar, its displays or its items
+# could not be read, or a click had nothing to move. <fast> = 1: a click run
+# over units, cache and state only; exit 3 when those are not enough.
+fit() {
+  fast=$1
+  shift
+  # shellcheck disable=SC2016  # awk source
+  /usr/bin/awk -v name="$NAME" -v sender="$SENDER" -v work="$WORK" -v mode="$mode" \
+    -v fast="$fast" -v act="$act" -v white="$STM_WHITE" -v grey="$STM_GREY" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t,]+$/, "", s); return s }
 function isnum(s) { return s ~ /^-?[0-9]+(\.[0-9]+)?$/ }
 function rnd(x) { return int(x + 0.5) }
@@ -224,16 +254,46 @@ function up_of(u,   n, fl, k) {
   return ""
 }
 
+# page mode. What unit u costs the window: its cached full width + its gap;
+# nothing while it draws nothing or was never measured.
+function pcost(u) { return (absent[u] || !((u SUBSEP "full") in cw)) ? 0 : cw[u, "full"] + 8 }
+
+# The form last sent to unit u, as page mode knows forms: full or hidden.
+function pform(u) { return ((u in last) && last[u] == "hidden") ? "hidden" : "full" }
+
+# The last place of the window that starts o places in and has room b: the
+# first unit is always in; a unit that costs nothing never ends the window.
+function wend(o, b,   j, s, c) {
+  s = pcost(P[o + 1])
+  for (j = o + 2; j <= np; j++) {
+    c = pcost(P[j])
+    if (c > 0 && s + c > b) break
+    s += c
+  }
+  return j - 1
+}
+
+# Is a unit that costs something right of the window that starts o places in?
+function more(o,   j) {
+  for (j = 1; j <= o; j++) if (pcost(P[j]) > 0) return 1
+  return 0
+}
+
 FILENAME != curf { curf = FILENAME; kind = substr(FILENAME, length(work) + 2); dep = 0 }
 kind == "units" { un[++nu] = $1; upri[$1] = $2; uforms[$1] = $3 " " $4 " " $5; sub(/ +$/, "", uforms[$1])
   for (i = 3; i <= NF; i++) has[$1, $i] = 1; isu[$1] = 1; next }
 kind == "cache" {
   if (NF == 3 && ($1 in isu) && ($1 SUBSEP $2) in has && $3 ~ /^[0-9]+$/ && length($3) <= 4 && $3 >= 1 && $3 <= 4000)
-    cw[$1, $2] = $3 + 0
+    { cw[$1, $2] = $3 + 0; ncw++ }
   next
 }
 kind == "state" {
-  if ($1 == "form" && NF == 3 && ($2 in isu) && ($3 == "hidden" || ($2 SUBSEP $3) in has)) last[$2] = $3
+  if ($1 == "form" && NF == 3 && ($2 in isu) && ($3 == "hidden" || ($2 SUBSEP $3) in has)) {
+    if (!($2 in last)) sord[++nso] = $2
+    last[$2] = $3
+  }
+  else if ($1 == "page" && NF == 2 && $2 ~ /^[0-9]+$/ && length($2) <= 2 && $2 <= 63) spage = $2 + 0
+  else if ($1 == "budget" && NF == 2 && $2 ~ /^[0-9]+$/ && length($2) <= 5 && $2 <= 10000) sbudget = $2 + 0
   else if ($1 == "freq" && NF == 2 && ($2 == "2" || $2 == "30")) sfreq = $2
   else if ($1 == "calm" && NF == 2 && $2 ~ /^[0-9]$/) calm = $2 + 0
   else if ($1 == "hid" && NF == 2 && $2 ~ /^[a-z0-9_,-]+$/) shid = $2
@@ -249,8 +309,16 @@ kind == "screens" {
 { walk($0) }
 
 END {
-  if (nidx == 0 || ndisp == 0) exit
   forced = (sender == "forced")
+  if (fast) {
+    # A click: the room and the order of the units as the last full run
+    # wrote them.
+    if (mode != "page" || act == "" || sbudget == "" || !ncw || !nso) exit 3
+    m = nso
+    for (k = 1; k <= m; k++) { ord[k] = sord[k]; present[sord[k]] = 1 }
+    avail = sbudget
+  } else {
+  if (nidx == 0 || ndisp == 0) exit
   if (!("margin" in bar)) bar["margin"] = 0
   if (!("padding_left" in bar)) bar["padding_left"] = 0
   if (!("padding_right" in bar)) bar["padding_right"] = 0
@@ -280,13 +348,6 @@ END {
   }
   if (avail == "") exit
 
-  # icon drops the label: a cached icon width as wide as full was measured
-  # before the unit redrew.
-  for (i = 1; i <= nu; i++) {
-    u = un[i]
-    if (((u SUBSEP "icon") in cw) && ((u SUBSEP "full") in cw) && cw[u, "icon"] >= cw[u, "full"]) delete cw[u, "icon"]
-  }
-
   # Rightmost first: right items are laid out right to left by index.
   m = 0
   for (i = 1; i <= nu; i++) {
@@ -295,19 +356,71 @@ END {
     for (k = m; k > 0 && uidx[ord[k]] > uidx[u]; k--) ord[k + 1] = ord[k]
     ord[k + 1] = u; m++
   }
+  }
+
+  # icon drops the label: a cached icon width as wide as full was measured
+  # before the unit redrew.
+  for (i = 1; i <= nu; i++) {
+    u = un[i]
+    if (((u SUBSEP "icon") in cw) && ((u SUBSEP "full") in cw) && cw[u, "icon"] >= cw[u, "full"]) delete cw[u, "icon"]
+  }
 
   for (i = 1; i <= nu; i++) {
     u = un[i]
     # A reload (forced) draws every unit full again.
     cur0[u] = (forced || !(u in last) || upri[u] == "pin") ? "full" : last[u]
     form[u] = cur0[u]
-    absent[u] = present[u] && cur0[u] != "hidden" && mw[u] <= 0
+    absent[u] = !fast && present[u] && cur0[u] != "hidden" && mw[u] <= 0
   }
 
   # Right after a trigger the widths may still be those of the old forms: keep the
   # forms sent until a run has passed with none sent.
   split("short icon hidden", FD, " "); split("low normal high", PD, " ")
-  if (psent && !forced) {
+  if (mode == "page") {
+    room = int(avail)
+    if (room < 0) room = 0
+    if (room > 10000) room = 10000
+    b = room; np = 0; tot = 0; wasall = 1
+    for (k = 1; k <= m; k++) {
+      u = ord[k]; form[u] = "full"
+      if (upri[u] == "pin") { b -= pcost(u); continue }
+      P[++np] = u; tot += pcost(u)
+      if (pform(u) != "full") wasall = 0
+    }
+    # Every unit fits without the arrows: no paging. From a paged bar, only
+    # with 24 to spare.
+    paged = (np > 0 && tot + (wasall ? 0 : 24) > b)
+    o = spage + 0; moved = 0
+    if (paged) {
+      b -= 56
+      # omax: the first window that reaches the leftmost unit.
+      for (omax = 0; omax < np - 1 && wend(omax, b) < np; omax++) ;
+      if (o > omax) o = omax
+      # One unit a click, and on past units that cost nothing: dropping or
+      # adding one of those would show no change.
+      if (act == "prev") {
+        if (o < omax) { while (o < omax && pcost(P[o + 1]) == 0) o++; if (o < omax) o++; moved = 1 }
+        else if (pform(P[np]) != "full") moved = 1
+      } else if (act == "next" && more(o)) {
+        o--; while (pcost(P[o + 1]) == 0) o--; moved = 1
+      }
+    }
+    # A click on the arrow at its end: nothing sent, nothing written.
+    if (fast && !moved) exit
+    if (psent && !forced && !moved) {
+      o = spage + 0
+      for (j = 1; j <= np; j++) form[P[j]] = pform(P[j])
+    } else if (paged) {
+      e = wend(o, b)
+      if (!moved) {
+        # el: where the window last sent ends, from this offset.
+        el = o
+        for (j = o + 1; j <= np && pform(P[j]) == "full"; j++) el = j
+        if (e > el) { e = wend(o, b - 24); if (e < el) e = el }
+      }
+      for (j = 1; j <= np; j++) form[P[j]] = (j > o && j <= e) ? "full" : "hidden"
+    } else o = 0
+  } else if (psent && !forced) {
   } else if (need() > avail) {
     for (a = 1; a <= 3; a++) for (p = 1; p <= 3; p++) for (k = m; k >= 1; k--) {
       if (need() <= avail) break
@@ -353,7 +466,14 @@ END {
   unsettled = sent
   for (i = 1; i <= nu; i++) {
     u = un[i]
-    if (forced || psent || !present[u] || mw[u] <= 0) continue
+    if (forced || psent || !present[u]) continue
+    if (mode == "page") {
+      # Only full is drawn on purpose. A unit that draws nothing loses its
+      # width: it costs the window nothing and a click steps past it.
+      if (cur0[u] != "full") continue
+      if (absent[u] && ((u SUBSEP "full") in cw)) { delete cw[u, "full"]; unsettled = 1 }
+    }
+    if (mw[u] <= 0) continue
     if (mw[u] - mwlo[u] > 1) { unsettled = 1; continue }
     w = rnd(mw[u])
     if (w < 1 || w > 4000) continue
@@ -369,14 +489,20 @@ END {
   freq = calm >= 2 ? 30 : 2
 
   hid = ""; nh = 0
-  for (k = 1; k <= m; k++) if (form[ord[k]] == "hidden" && nh < 16) { hid = hid (nh ? "," : "") ord[k]; row[nh++] = ord[k] }
+  # page mode has no chevron: the arrows reach the hidden units.
+  if (mode != "page")
+    for (k = 1; k <= m; k++) if (form[ord[k]] == "hidden" && nh < 16) { hid = hid (nh ? "," : "") ord[k]; row[nh++] = ord[k] }
   if (hid == "") hid = "-"
 
-  for (i = 1; i <= nu; i++) print "X form " un[i] " " form[un[i]]
+  # page mode: the units on the right only, rightmost first; a click run
+  # reads the page order from these rows.
+  if (mode == "page") for (k = 1; k <= m; k++) print "X form " ord[k] " " form[ord[k]]
+  else for (i = 1; i <= nu; i++) print "X form " un[i] " " form[un[i]]
   print "X freq " freq
   print "X calm " calm
   print "X hid " hid
   print "X sent " sent
+  if (mode == "page") { print "X page " o; print "X budget " room }
 
   ns_ = 0
   if (forced || hid != shid) {
@@ -393,6 +519,22 @@ END {
     }
   }
 
+  # The arrows: drawn while a unit is out of the window; grey when there is
+  # nothing more that way (the leftmost unit shown; no unit right of the
+  # window that costs something).
+  if (mode == "page" && (fast || (((name ".prev") in idx) && ((name ".next") in idx))) &&
+      (forced || changed || spage == "" || o != spage)) {
+    aon = 0
+    for (j = 1; j <= np; j++) if (form[P[j]] == "hidden") aon = 1
+    acol["prev"] = (np == 0 || form[P[np]] == "full") ? grey : white
+    acol["next"] = more(o) ? white : grey
+    split("prev next", AR, " ")
+    for (k = 1; k <= 2; k++) {
+      print "S --set"; print "S " name "." AR[k]; print "S drawing=" (aon ? "on" : "off")
+      if (aon && acol[AR[k]] ~ /^0x[0-9a-f]+$/ && length(acol[AR[k]]) == 10) print "S icon.color=" acol[AR[k]]
+    }
+  }
+
   # Keep the chevron just left of the last stm unit on the right; in page
   # mode the arrows left of it, next then prev (prev is the left one).
   nown = 0
@@ -404,7 +546,15 @@ END {
     for (k = 1; k <= nrt; k++) if (idx[rights[k]] > lastidx && idx[rights[k]] < at) mv = 1
     if (mv) for (k = 1; k <= nown; k++) { print "S --move"; print "S " own[k]; print "S after"; print "S " (k == 1 ? lastname : own[k - 1]) }
   }
-}' "$WORK/units" "$WORK/cache" "$WORK/state" "$WORK/screens" "$WORK/bar" "$WORK/displays" "$WORK/items" >"$WORK/out"
+}' "$@" >"$WORK/out"
+}
+
+if [ -n "$act" ] && fit 1 "$WORK/units" "$WORK/cache" "$WORK/state"; then
+  :
+else
+  measure
+  fit 0 "$WORK/units" "$WORK/cache" "$WORK/state" "$WORK/screens" "$WORK/bar" "$WORK/displays" "$WORK/items"
+fi
 
 [ -s "$WORK/out" ] || exit 0
 
