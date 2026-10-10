@@ -210,12 +210,15 @@ function need(   i, u, s, w, hid) {
   return s + (hid ? 32 : 0)
 }
 
-# The next wider form unit u draws.
-function up_of(u,   n, fl) {
+# The nearest wider form of unit u with a cached width, or "": a form the
+# unit skipped on the way down was never measured, so it is skipped going up.
+function up_of(u,   n, fl, k) {
   n = split(uforms[u], fl, " ")
-  if (form[u] == "hidden") return fl[n]
-  if (form[u] == "icon") return has[u, "short"] ? "short" : "full"
-  return "full"
+  for (k = n; k >= 1; k--) {
+    if (rank(fl[k]) >= rank(form[u])) continue
+    if ((u SUBSEP fl[k]) in cw) return fl[k]
+  }
+  return ""
 }
 
 FILENAME != curf { curf = FILENAME; kind = substr(FILENAME, length(work) + 2); dep = 0 }
@@ -318,7 +321,7 @@ END {
         u = ord[k]
         if (form[u] != FU[a] || upri[u] != PU[p] || absent[u]) continue
         upf = up_of(u)
-        if (!((u SUBSEP upf) in cw)) continue
+        if (upf == "") continue
         was = form[u]; form[u] = upf
         if (need() + 24 <= avail) grew = 1
         else form[u] = was

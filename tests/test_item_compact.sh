@@ -264,6 +264,17 @@ run_plugin
 assert_eq "$(trigger_of short full full)" "$(triggers)" "Σ + 40: c back to full, a stays"
 done_it
 
+it "grow skips a wider form never measured, to the next one cached (V59, B21)"
+fresh
+# a went full -> icon: its short was never drawn, so never measured.
+printf 'a full 300\na icon 24\nb full 230\nc full 250\n' >"$TMPD/stm-compact.widths"
+printf 'form a icon\nform b full\nform c full\nfreq 30\ncalm 5\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
+scene 24 200 30 250 100
+displays "1 0 2560 1440" >"$FIX/displays"
+run_plugin OSA_OUT="0 2560 1440 -"
+assert_eq "$(trigger_of full full full)" "$(triggers)"
+done_it
+
 it "no cached width for the wider form: no step up (V59)"
 fresh
 printf 'form a short\nform b full\nform c short\nfreq 30\ncalm 5\nhid -\n' >"$TMPD/stm-compact.state"
