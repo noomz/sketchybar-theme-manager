@@ -234,7 +234,7 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
 | T67 | x | forms in clock (`full` `short`, pin), battery (`full` `icon`, high), date (`full` `short` `icon`); Lua probe: each form + bad value → full + hidden → drawing off | I.form,I.clk,I.bat,I.date |
 | T68 | x | forms in ai (all segments one unit), tailscale, net, disk (`full` `icon`); cpu, mem, netspeed (`full` `short`, T63); tests per bundle each form + bad value | I.form,I.ais,I.cpu,I.mem,I.disk,I.ns,I.net |
 | T69 | x | forms in spotify (`full` 24 ch, `short` 12 ch, `icon`); V43 kept (center → right first, then fit) | I.form,I.spot,V43 |
-| T70 | ~ | ship: README Items `compact` (install = on, forms, priority, chevron, display rule), manifests bumped; real-bar smoke (user OK): 16" built-in, + external, lid closed, Spotify playing | C18,V58,V63 |
+| T70 | x | ship: README Items `compact` (install = on, forms, priority, chevron, display rule), manifests bumped; real-bar smoke (user OK): 16" built-in, + external, lid closed, Spotify playing | C18,V58,V63 |
 | T71 | x | SPEC step 1g (#31): §G §C19 §I.pg .exp, V10 amend, V66-V70, §T | C19,V10,V66,V67,V68,V69,V70 |
 | T72 | . | red tests page mode (stub `sketchybar` + stub `osascript`): manifest `mode` values + bad value; 1728 notch → window + rest `hidden`, never `short` `icon`; all fit 2560 → all `full`, no arrows; `pin` always `full`; unit wider than budget still shown; width 0 + uncached unit cost 0; determinism; `shrink` = step 1f fixtures untouched | V4,V9,V66,V69,I.pg |
 | T73 | . | `compact` 0.2.0: manifest `mode` + `grey`; item.lua arrows `prev` `next` (page only), click → `STM_CMP_ACTION`, order + V63 move; Lua probe: names only in `page`, add order, click env, chevron off | V10,V14,V63,V67,I.pg |
