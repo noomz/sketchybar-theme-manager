@@ -5,6 +5,7 @@
 #   NAME, SENDER        the SketchyBar item (stm.compact) and event
 #   STM_COMPACT_UNITS   <name>:<priority>:<forms>,... one per installed item
 #                       that draws compact forms (a "unit")
+#   STM_CMP_MODE        shrink | page (anything else is shrink)
 #
 # One run: query the bar, its displays and every bar item (one call), read
 # each screen's notch (one osascript), fit the units into the room the
@@ -33,6 +34,8 @@ export LC_ALL
 
 NAME=${NAME:-stm.compact}
 [ "$NAME" = stm.compact ] || exit 0
+mode=shrink
+[ "$STM_CMP_MODE" = page ] && mode=page
 
 tmp=${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null)}
 WORK=$(/usr/bin/mktemp -d "${tmp:-/tmp}/stm-compact.XXXXXX") || exit 0
@@ -96,7 +99,7 @@ out.join("\n");' >"$WORK/screens" 2>/dev/null || : >"$WORK/screens"
 # argv, `C <row>` widths cache, `X <row>` state. Nothing when the bar, its
 # displays or its items could not be read.
 # shellcheck disable=SC2016  # awk source
-/usr/bin/awk -v name="$NAME" -v sender="$SENDER" -v work="$WORK" '
+/usr/bin/awk -v name="$NAME" -v sender="$SENDER" -v work="$WORK" -v mode="$mode" '
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t,]+$/, "", s); return s }
 function isnum(s) { return s ~ /^-?[0-9]+(\.[0-9]+)?$/ }
 function rnd(x) { return int(x + 0.5) }
@@ -390,11 +393,16 @@ END {
     }
   }
 
-  # Keep the chevron just left of the last stm unit on the right.
+  # Keep the chevron just left of the last stm unit on the right; in page
+  # mode the arrows left of it, next then prev (prev is the left one).
+  nown = 0
+  own[++nown] = name
+  if (mode == "page" && ((name ".next") in idx) && ((name ".prev") in idx)) { own[++nown] = name ".next"; own[++nown] = name ".prev" }
   if (lastname != "" && (name in idx)) {
-    mv = idx[name] < lastidx
-    for (k = 1; k <= nrt; k++) if (idx[rights[k]] > lastidx && idx[rights[k]] < idx[name]) mv = 1
-    if (mv) { print "S --move"; print "S " name; print "S after"; print "S " lastname }
+    mv = 0; at = lastidx
+    for (k = 1; k <= nown; k++) { if (idx[own[k]] < at) mv = 1; at = idx[own[k]] }
+    for (k = 1; k <= nrt; k++) if (idx[rights[k]] > lastidx && idx[rights[k]] < at) mv = 1
+    if (mv) for (k = 1; k <= nown; k++) { print "S --move"; print "S " own[k]; print "S after"; print "S " (k == 1 ? lastname : own[k - 1]) }
   }
 }' "$WORK/units" "$WORK/cache" "$WORK/state" "$WORK/screens" "$WORK/bar" "$WORK/displays" "$WORK/items" >"$WORK/out"
 

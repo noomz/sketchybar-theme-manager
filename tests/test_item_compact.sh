@@ -128,13 +128,36 @@ triggers() {
   printf '%s\n' "$SB" | awk '$0 == "--trigger" { on = 1 } on { print } $0 == "--" { on = 0 }'
 }
 
-it "lint, manifest: position right, display + wake events, no options (I.cmp)"
+it "lint, manifest: position right, display + wake events, mode shrink|page, grey (I.cmp, I.pg, V4)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:compact
 assert_status 0
+assert_eq 'version = "0.2.0"' "$(grep '^version' "$BUNDLE/item.toml")"
 assert_eq 'default_position = "right"' "$(grep '^default_position' "$BUNDLE/item.toml")"
 assert_eq 'events = ["display_change", "system_woke"]' "$(grep '^events' "$BUNDLE/item.toml")"
 assert_eq 'update_freq = 30' "$(grep '^update_freq' "$BUNDLE/item.toml")"
-assert_eq "" "$(grep '^\[options' "$BUNDLE/item.toml")"
+assert_contains "$(grep '^colors' "$BUNDLE/item.toml")" '"grey"'
+assert_eq '[options.mode]' "$(grep '^\[options' "$BUNDLE/item.toml")"
+assert_eq '[options.mode]
+values = ["shrink", "page"]
+default = "shrink"' "$(grep -A 2 '^\[options\.mode\]' "$BUNDLE/item.toml")"
+done_it
+
+it "install: mode is shrink unless the config says page; a value outside shrink|page is refused (V9, I.pg)"
+D="$SANDBOX/cfg"
+make_lua_config "$D"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install item:compact
+assert_status 0
+assert_contains "$(cat "$D/items_generated.lua" 2>/dev/null || true)" '["mode"] = "shrink"'
+printf '[item.compact]\nmode = "page"\n' >"$D/stm.config.toml"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:compact
+assert_status 0
+loader=$(cat "$D/items_generated.lua" 2>/dev/null || true)
+assert_contains "$loader" '["mode"] = "page"'
+printf '[item.compact]\nmode = "tabs"\n' >"$D/stm.config.toml"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:compact
+assert_status 1
+assert_contains "$STM_ERR" '"tabs"'
+assert_eq "$loader" "$(cat "$D/items_generated.lua" 2>/dev/null || true)" "a bad mode leaves the loader as it was"
 done_it
 
 it "1728 notch: low steps to short first, then high; b has no short (V58)"
@@ -456,10 +479,164 @@ run_plugin
 assert_eq "$(trigger_of short full full)" "$(triggers)"
 done_it
 
+# --- page mode (#31) -------------------------------------------------------
+# Units stay full; the bar shows the window of them that fits, from the
+# rightmost leftward, and the rest are hidden. Cost of a unit = its cached
+# full width + 8; the arrows take 2 * 24 + 8 = 56 while a unit is out.
+
+# page_seed [<cache row>...] — a settled bar with every unit full and those
+# widths cached (default: a 300, b 230, c 250, as `scene 300 200 30 250`).
+page_seed() {
+  fresh
+  [ "$#" -gt 0 ] || set -- "a full 300" "b full 230" "c full 250"
+  printf '%s\n' "$@" >"$TMPD/stm-compact.widths"
+  printf 'form a full\nform b full\nform c full\nfreq 30\ncalm 5\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
+}
+page() {
+  run_plugin STM_CMP_MODE=page "$@"
+}
+
+it "page, 1728 notch: the window that fits stays full, the rest hidden (V66)"
+page_seed
+scene 300 200 30 250 100 # room 641.5: all three need 804; with arrows 585.5
+page
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+page_seed
+scene 300 200 30 250 300 # room 441.5, with arrows 385.5: a 308, a + b 546
+page
+assert_eq "$(trigger_of full hidden hidden)" "$(triggers)"
+done_it
+
+it "page never sends short or icon, also from forms shrink left behind (V66)"
+assert_not_contains "$SB" "=short"
+assert_not_contains "$SB" "=icon"
+page_seed
+printf 'form a short\nform b icon\nform c short\nfreq 30\ncalm 5\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
+scene 150 200 30 125 300
+page
+assert_eq "$(trigger_of full hidden hidden)" "$(triggers)"
+done_it
+
+it "page, no notch, 2560 wide: every unit fits, all full, no arrows (V66)"
+page_seed
+scene 300 200 30 250 100
+displays "1 0 2560 1440" >"$FIX/displays"
+page OSA_OUT="0 2560 1440 -"
+assert_eq "" "$(triggers)"
+assert_not_contains "$SB" "drawing=on"
+# Units shrink left short go back to full.
+page_seed
+printf 'form a short\nform b full\nform c short\nfreq 30\ncalm 5\nhid -\nsent 0\n' >"$TMPD/stm-compact.state"
+scene 150 200 30 125 100
+displays "1 0 2560 1440" >"$FIX/displays"
+page OSA_OUT="0 2560 1440 -"
+assert_eq "$(trigger_of full full full)" "$(triggers)"
+assert_not_contains "$SB" "drawing=on"
+done_it
+
+it "page: pin is always full, its width off the room first (V66)"
+page_seed
+scene 300 200 30 250 300
+# room 441.5 - a 308 = 133.5: b and c page; b is in though wider than that.
+page STM_COMPACT_UNITS="a:pin:full short icon,b:normal:full icon,c:low:full short"
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+done_it
+
+it "page: a unit wider than the room is still shown, the window is never empty (V66)"
+page_seed
+scene 300 200 30 250 600 # room 141.5
+page
+assert_eq "$(trigger_of full hidden hidden)" "$(triggers)"
+done_it
+
+it "page: a unit that draws nothing costs nothing, not even its gap (V66)"
+page_seed "a full 300" "c full 250"
+scene 300 200 30 250 170 # room 571.5: a + c need 566
+item stm.b right off item
+item stm.b.icon right off item
+page
+assert_eq "" "$(triggers)"
+assert_not_contains "$SB" "drawing=on"
+done_it
+
+it "page: a width not cached yet costs nothing; fitted once it is (V66, V61)"
+page_seed "a full 300" "c full 250"
+scene 300 200 30 250 170 # room 571.5; b is drawn at 230, not cached
+page
+assert_eq "" "$(triggers)" "b uncached: 566 fits"
+assert_contains "$(cat "$TMPD/stm-compact.widths")" "b full 230"
+# Now a + b + c need 804; with arrows 515.5 holds a alone (a + b 546).
+page
+assert_eq "$(trigger_of full hidden hidden)" "$(triggers)"
+done_it
+
+it "page: same widths + room + offset: the same forms, run twice (V66 determinism)"
+page_seed
+scene 300 200 30 250 100
+page
+one=$(triggers)
+page_seed
+page
+assert_eq "$one" "$(triggers)"
+assert_eq "$(trigger_of full full hidden)" "$one"
+done_it
+
+it "mode shrink, unset or not a mode: step 1f argv; page + budget rows ignored (V69, V68)"
+for mode in shrink "" bogus PAGE; do
+  page_seed
+  printf 'page 3\nbudget 500\n' >>"$TMPD/stm-compact.state"
+  scene 300 200 30 250 100
+  run_plugin STM_CMP_MODE="$mode"
+  assert_eq "$(trigger_of short full short)" "$(triggers)" "mode [$mode]"
+done
+done_it
+
+# page_bar <right item>... — the scene's bar with those items after stm.c.
+page_bar() {
+  bar logo stm.a stm.b stm.b.icon stm.c "$@" stm.a.row.0 >"$FIX/bar"
+}
+
+it "page: arrows kept left of the chevron, next then prev, own names only (V63, I.pg)"
+page_seed
+scene 300 200 30 250 100
+page_bar vpn stm.compact stm.compact.row.0 stm.compact.next stm.compact.prev
+page
+assert_contains "$SB" "$(printf '%s\n' --move stm.compact after stm.c --move stm.compact.next after stm.compact --move stm.compact.prev after stm.compact.next --)"
+assert_eq 3 "$(printf '%s\n' "$SB" | grep -c '^--move$')"
+# prev before next: the arrows would read › ‹.
+page_seed
+page_bar stm.compact stm.compact.prev stm.compact.next vpn
+page
+assert_contains "$SB" "$(printf '%s\n' --move stm.compact after stm.c --move stm.compact.next after stm.compact --move stm.compact.prev after stm.compact.next --)"
+# a foreign item between the arrows
+page_seed
+page_bar stm.compact stm.compact.next vpn stm.compact.prev
+page
+assert_eq 3 "$(printf '%s\n' "$SB" | grep -c '^--move$')"
+assert_not_contains "$SB" "$(printf '%s\n' --move vpn)"
+done_it
+
+it "page: arrows already in place: no move; shrink never moves them (V63, V69)"
+page_seed
+scene 300 200 30 250 100
+page_bar stm.compact stm.compact.row.0 stm.compact.next stm.compact.prev vpn
+page
+assert_not_contains "$SB" "--move"
+# shrink: the arrows are not its items (a bar still holding them from page).
+page_seed
+page_bar stm.compact stm.compact.prev stm.compact.next vpn
+run_plugin
+assert_not_contains "$SB" "--move"
+page_seed
+page_bar vpn stm.compact stm.compact.next stm.compact.prev
+run_plugin
+assert_eq "$(printf '%s\n' --move stm.compact after stm.c)" "$(printf '%s\n' "$SB" | grep -A 3 '^--move$')"
+done_it
+
 LUA_BIN=$(command -v lua 2>/dev/null || true)
 if [ -n "$LUA_BIN" ]; then
   cat >"$SANDBOX/probe.lua" <<'EOF'
-local item_lua = ...
+local item_lua, mode = ...
 local function dump(v)
   if type(v) ~= "table" then return tostring(v) end
   local keys = {}
@@ -469,7 +646,7 @@ local function dump(v)
   for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. dump(v[k]) end
   return "{" .. table.concat(parts, " ") .. "}"
 end
-local handlers = {}
+local handlers, clicks = {}, {}
 local sbar = {}
 function sbar.add(kind, n, props)
   print("add " .. kind .. " " .. n .. " " .. dump(props))
@@ -477,7 +654,9 @@ function sbar.add(kind, n, props)
     subscribe = function(_, events, fn)
       if type(events) == "string" then events = { events } end
       print("subscribe " .. table.concat(events, " "))
-      for _, e in ipairs(events) do handlers[e] = fn end
+      for _, e in ipairs(events) do
+        if e == "mouse.clicked" then clicks[n] = fn else handlers[e] = fn end
+      end
     end,
     set = function(_, p) print("set " .. n .. " " .. dump(p)) end,
   }
@@ -485,12 +664,15 @@ end
 function sbar.exec(cmd) print("exec " .. cmd) end
 dofile(item_lua)(sbar, { name = "stm.compact", position = "left", update_freq = 30, plugin_dir = "/p/plugins/stm",
   events = { "display_change", "system_woke" }, compact_units = { "ai:normal:full short icon", "clock:pin:full short" },
-  options = {} }, { white = 1, bg1 = 2, popup_bg = 3, popup_border = 4 })
+  options = { mode = mode } }, { white = 1, grey = 5, bg1 = 2, popup_bg = 3, popup_border = 4 })
 handlers["mouse.exited.global"]({})
 handlers["display_change"]({ SENDER = "display_change" })
+for _, n in ipairs({ "stm.compact.prev", "stm.compact.next" }) do
+  if clicks[n] then clicks[n]({ SENDER = "mouse.clicked" }) end
+end
 EOF
   it "item.lua: event, chevron pinned right + hidden + updates, 16 rows, units to the plugin (I.cmp, V42, V63, V65)"
-  out=$("$LUA_BIN" "$SANDBOX/probe.lua" "$BUNDLE/item.lua" 2>&1)
+  out=$("$LUA_BIN" "$SANDBOX/probe.lua" "$BUNDLE/item.lua" shrink 2>&1)
   assert_contains "$out" "add event stm_compact"
   assert_contains "$out" "add item stm.compact {background={color=2 drawing=true} click_script=sketchybar --set 'stm.compact' popup.drawing=toggle drawing=false icon={color=1 string=»} label={drawing=false} popup={align=right background={border_color=4 border_width=1 color=3 corner_radius=6}} position=right update_freq=30 updates=true}"
   assert_contains "$out" "add item stm.compact.row.0 {drawing=false icon={drawing=false} label={color=1 string=} position=popup.stm.compact}"
@@ -498,8 +680,39 @@ EOF
   assert_not_contains "$out" "stm.compact.row.16"
   assert_contains "$out" "subscribe routine forced display_change system_woke"
   assert_contains "$out" "set stm.compact {popup={drawing=false}}"
-  assert_contains "$out" "exec STM_COMPACT_UNITS='ai:normal:full short icon,clock:pin:full short' NAME='stm.compact' SENDER='forced' '/p/plugins/stm/compact.sh'"
+  assert_contains "$out" "exec STM_CMP_MODE='shrink' STM_CMP_ACTION='' STM_COMPACT_UNITS='ai:normal:full short icon,clock:pin:full short' NAME='stm.compact' SENDER='forced' '/p/plugins/stm/compact.sh'"
   assert_contains "$out" "SENDER='display_change'"
+  done_it
+
+  it "item.lua shrink, no mode or a bad one: no arrows, only stm.compact + its rows (V10, I.pg)"
+  for m in shrink "" tabs; do
+    o=$("$LUA_BIN" "$SANDBOX/probe.lua" "$BUNDLE/item.lua" "$m" 2>&1)
+    assert_eq "$out" "$o" "mode [$m]"
+  done
+  assert_not_contains "$out" "stm.compact.prev"
+  assert_not_contains "$out" "stm.compact.next"
+  assert_not_contains "$out" "STM_CMP_MODE='page'"
+  assert_eq "" "$(printf '%s\n' "$out" | grep '^add item ' | grep -v -e '^add item stm\.compact {' -e '^add item stm\.compact\.row\.[0-9]* {')"
+  done_it
+
+  it "item.lua page: arrows next then prev on the right, hidden, palette colours; chevron off (V10, V14, V63, V67, I.pg)"
+  out=$("$LUA_BIN" "$SANDBOX/probe.lua" "$BUNDLE/item.lua" page 2>&1)
+  assert_eq "add item stm.compact.next {background={color=2 drawing=true} drawing=false icon={color=1 string=›} label={drawing=false} position=right}
+add item stm.compact.prev {background={color=2 drawing=true} drawing=false icon={color=1 string=‹} label={drawing=false} position=right}" \
+    "$(printf '%s\n' "$out" | grep -e '^add item stm\.compact\.next ' -e '^add item stm\.compact\.prev ')"
+  assert_contains "$out" "add item stm.compact {background={color=2 drawing=true} click_script=sketchybar --set 'stm.compact' popup.drawing=toggle drawing=false "
+  assert_eq "" "$(printf '%s\n' "$out" | grep '^add item ' | grep -v -e '^add item stm\.compact {' -e '^add item stm\.compact\.row\.[0-9]* {' -e '^add item stm\.compact\.next {' -e '^add item stm\.compact\.prev {')"
+  assert_eq 0 "$(grep -cE '0x[0-9a-fA-F]{6,8}' "$BUNDLE/item.lua")" "no hex literal in item.lua"
+  done_it
+
+  it "item.lua page: a click runs the plugin as stm.compact with the action, the mode and the arrow colours (I.pg, V14)"
+  units="STM_COMPACT_UNITS='ai:normal:full short icon,clock:pin:full short' NAME='stm.compact'"
+  pre="STM_WHITE='0x00000001' STM_GREY='0x00000005' $units"
+  assert_contains "$out" "exec STM_CMP_MODE='page' STM_CMP_ACTION='' $pre SENDER='forced' '/p/plugins/stm/compact.sh'"
+  assert_contains "$out" "exec STM_CMP_MODE='page' STM_CMP_ACTION='' $pre SENDER='display_change' '/p/plugins/stm/compact.sh'"
+  assert_eq "exec STM_CMP_MODE='page' STM_CMP_ACTION='prev' $pre SENDER='mouse.clicked' '/p/plugins/stm/compact.sh'
+exec STM_CMP_MODE='page' STM_CMP_ACTION='next' $pre SENDER='mouse.clicked' '/p/plugins/stm/compact.sh'" \
+    "$(printf '%s\n' "$out" | grep "SENDER='mouse.clicked'")"
   done_it
 else
   printf '# SKIP item.lua probe: no lua\n'

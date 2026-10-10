@@ -4,6 +4,7 @@
 -- plugin.sh measures the bar and sends one `stm_compact` event with the form
 -- each item should draw; every item draws its own form. This item is only the
 -- » chevron, shown while an item is hidden, with a popup row per hidden item.
+-- With the option mode = "page" it adds the ‹ › arrows instead (see below).
 -- Colours come only from `colors` (the active palette).
 return function(sbar, opts, colors)
   local popup = type(colors.popup) == "table" and colors.popup or {}
@@ -14,7 +15,15 @@ return function(sbar, opts, colors)
 
   -- <name>:<priority>:<forms> per item with forms, from the generator
   -- (validated manifest and option values); plugin.sh checks them again.
+  local mode = (opts.options or {}).mode == "page" and "page" or "shrink"
   local env = "STM_COMPACT_UNITS=" .. quote(table.concat(opts.compact_units or {}, ","))
+  if mode == "page" then
+    -- plugin.sh colours the arrows: white, or grey at the end of the list.
+    local function hex(c)
+      return type(c) == "number" and string.format("0x%08x", c) or ""
+    end
+    env = "STM_WHITE=" .. quote(hex(colors.white)) .. " STM_GREY=" .. quote(hex(colors.grey)) .. " " .. env
+  end
   local plugin = quote(opts.plugin_dir .. "/compact.sh")
 
   sbar.add("event", "stm_compact")
@@ -49,9 +58,29 @@ return function(sbar, opts, colors)
     })
   end
 
-  local function run(e)
+  local function run(e, action)
     local sender = (e and e.SENDER) or "forced"
-    sbar.exec(string.format("%s NAME=%s SENDER=%s %s", env, quote(opts.name), quote(sender), plugin))
+    sbar.exec(string.format("STM_CMP_MODE=%s STM_CMP_ACTION=%s %s NAME=%s SENDER=%s %s",
+      quote(mode), quote(action or ""), env, quote(opts.name), quote(sender), plugin))
+  end
+
+  -- page mode (#31): ‹ › slide the window of items the bar shows, one item a
+  -- click. Added next then prev, so ‹ is the left one; plugin.sh keeps both
+  -- left of the items, shows them while an item is out of the window and
+  -- greys the one at its end. The » chevron stays hidden in this mode.
+  if mode == "page" then
+    for _, a in ipairs({ { "next", "›" }, { "prev", "‹" } }) do
+      local arrow = sbar.add("item", opts.name .. "." .. a[1], {
+        position = "right",
+        drawing = false,
+        icon = { string = a[2], color = colors.white },
+        label = { drawing = false },
+        background = { drawing = true, color = colors.bg1 },
+      })
+      arrow:subscribe("mouse.clicked", function(e)
+        run(e, a[1])
+      end)
+    end
   end
 
   local events = { "routine", "forced" }
