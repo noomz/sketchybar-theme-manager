@@ -547,7 +547,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 | `ai` | how much of your AI providers' quota is used: one segment each for Claude, Codex, Gemini, Grok and OpenRouter, coloured by use, each with its own popup. Needs [Agents Usage Bar](https://github.com/noomz/agents_usage_bar) | `right` |
 | `battery` | battery level, coloured by level; a bolt on power | `right` |
 | `clock` | the time | `right` |
-| `compact` | compact mode: shrinks the other items to fit beside the notch; a `»` lists the ones it hides | `right` (fixed) |
+| `compact` | compact mode: fits the other items beside the notch. It shrinks them and a `»` lists the ones it hides, or it keeps them whole and `‹` `›` page through them | `right` (fixed) |
 | `cpu` | CPU load: a graph and a percentage, coloured by load | `right` |
 | `date` | the date | `right` |
 | `disk` | how full the startup disk is, coloured by use | `right` |
@@ -587,7 +587,8 @@ named `stm.<name>` (`netspeed` adds `stm.netspeed.up`, `stm.netspeed.rates`
 and `stm.netspeed.pill`; `ai` is a hidden `stm.ai` that drives one segment per
 provider, `stm.ai.<provider>`, with `stm.ai.<provider>.icon` and
 `stm.ai.<provider>.pill` as its shape needs; `compact` adds the chevron
-`stm.compact` and its popup rows). These files are kept out of the `verify` baseline and go
+`stm.compact` and its popup rows, and with `mode = "page"` the arrows
+`stm.compact.prev` and `stm.compact.next`). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -882,6 +883,28 @@ other option. `pin` never leaves `full`.
 [item.battery]
 priority = "pin"   # pin | high | normal | low
 ```
+
+Shrinking is the default. Set `mode = "page"` to keep every item whole and
+page through them instead:
+
+```toml
+[item.compact]
+mode = "page"   # shrink | page
+```
+
+| Mode | When the items do not fit |
+| --- | --- |
+| `shrink` | items step down `full` > `short` > `icon` > `hidden`; `»` lists the hidden ones |
+| `page` | items are `full` or `hidden`, never `short` or `icon`; `‹` `›` choose which ones show |
+
+In `page` mode the bar shows as many items as fit, counted from the right
+edge, and hides the rest. At least one item always shows, even one wider than
+the room. While an item is hidden, `‹` and `›` show left of the stm items:
+`‹` slides the shown items one item to the left, `›` one item to the right.
+One click moves one item. At the end of the list that arrow turns grey and a
+click on it does nothing. A `pin` item always stays in the bar; `high`,
+`normal` and `low` mean nothing here, and the `»` is not used. The place you
+paged to is kept when the bar reloads or a display changes.
 
 The notch comes from macOS (`NSScreen`, one `osascript` run); widths come from
 `sketchybar --query`. Measured widths are kept in your own temp folder, so the
