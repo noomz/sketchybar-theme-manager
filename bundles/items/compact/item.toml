@@ -5,7 +5,7 @@
 # `priority` option; hidden items are listed behind a » chevron.
 # Its position is fixed: a theme or stm.config.toml may not move it.
 name = "compact"
-version = "0.3.0"
+version = "0.3.1"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["white", "grey", "bg1", "popup_bg", "popup_border"]

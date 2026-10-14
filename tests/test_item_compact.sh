@@ -138,7 +138,7 @@ sets() { printf '%s\n' "$SB" | grep -c -E '^--(set|trigger)$'; }
 it "lint, manifest: position right, display + wake events, mode shrink|page, grey (I.cmp, I.pg, V4)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:compact
 assert_status 0
-assert_eq 'version = "0.3.0"' "$(grep '^version' "$BUNDLE/item.toml")"
+assert_eq 'version = "0.3.1"' "$(grep '^version' "$BUNDLE/item.toml")"
 assert_eq 'default_position = "right"' "$(grep '^default_position' "$BUNDLE/item.toml")"
 assert_eq 'events = ["display_change", "system_woke"]' "$(grep '^events' "$BUNDLE/item.toml")"
 assert_eq 'update_freq = 30' "$(grep '^update_freq' "$BUNDLE/item.toml")"
@@ -381,13 +381,32 @@ fresh
 scene 300 200 30 250 100
 displays "1 0 2560 1440" "2 -1728 1728 1117" >"$FIX/displays"
 # the same items on both displays, at the same widths
-item stm.a right on item "1 2200 300" "2 1400 300"
-item stm.b right on item "1 2000 200" "2 1200 200"
-item stm.b.icon right on item "1 1970 30" "2 1170 30"
-item stm.c right on item "1 1700 250" "2 900 250"
-item vpn right on item "1 1500 100" "2 700 100"
+item stm.a right on item "1 2200 300" "2 -328 300"
+item stm.b right on item "1 2000 200" "2 -528 200"
+item stm.b.icon right on item "1 1970 30" "2 -558 30"
+item stm.c right on item "1 1700 250" "2 -828 250"
+item vpn right on item "1 1500 100" "2 -1028 100"
 run_plugin OSA_OUT="$(printf '0 2560 1440 -\n-1728 1728 1117 -771.5')"
 assert_eq "$(trigger_of short full short)" "$(triggers)"
+done_it
+
+it "a display the bar left keeps -9999 rects: not counted, the wide one decides (V73, B23)"
+fresh
+displays "1 0 2560 1440" "2 -1728 1728 1117" >"$FIX/displays"
+# bar back on main after display=all: SketchyBar keeps a 1-wide rect at
+# -9999 for the built-in in every item.
+item logo left on item "1 20 40" "2 -9999 1"
+item stm.a right on item "1 2200 300" "2 -9999 1"
+item stm.b right on item "1 2000 200" "2 -9999 1"
+item stm.b.icon right on item "1 1970 30" "2 -9999 1"
+item stm.c right on item "1 1700 250" "2 -9999 1"
+item vpn right on item "1 1500 100" "2 -9999 1"
+run_plugin OSA_OUT="$(printf '0 2560 1440 -\n-1728 1728 1117 -771.5')"
+assert_eq "" "$(triggers)"
+# settled: the widths are cached, not taken for a unit mid-redraw
+run_plugin OSA_OUT="$(printf '0 2560 1440 -\n-1728 1728 1117 -771.5')"
+run_plugin OSA_OUT="$(printf '0 2560 1440 -\n-1728 1728 1117 -771.5')"
+assert_eq "freq 30" "$(grep '^freq ' "$TMPD/stm-compact.state")"
 done_it
 
 it "lid closed: the built-in is gone from displays and rects, external decides (V58)"

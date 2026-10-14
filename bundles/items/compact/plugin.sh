@@ -227,6 +227,9 @@ function end_item(   k, d, u) {
   for (k = 1; k <= nr; k++) {
     d = rd[k]
     if (!(d in rw) || !isnum(rw[d])) continue
+    # A display the bar has left keeps a 1-wide rect at -9999 per item:
+    # only a rect inside its own display is drawn there.
+    if (!((d SUBSEP "w") in frame) || rx[d] + 0 < frame[d, "x"] + 0 || rx[d] + 0 >= frame[d, "x"] + frame[d, "w"]) continue
     shows[d] = 1
     if (ipos == "left") {
       if (!(d in leftend) || rx[d] + rw[d] > leftend[d]) leftend[d] = rx[d] + rw[d]
