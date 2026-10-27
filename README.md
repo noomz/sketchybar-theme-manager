@@ -707,6 +707,11 @@ codex = "auto"      # auto | worst | 5h | weekly | windows | cost | off
 gemini = "auto"     # auto | worst | off
 grok = "auto"       # auto | billing | off
 openrouter = "auto" # auto | balance | quota | off
+accounts = "merged" # merged | split — one segment per provider, or per account
+account_label = "short" # short | name | off — the account in front of a split segment
+percent = "used"    # used | left — the share used, or 100 minus it
+period = "on"       # on | off — the window after the number (" 7d")
+reset = "off"       # off | on — the time to the window's reset after it
 ```
 
 `ai` reads [Agents Usage Bar](https://github.com/noomz/agents_usage_bar), a
@@ -755,6 +760,30 @@ all:
 | `windows` | the 5h window over the 7d (Codex: weekly) one of the most used account, stacked in your label font 3 points smaller |
 | `cost` | today's spend: `$4.20` under $10, then `$126`, then `$12k` |
 | `balance` | OpenRouter's credit left: `$5.95` under $1000, then `$1500`, then `$12k` |
+
+With `accounts = "split"`, a provider with several accounts gets one segment
+per account that has windows, up to four, each with the provider's metric for
+that account alone. Its popup lists that account's windows, under a head with
+the account's full name and spend; the fourth segment's popup counts any
+accounts left over. A provider without accounts keeps one segment.
+`account_label` sets what goes in front of each account's number:
+
+- `short` (default): the shortest prefix, one to three letters, that no other
+  account of that provider starts with, in capitals: `personal` and `work`
+  give `P 79% 7d` and `W 33% 7d`; `pro` and `plus` give `PR` and `PL`. When
+  two names share their first three letters (`work`, `work2`), every account
+  of that provider gets its initial and segment number instead: `W1`, `W2`.
+- `name`: the account's name, cut to 8 characters: `personal 79% 7d`.
+- `off`: nothing; the popup still names the account.
+
+Three more keys shape the number, merged or split. `percent = "left"` shows
+what is left (100 minus the share used) on the bar, the stacked lines and the
+popup bars; the colours still follow the share used, so red still means
+nearly spent. `period = "off"` drops the window after the number (` 7d`,
+` wk`); the stacked `windows` lines keep theirs. `reset = "on"` adds the time
+until that window resets: `43m`, `2h13m`, `3d4h`, `0m` once it has passed,
+`--` when Agents Usage Bar does not say. `cost` and `balance` are amounts, so
+none of the three changes them, and `windows` has no room for a reset.
 
 A metric you set yourself always shows: `sign in` when the provider is signed
 out, `--` when there is no value for it. The data is only as fresh as the
