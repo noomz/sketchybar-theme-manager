@@ -46,11 +46,37 @@ return function(sbar, opts, colors)
     "STM_AI_ICON=" .. quote(o.icon),
     "STM_AI_ICON_DIR=" .. quote(config_dir and config_dir .. "/icons/ai" or ""),
   }
+  -- accounts = split: SLOTS segments per provider, <segment>.<0-3>, hidden
+  -- until plugin.sh fills one per account, as the popup rows are.
+  local SLOTS = 4
+  local split = o.accounts == "split"
   local segments = {}
   for _, p in ipairs(PROVIDERS) do
     env[#env + 1] = "STM_AI_" .. p.id:upper() .. "=" .. quote(o[p.id])
     if o[p.id] ~= "off" then
-      segments[#segments + 1] = { id = p.id, tag = p.tag, name = name .. "." .. p.id, windows = o[p.id] == "windows" }
+      for slot = 0, split and SLOTS - 1 or 0 do
+        segments[#segments + 1] = {
+          id = p.id,
+          tag = p.tag,
+          name = name .. "." .. p.id .. (split and "." .. slot or ""),
+          windows = o[p.id] == "windows",
+          slot = split and slot or nil,
+        }
+      end
+    end
+  end
+  -- plugin.sh takes an unset label detail as its default, so only the others
+  -- go.
+  local details = {
+    { "accounts", "merged" },
+    { "account_label", "short" },
+    { "percent", "used" },
+    { "period", "on" },
+    { "reset", "off" },
+  }
+  for _, d in ipairs(details) do
+    if o[d[1]] and o[d[1]] ~= d[2] then
+      env[#env + 1] = "STM_AI_" .. d[1]:upper() .. "=" .. quote(o[d[1]])
     end
   end
   env = table.concat(env, " ")
@@ -115,6 +141,12 @@ return function(sbar, opts, colors)
       props.background = { drawing = true, color = colors.bg1, padding_left = 0 }
     elseif o.shape == "pill" and not s.windows then
       props.background = { drawing = true, color = colors.bg1 }
+    end
+    if s.slot then
+      props.drawing = false
+      if sub then
+        sub.drawing = false
+      end
     end
 
     -- Right items are laid out right to left, so on the right the segment
@@ -201,7 +233,11 @@ return function(sbar, opts, colors)
     local sender = (e and e.SENDER) or "forced"
     local metrics = {}
     for _, s in ipairs(segments) do
-      metrics[#metrics + 1] = measure_segment(s)
+      -- Every slot is measured for its own fonts; its provider's pair goes once.
+      local m = measure_segment(s)
+      if (s.slot or 0) == 0 then
+        metrics[#metrics + 1] = m
+      end
     end
     metrics[#metrics + 1] = "STM_AI_ACTION=" .. quote(action or "")
     sbar.exec(string.format("%s STM_FORM=%s %s NAME=%s SENDER=%s %s",
