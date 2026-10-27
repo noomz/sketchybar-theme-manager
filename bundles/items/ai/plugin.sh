@@ -573,9 +573,10 @@ icon_set() {
     emit --set "$target" "icon=$tag" icon.background.drawing=off
   else
     emit --set "$target" icon= icon.background.drawing=on
-    # 40x40 px -> 20 pt; an app's image was loaded by its probe.
+    # SketchyBar scales an image to 32 pt tall, then by scale: about 13 pt.
+    # An app's image was loaded by its probe.
     [ "$probing" = 1 ] && [ "$img" = file ] &&
-      emit "icon.background.image=$icon_dir/$p.png" icon.background.image.scale=0.5
+      emit "icon.background.image=$icon_dir/$p.png" icon.background.image.scale=0.4
     # The probe loaded an app image on slot 0's tag only.
     case "$probing:$img:$slot" in
       1:app.*:[1-9]*) emit "icon.background.image=$img" icon.background.image.scale=0.625 ;;

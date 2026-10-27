@@ -734,9 +734,9 @@ wins:
 
 1. your own PNG, `icons/ai/<provider>.png` in your SketchyBar config folder
    (eg `~/.config/sketchybar/icons/ai/claude.png`), where `<provider>` is
-   `claude`, `codex`, `gemini`, `grok` or `openrouter`. Make it 40×40 px; it
-   is drawn at 20 pt. It must be a plain file named exactly that (lower case,
-   `.png`), not a symlink.
+   `claude`, `codex`, `gemini`, `grok` or `openrouter`. Any square size
+   works; it is drawn about 13 pt tall. It must be a plain file named exactly
+   that (lower case, `.png`), not a symlink.
 2. the installed app's icon: Claude for `claude`; Codex, then ChatGPT for
    `codex`. Gemini, Grok and OpenRouter have no app.
 3. the text tag.

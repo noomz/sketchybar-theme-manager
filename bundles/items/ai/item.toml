@@ -28,7 +28,7 @@ default = "split"
 
 # What stands for each provider (stm ships no logo):
 #   tag    a text tag: CL CX GE GK OR
-#   image  your own <config dir>/icons/ai/<provider>.png (40x40 px), else the
+#   image  your own <config dir>/icons/ai/<provider>.png (square, drawn ~13 pt), else the
 #          installed app's icon (Claude; Codex, then ChatGPT), else the tag
 [options.icon]
 values = ["tag", "image"]
