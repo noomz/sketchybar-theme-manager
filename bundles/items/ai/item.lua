@@ -132,10 +132,14 @@ return function(sbar, opts, colors)
     -- icon=image: plugin.sh draws the image as the tag's icon background
     -- and falls back to the tag. The background is transparent (0, not a
     -- palette colour) so icon defaults draw no pill behind it; 0.625 draws
-    -- a 32 pt app image at 20 pt (plugin.sh sets 0.5 for the user's file).
+    -- a 32 pt app image at 20 pt (plugin.sh sets 0.4, about 13 pt, for the
+    -- user's file).
+    -- SketchyBar places a background image at the icon's start plus the
+    -- image's own padding, never the icon's, so without padding_left the
+    -- image sits flush on the pill's edge.
     if o.icon == "image" then
       local tag_icon = sub and sub.icon or props.icon
-      tag_icon.background = { drawing = false, color = 0, image = { scale = 0.625 } }
+      tag_icon.background = { drawing = false, color = 0, image = { scale = 0.625, padding_left = 6 } }
     end
     if o.shape == "split" then
       props.background = { drawing = true, color = colors.bg1, padding_left = 0 }

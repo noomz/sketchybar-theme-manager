@@ -662,8 +662,8 @@ rm -f "$CACHE" "$ICONS"/*
 cp "$SANDBOX/real.png" "$ICONS/claude.png"
 icon_run forced SB_APPS="com.anthropic.claudefordesktop com.openai.codex"
 assert_eq "$(lines drawing=on "background.color=$YELLOW" icon= icon.background.drawing=on \
-  "icon.background.image=$ICONS/claude.png" icon.background.image.scale=0.5)" \
-  "$(seg stm.ai.claude.icon)" "claude: file over the installed app, 40 px -> 20 pt"
+  "icon.background.image=$ICONS/claude.png" icon.background.image.scale=0.4)" \
+  "$(seg stm.ai.claude.icon)" "claude: file over the installed app, about 13 pt"
 assert_eq "$(shown claude " 79% 7d" "$WHITE" 68)" "$(seg stm.ai.claude)" "split: label keeps its colour"
 assert_eq "$(lines icon.background.image=app.com.openai.codex icon.background.image.scale=0.625 \
   drawing=on "background.color=$GREEN" icon= icon.background.drawing=on)" \
@@ -744,7 +744,7 @@ for shape in plain pill; do
   rm -f "$CACHE"
   icon_run forced STM_AI_SHAPE=$shape
   assert_eq "$(lines drawing=on "label= 79% 7d" "label.color=$YELLOW" label.width=68 icon= icon.background.drawing=on \
-    "icon.background.image=$ICONS/claude.png" icon.background.image.scale=0.5)" \
+    "icon.background.image=$ICONS/claude.png" icon.background.image.scale=0.4)" \
     "$(seg stm.ai.claude)" "$shape: band on the label, image untinted"
   assert_eq "$(lines icon.background.image=app.com.openai.codex icon.background.image.scale=0.625 \
     icon.background.image=app.com.openai.chat icon.background.image.scale=0.625 \
@@ -756,7 +756,7 @@ lines_tag=$(seg stm.ai.claude)
 rm -f "$CACHE"
 icon_run forced STM_AI_SHAPE=plain STM_AI_CLAUDE=windows
 assert_eq "$(lines drawing=on icon= icon.background.drawing=on "icon.background.image=$ICONS/claude.png" \
-  icon.background.image.scale=0.5)" "$(seg stm.ai.claude.icon)" "windows: image on .icon, no tint"
+  icon.background.image.scale=0.4)" "$(seg stm.ai.claude.icon)" "windows: image on .icon, no tint"
 assert_eq "$lines_tag" "$(seg stm.ai.claude)" "windows: both lines keep their bands"
 done_it
 
@@ -1231,8 +1231,8 @@ $env $m STM_AI_ACTION='open' NAME='stm.ai' SENDER='mouse.clicked' '/p/ai.sh'" \
   assert_contains "$(printf '%s\n' "$late" | grep '^exec ' | tail -1)" "STM_AI_CW_CLAUDE='7.93'"
   done_it
 
-  it "item.lua icon image: transparent icon background, app scale, icon folder from plugin_dir (V57, V25)"
-  img="background={color=0 drawing=false image={scale=0.625}}"
+  it "item.lua icon image: transparent icon background, app scale, left gap, icon folder from plugin_dir (V57, V25)"
+  img="background={color=0 drawing=false image={padding_left=6 scale=0.625}}"
   assert_contains "$(line_of plain right "icon=image" stm.ai.claude)" "icon={$img color=$((0xff445566)) string=CL}"
   assert_contains "$(line_of split right "icon=image" stm.ai.codex.icon)" "icon={$img color=6 string=CX}"
   assert_contains "$(line_of plain right "icon=image codex=windows" stm.ai.codex.icon)" \
