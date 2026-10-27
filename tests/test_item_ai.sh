@@ -764,7 +764,7 @@ it "label details at their defaults, or bad values: today's argv (V74, V75)"
 run_plugin "$FIXTURE" STM_AI_CLAUDE=windows STM_AI_GROK=billing
 base=$SB
 run_plugin "$FIXTURE" STM_AI_CLAUDE=windows STM_AI_GROK=billing STM_AI_ACCOUNTS=merged STM_AI_PERCENT=used \
-  STM_AI_PERIOD=on STM_AI_RESET=off
+  STM_AI_PERIOD=on STM_AI_RESET=off STM_AI_ACCOUNT_LABEL=name
 assert_eq "$base" "$SB" "defaults spelled out"
 run_plugin "$FIXTURE" STM_AI_CLAUDE=windows STM_AI_GROK=billing STM_AI_ACCOUNTS=SPLIT STM_AI_PERCENT='left;x' \
   STM_AI_PERIOD=no STM_AI_RESET=1
@@ -831,18 +831,18 @@ run_plugin "$J" STM_AI_RESET=on
 assert_eq "label= 50% --" "$(seg stm.ai.grok | sed -n 2p)" "no resetsAt"
 done_it
 
-it "accounts split: one segment per account with its name, unused slots off (V77)"
+it "accounts split: one segment per account, short label, unused slots off (V77, V78)"
 run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split
-assert_eq "$(shown x "personal 79% 7d" "$WHITE" 131)" "$(seg stm.ai.claude.0)" "personal: its worst"
+assert_eq "$(shown x "P 79% 7d" "$WHITE" 76)" "$(seg stm.ai.claude.0)" "personal: its worst"
 assert_eq "$(lines drawing=on "background.color=$YELLOW")" "$(seg stm.ai.claude.0.icon)" "personal band"
-assert_eq "$(shown x "work 33% 7d" "$WHITE" 100)" "$(seg stm.ai.claude.1)" "work"
+assert_eq "$(shown x "W 33% 7d" "$WHITE" 76)" "$(seg stm.ai.claude.1)" "work"
 assert_eq "$(lines drawing=on "background.color=$GREEN")" "$(seg stm.ai.claude.1.icon)" "work band"
 for s in 2 3; do
   assert_eq "$(hidden)" "$(seg stm.ai.claude.$s)" "claude slot $s unused"
   assert_eq "drawing=off" "$(seg stm.ai.claude.$s.icon)" "claude slot $s tag off"
 done
-assert_eq "$(shown x "plus 14% wk" "$WHITE" 100)" "$(seg stm.ai.codex.0)" "codex plus"
-assert_eq "$(shown x "team 3% wk" "$WHITE" 92)" "$(seg stm.ai.codex.1)" "codex team"
+assert_eq "$(shown x "P 14% wk" "$WHITE" 76)" "$(seg stm.ai.codex.0)" "codex plus"
+assert_eq "$(shown x "T 3% wk" "$WHITE" 68)" "$(seg stm.ai.codex.1)" "codex team"
 assert_eq "$(shown x " 41%" "$WHITE" 44)" "$(seg stm.ai.grok.0)" "no accounts: provider in slot 0, no name"
 assert_eq "$(hidden)" "$(seg stm.ai.grok.1)" "grok slot 1 unused"
 assert_eq "$(shown x "\$5.95" "$WHITE" 52)" "$(seg stm.ai.openrouter.0)" "openrouter slot 0"
@@ -850,26 +850,71 @@ assert_eq "$(hidden)" "$(seg stm.ai.gemini.0)" "gemini auto, no data: hidden"
 assert_eq "" "$(seg stm.ai.claude)" "no merged segment"
 assert_eq "" "$(seg stm.ai.claude.4)" "four slots only"
 assert_eq 1 "$SB_CALLS" "one sketchybar call (V56)"
-assert_eq "$(lines icon=today "label=\$96.72 · as of 05:49")" "$(seg stm.ai.claude.0.row.head)" "head: account cost"
+assert_eq "$(lines icon=today "label=personal · \$96.72 · as of 05:49")" "$(seg stm.ai.claude.0.row.head)" \
+  "head: full name, account cost"
 assert_eq "$(lines drawing=on "icon=5h" "icon.color=$WHITE" "label=████▏░░░░░  41%  ↻ 4h 9m" "label.color=$GREEN")" \
   "$(seg stm.ai.claude.0.row.0)" "rows: this account's windows"
 assert_contains "$(seg stm.ai.claude.0.row.3)" "icon=7d-opus"
 assert_eq "drawing=off" "$(seg stm.ai.claude.0.row.4)" "rest of the rows off"
 assert_eq "label=Open Agents Usage Bar" "$(seg stm.ai.claude.0.row.foot)" "foot"
-assert_eq "$(lines icon=today "label=\$66.99 · as of 05:49")" "$(seg stm.ai.claude.1.row.head)" "work head"
+assert_eq "$(lines icon=today "label=work · \$66.99 · as of 05:49")" "$(seg stm.ai.claude.1.row.head)" "work head"
 assert_contains "$(seg stm.ai.claude.1.row.1)" "label=███▎░░░░░░  33%  ↻ 2d 8h"
-assert_eq "$(lines icon=today "label=as of 05:49")" "$(seg stm.ai.codex.0.row.head)" "codex account w/o cost"
+assert_eq "$(lines icon=today "label=plus · as of 05:49")" "$(seg stm.ai.codex.0.row.head)" "codex account w/o cost"
 assert_eq "" "$(seg stm.ai.claude.2.row.head)" "unused slot: no popup rows"
 run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_PERCENT=left STM_AI_PERIOD=off STM_AI_RESET=on
-assert_eq "label=personal 21% 1d8h" "$(seg stm.ai.claude.0 | sed -n 2p)" "details apply per account"
-assert_eq "label=work 67% 2d8h" "$(seg stm.ai.claude.1 | sed -n 2p)" "work"
+assert_eq "label=P 21% 1d8h" "$(seg stm.ai.claude.0 | sed -n 2p)" "details apply per account"
+assert_eq "label=W 67% 2d8h" "$(seg stm.ai.claude.1 | sed -n 2p)" "work"
 run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_CLAUDE=5h STM_AI_CODEX=cost
-assert_eq "label=personal 41% 5h" "$(seg stm.ai.claude.0 | sed -n 2p)" "named window per account"
-assert_eq "label=work 5% 5h" "$(seg stm.ai.claude.1 | sed -n 2p)" "work 5h"
+assert_eq "label=P 41% 5h" "$(seg stm.ai.claude.0 | sed -n 2p)" "named window per account"
+assert_eq "label=W 5% 5h" "$(seg stm.ai.claude.1 | sed -n 2p)" "work 5h"
 assert_eq "$(shown x -- "$GREY" 28)" "$(seg stm.ai.codex.0)" "account without cost: --"
 run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_CLAUDE=windows
+assert_eq "$(lines drawing=on icon.drawing=on "icon=P 5h  41%" "icon.color=$GREEN" "label=  7d  79%" \
+  "label.color=$YELLOW" label.y_offset=-5 label.width=84)" "$(seg stm.ai.claude.0)" "windows: label on the top line"
+done_it
+
+it "accounts split: account_label name and off; bad value is short (V77, V78)"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_ACCOUNT_LABEL=name
+assert_eq "$(shown x "personal 79% 7d" "$WHITE" 131)" "$(seg stm.ai.claude.0)" "name"
+assert_eq "$(shown x "work 33% 7d" "$WHITE" 100)" "$(seg stm.ai.claude.1)" "name work"
+assert_eq "$(shown x "team 3% wk" "$WHITE" 92)" "$(seg stm.ai.codex.1)" "name team"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_ACCOUNT_LABEL=name STM_AI_CLAUDE=windows
 assert_eq "$(lines drawing=on icon.drawing=on "icon=personal 5h  41%" "icon.color=$GREEN" "label=         7d  79%" \
   "label.color=$YELLOW" label.y_offset=-5 label.width=139)" "$(seg stm.ai.claude.0)" "windows: name on the top line"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_ACCOUNT_LABEL=off
+assert_eq "$(shown x " 79% 7d" "$WHITE" 68)" "$(seg stm.ai.claude.0)" "off: no prefix"
+assert_eq "$(shown x " 33% 7d" "$WHITE" 68)" "$(seg stm.ai.claude.1)" "off: work"
+assert_eq "$(lines icon=today "label=work · \$66.99 · as of 05:49")" "$(seg stm.ai.claude.1.row.head)" \
+  "off: the head still names the account"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_ACCOUNT_LABEL='name;x'
+assert_eq "label=P 79% 7d" "$(seg stm.ai.claude.0 | sed -n 2p)" "bad value: short (V9)"
+done_it
+
+it "accounts split: short label prefixes, case aside, and the slot number fallback (V78)"
+# two <name> <name> — claude with two accounts, 7d 60% and 30%.
+two() {
+  printf '{"asOf":"2026-10-08T05:49:39Z","providers":[{"id":"claude","status":"ok","quotaWindows":[],"accounts":[%s,%s]}]}' \
+    "{\"name\":\"$1\",\"quotaWindows\":[{\"name\":\"7d\",\"utilization\":0.6}]}" \
+    "{\"name\":\"$2\",\"quotaWindows\":[{\"name\":\"7d\",\"utilization\":0.3}]}" >"$J"
+}
+while read -r a b la lb; do
+  two "$a" "$b"
+  run_plugin "$J" STM_AI_ACCOUNTS=split
+  assert_eq "label=$la 60% 7d" "$(seg stm.ai.claude.0 | sed -n 2p)" "$a,$b: $la"
+  assert_eq "label=$lb 30% 7d" "$(seg stm.ai.claude.1 | sed -n 2p)" "$a,$b: $lb"
+done <<'EOF'
+personal work P W
+pro plus PR PL
+Pro plus PR PL
+alpha alto ALP ALT
+work work2 W1 W2
+Work work W1 W2
+p pro P1 P2
+proxy prox P1 P2
+EOF
+two solo other
+run_plugin "$J" STM_AI_ACCOUNTS=split STM_AI_CLAUDE=7d
+assert_eq "label=S 60% 7d" "$(seg stm.ai.claude.0 | sed -n 2p)" "one letter when it is enough"
 done_it
 
 it "accounts split: names cleaned and cut to 8, more than 4 accounts noted (V49, V77)"
@@ -884,13 +929,18 @@ it "accounts split: names cleaned and cut to 8, more than 4 accounts noted (V49,
   done
   printf ']}]}'
 } >"$J"
-run_plugin "$J" STM_AI_ACCOUNTS=split
+run_plugin "$J" STM_AI_ACCOUNTS=split STM_AI_ACCOUNT_LABEL=name
 assert_eq "label=abxcdefg 60% 7d" "$(seg stm.ai.claude.0 | sed -n 2p)" "cleaned, 8 chars"
 assert_eq "label=a4 40% 5h" "$(seg stm.ai.claude.3 | sed -n 2p)" "slot 3 = fourth account"
 assert_eq "" "$(seg stm.ai.claude.4)" "fifth account: no segment"
 assert_eq "$(lines drawing=on "icon=" "icon.color=$WHITE" "label=+2 more accounts" "label.color=$GREY")" \
   "$(seg stm.ai.claude.3.row.1)" "last slot's popup notes the rest"
 assert_not_contains "$(seg stm.ai.claude.2.row.1)" "more accounts"
+assert_eq "$(lines icon=today "label=abxcdefghijkl · as of 05:49")" "$(seg stm.ai.claude.0.row.head)" \
+  "head: the full cleaned name"
+run_plugin "$J" STM_AI_ACCOUNTS=split
+assert_eq "label=AB 60% 7d" "$(seg stm.ai.claude.0 | sed -n 2p)" "short, cleaned"
+assert_eq "label=A4 40% 5h" "$(seg stm.ai.claude.3 | sed -n 2p)" "short a4"
 done_it
 
 it "accounts split: no data, compact forms and icons act on every slot (V54, V57, V77, I.form)"
@@ -945,15 +995,15 @@ assert_status 0
 loader=$(cat "$D/items_generated.lua")
 assert_contains "$loader" '["claude"] = "windows"'
 assert_contains "$loader" '["grok"] = "off"'
-printf '[item.ai]\naccounts = "split"\npercent = "left"\nperiod = "off"\nreset = "on"\n' >"$D/stm.config.toml"
+printf '[item.ai]\naccounts = "split"\naccount_label = "name"\npercent = "left"\nperiod = "off"\nreset = "on"\n' >"$D/stm.config.toml"
 STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload --force install item:ai
 assert_status 0
 loader=$(cat "$D/items_generated.lua")
-for opt in '["accounts"] = "split"' '["percent"] = "left"' '["period"] = "off"' '["reset"] = "on"'; do
+for opt in '["accounts"] = "split"' '["account_label"] = "name"' '["percent"] = "left"' '["period"] = "off"' '["reset"] = "on"'; do
   assert_contains "$loader" "$opt"
 done
 for bad in 'gemini = "cost"' 'view = "worst"' 'grok = "worst"' 'icon = "app"' 'icon = "/tmp/x.png"' \
-  'accounts = "all"' 'percent = "free"' 'period = "5h"' 'reset = "eta"'; do
+  'accounts = "all"' 'account_label = "long"' 'percent = "free"' 'period = "5h"' 'reset = "eta"'; do
   printf '[item.ai]\n%s\n' "$bad" >"$D/stm.config.toml"
   STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload --force install item:ai
   assert_ne 0 "$STM_STATUS" "$bad refused"
@@ -1013,7 +1063,7 @@ function sbar.query(name)
 end
 function sbar.exec(cmd) print("exec " .. cmd) end
 local options = { shape = shape, icon = "tag", claude = "auto", codex = "auto", gemini = "auto", grok = "auto", openrouter = "auto" }
-for k, v in metrics:gmatch("(%w+)=(%w+)") do
+for k, v in metrics:gmatch("([%w_]+)=(%w+)") do
   options[k] = v
 end
 local opts = { name = "stm.ai", position = position, update_freq = 60,
@@ -1123,10 +1173,10 @@ EOF
   assert_contains "$run1" "STM_AI_ACCOUNTS='split' STM_FORM="
   assert_eq 1 "$(printf '%s\n' "$run1" | grep -o "STM_AI_CW_CLAUDE=" | grep -c .)" "one CW per provider"
   assert_eq 4 "$(printf '%s\n' "$out" | grep -c '^query stm.ai.claude.[0-3]$')" "every slot measured"
-  out=$(probe plain right "accounts=split percent=left period=off reset=on codex=off gemini=off grok=off openrouter=off" \
+  out=$(probe plain right "accounts=split account_label=off percent=left period=off reset=on codex=off gemini=off grok=off openrouter=off" \
     ok "stm_compact=icon")
   assert_contains "$(printf '%s\n' "$out" | grep '^exec ' | head -1)" \
-    "STM_AI_ACCOUNTS='split' STM_AI_PERCENT='left' STM_AI_PERIOD='off' STM_AI_RESET='on' STM_FORM="
+    "STM_AI_ACCOUNTS='split' STM_AI_ACCOUNT_LABEL='off' STM_AI_PERCENT='left' STM_AI_PERIOD='off' STM_AI_RESET='on' STM_FORM="
   for s in 0 1 2 3; do
     assert_contains "$out" "set stm.ai.claude.$s {label={drawing=false}}"
   done

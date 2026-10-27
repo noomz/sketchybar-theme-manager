@@ -15,8 +15,14 @@
 #   STM_AI_CW_<P> STM_AI_PAD_<P> each segment's label character width and
 #                                paddings (empty until the bar has told
 #                                item.lua its font)
+#   STM_AI_ACCOUNTS              merged | split (a segment per account,
+#                                NAME.<provider>.<0-3>)
+#   STM_AI_ACCOUNT_LABEL STM_AI_PERCENT STM_AI_PERIOD STM_AI_RESET
+#                                short | name | off, used | left, on | off,
+#                                off | on; unset or any other value is the
+#                                first
 #   STM_AI_ACTION                open (a popup's last row was clicked) or empty
-#   STM_FORM                     compact mode form: full | icon (the tags
+#   STM_FORM                    compact mode form: full | icon (the tags
 #                                alone) | hidden (every segment off, nothing
 #                                read). Anything else is full.
 #
@@ -62,6 +68,26 @@ for p in claude codex gemini grok openrouter; do
   esac
 done
 [ -n "$enabled" ] || exit 0
+
+byacct=0 left=0 period=1 reset=0
+[ "${STM_AI_ACCOUNTS:-}" = split ] && byacct=1
+[ "${STM_AI_PERCENT:-}" = left ] && left=1
+[ "${STM_AI_PERIOD:-}" = off ] && period=0
+[ "${STM_AI_RESET:-}" = on ] && reset=1
+alabel=short
+case ${STM_AI_ACCOUNT_LABEL:-} in name | off) alabel=$STM_AI_ACCOUNT_LABEL ;; esac
+
+# The segment ids, in bar order: <p>, or <p>.<slot> for the four account
+# slots item.lua adds per provider in a split.
+segs=""
+for e in $enabled; do
+  if [ "$byacct" = 1 ]; then
+    segs="$segs ${e%%:*}.0 ${e%%:*}.1 ${e%%:*}.2 ${e%%:*}.3"
+  else
+    segs="$segs ${e%%:*}"
+  fi
+done
+
 case "${STM_FORM:-full}" in
   icon | hidden) form=$STM_FORM ;;
   *) form=full ;;
@@ -170,16 +196,18 @@ parse() {
 # summarise — the records in, what to draw out (fields split by 0x1F), per
 # enabled segment in bar order:
 #   asof <epoch> <stale 0|1>                                   (once, first)
-#   seg <p> <shown 0|1> <label> <tag band> <label band> [<top> <band> <bottom> <band>]
-#   head <p> <cost> <tokens>
+#   seg <id> <shown 0|1> <label> <tag band> <label band> [<top> <band> <bottom> <band>]
+#   head <id> <cost> <tokens>
 #   row <name> <label> <label band> <name band>
-#   end <p>
+#   end <id>
+# <id> is a segment id from $segs: <p>, or <p>.<slot> in an account split.
 # Only known provider ids with status ok count, a provider's windows come from
 # its accounts when any has some (the top level repeats them), and every
 # value is checked before it reaches a label.
 summarise() {
   /usr/bin/awk -F'\t' -v now="$now" -v want="$enabled" -v rows="$ROWS" \
-    -v stale_secs="$STALE_SECS" -v ahead_secs="$AHEAD_SECS" '
+    -v stale_secs="$STALE_SECS" -v ahead_secs="$AHEAD_SECS" \
+    -v byacct="$byacct" -v left="$left" -v period="$period" -v reset="$reset" -v alabel="$alabel" '
     function epoch(s, y, m, d, hh, mm, ss, era, yoe, doy) {
       if (s !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9](\.[0-9]+)?Z$/) return ""
       y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
@@ -236,11 +264,26 @@ summarise() {
       if (n < 1000000000000) return sprintf("%.1fB", n / 1000000000)
       return "999B+"
     }
-    function pctlabel(p, s) { return sprintf("%3d%%", p) (s != "" ? " " s : "") }
+    # num: a used pct as shown. Bands stay on the used pct.
+    function num(p) { return left ? 100 - p : p }
+    # eta: the time to reset <e> on the bar.
+    function eta(e, s) {
+      if (e == "") return "--"
+      s = e - now
+      if (s < 3600) return (s > 0 ? int(s / 60) : 0) "m"
+      if (s < 86400) return int(s / 3600) "h" int((s % 3600) / 60) "m"
+      return int(s / 86400) "d" int((s % 86400) / 3600) "h"
+    }
+    # pctlabel: a pct for the bar, its window suffix, and the time to reset
+    # <r> ("-" for a pct with no reset).
+    function pctlabel(p, s, r, t) {
+      t = sprintf("%3d%%", num(p)) (period && s != "" ? " " s : "")
+      return reset && r != "-" ? t " " eta(r) : t
+    }
     # line: a popup row for one window.
-    function line(p, reset, r) {
-      r = until(reset)
-      return bar(p) " " sprintf("%3d%%", p) (r != "" ? "  ↻ " r : "")
+    function line(p, rs, r) {
+      r = until(rs)
+      return bar(num(p)) " " sprintf("%3d%%", num(p)) (r != "" ? "  ↻ " r : "")
     }
     function wrow(id, n, k, s) {
       if (id == "codex" && n == "primary") return "5h"
@@ -249,18 +292,133 @@ summarise() {
       if (s != "") return s
       return (id == "gemini" ? "model " : "window ") k
     }
-    # best: the highest pct of the window named <n> over the groups in G.
+    # best: the highest pct of the window named <n> over the groups in G; its
+    # reset in BR.
     function best(n, i, g, k, b) {
       b = ""
       for (i = 1; i <= ng; i++) {
         g = G[i]
         for (k = 1; k <= nwin[g]; k++)
-          if (WN[g, k] == n && (b == "" || WP[g, k] > b)) b = WP[g, k]
+          if (WN[g, k] == n && (b == "" || WP[g, k] > b)) { b = WP[g, k]; BR = WR[g, k] }
       }
       return b
     }
     function addrow(name, label, lb, nb) {
       nrow++; RN[nrow] = name; RL[nrow] = label; RB[nrow] = lb; RNB[nrow] = nb
+    }
+    # abbrev: per account g of provider <i>, ABR[g] = the shortest prefix,
+    # 1 to 3 chars, that no other account name of <i> starts with, case
+    # aside; ABF[i] = 1 when one account has none.
+    function abbrev(i, a, b, g, n, L, p, ok) {
+      ABF[i] = 0
+      for (a = 1; a <= nacct[i]; a++) {
+        g = i SUBSEP acct[i, a]; n = tolower(aname[g])
+        for (L = 1; L <= 3; L++) {
+          p = substr(n, 1, L); ok = length(n) >= L
+          for (b = 1; ok && b <= nacct[i]; b++)
+            if (b != a && substr(tolower(aname[i SUBSEP acct[i, b]]), 1, L) == p) ok = 0
+          if (ok) break
+        }
+        if (!ok) ABF[i] = 1
+        ABR[g] = toupper(p)
+      }
+    }
+    # slot: one segment, <sid>, from the groups in G (worst, ok and the rest
+    # set by END); <acc> is the one account it draws in a split, <more> the
+    # accounts left without a segment.
+    function slot(sid, acc, more, value, c, b, tagp, top, topb, bot, botb, shown, label, tb, lb, nm, pad, g, k, a, l,
+      hidden, n) {
+      nrow = 0
+      value = ""
+      if (m == "worst" || m == "windows") {
+        if (worst != "") value = pctlabel(gpct[worst], suffix(gwin[worst], id), gres[worst])
+      } else if (m == "cost") {
+        c = acc != "" ? acost[acc] : pcost[id]
+        if (c != "") value = usd(c, 10)
+      } else if (m == "balance") {
+        if (pbal[id] != "") value = usd(pbal[id], 1000)
+      } else if (m == "quota") {
+        if (pfrac[id] != "") value = pctlabel(pfrac[id], "", "-")
+      } else if ((id, m) in WNAME) {
+        b = best(WNAME[id, m])
+        if (b != "") value = pctlabel(b, WSUF[id, m], BR)
+      }
+      tagp = id == "openrouter" ? pfrac[id] : worst != "" ? gpct[worst] : ""
+
+      top = topb = bot = botb = ""
+      if (ok && value != "") {
+        shown = 1; label = value
+        # The account on the bar: its abbreviation (initial + slot number
+        # when a provider has no unique ones), its name, or nothing.
+        nm = ""
+        if (acc != "" && alabel == "name") nm = substr(aname[acc], 1, 8)
+        else if (acc != "" && alabel == "short")
+          nm = ABF[i] ? toupper(substr(aname[acc], 1, 1)) (substr(sid, length(id) + 2) + 1) : ABR[acc]
+        sub(/ +$/, "", nm)
+        if (nm != "") { sub(/^ +/, "", label); label = nm " " label }
+        if (stale) { tb = "grey"; lb = "grey" }
+        else { tb = tagp != "" ? band(tagp) : "white"; lb = "white" }
+        if (m == "windows" && ((worst in g5) || (worst in g7))) {
+          top = "5h " ((worst in g5) ? sprintf("%3d%%", num(g5[worst])) : " --")
+          topb = (worst in g5) && !stale ? band(g5[worst]) : "grey"
+          bot = (id == "codex" ? "wk " : "7d ") ((worst in g7) ? sprintf("%3d%%", num(g7[worst])) : " --")
+          botb = (worst in g7) && !stale ? band(g7[worst]) : "grey"
+          if (nm != "") {
+            pad = nm " "; gsub(/./, " ", pad)
+            top = nm " " top; bot = pad bot
+          }
+        }
+      } else if (auto) {
+        shown = 0; label = tb = lb = ""
+      } else {
+        shown = 1; tb = lb = "grey"
+        label = (id in idx) && status[id] == "unauthenticated" ? "sign in" : "--"
+      }
+      print "seg" US sid US shown US label US tb US lb US top US topb US bot US botb
+      if (acc != "") print "head" US sid US aname[acc] US (acost[acc] != "" ? sprintf("$%.2f", acost[acc]) : "")
+      else print "head" US sid US (pcost[id] != "" ? sprintf("$%.2f", pcost[id]) : "") US \
+        (ptok[id] != "" ? tok(ptok[id]) " tok" : "")
+
+      if (!(id in idx)) {
+      } else if (status[id] != "ok") {
+        if (status[id] in WORD) addrow(DISPLAY[id], WORD[status[id]], "grey", "grey")
+      } else if (acc != "") {
+        for (k = 1; k <= nwin[acc]; k++)
+          addrow(wrow(id, WN[acc, k], k), line(WP[acc, k], WR[acc, k]), band(WP[acc, k]), "white")
+        if (more) addrow("", "+" more " more accounts", "grey", "white")
+      } else {
+        for (a = 1; a <= nacct[i]; a++) {
+          g = i SUBSEP acct[i, a]
+          if (!nwin[g]) { addrow(aname[g], "no limit", "grey", "grey"); continue }
+          addrow(aname[g], acost[g] != "" ? sprintf("$%.2f", acost[g]) : "", "white", "white")
+          for (k = 1; k <= nwin[g]; k++)
+            addrow("  " wrow(id, WN[g, k], k), line(WP[g, k], WR[g, k]), band(WP[g, k]), "white")
+        }
+        if (toplevel) {
+          g = i SUBSEP "-"
+          for (k = 1; k <= nwin[g]; k++) {
+            l = line(WP[g, k], WR[g, k])
+            if (id == "grok" && WN[g, k] == "billing" && pused[id] != "" && plim[id] != "")
+              l = l "  " amount(pused[id]) " / " amount(plim[id])
+            addrow(wrow(id, WN[g, k], k), l, band(WP[g, k]), "white")
+          }
+        }
+        if (id == "openrouter") {
+          if (pfrac[id] != "")
+            addrow("credits", bar(num(pfrac[id])) " " sprintf("%3d%%", num(pfrac[id])) \
+              (pbal[id] != "" ? sprintf("  $%.2f left", pbal[id]) : ""), band(pfrac[id]), "white")
+          else if (pbal[id] != "")
+            addrow("credits", sprintf("$%.2f left", pbal[id]), "white", "white")
+          if (plim[id] != "") addrow("limit", sprintf("$%.2f", plim[id]), "white", "white")
+        }
+      }
+      if (nrow > rows) {
+        hidden = nrow - (rows - 1)
+        nrow = rows - 1
+        addrow("", "+" hidden " more", "grey", "white")
+      }
+      for (n = 1; n <= nrow; n++) print "row" US RN[n] US RL[n] US RB[n] US RNB[n]
+      print "end" US sid
     }
     BEGIN {
       US = sprintf("%c", 31)
@@ -295,7 +453,7 @@ summarise() {
       if (p == "") next
       g = $2 SUBSEP $3
       k = ++nwin[g]; WN[g, k] = $4; WP[g, k] = p; WR[g, k] = epoch($6)
-      if (!(g in gpct) || p > gpct[g]) { gpct[g] = p; gwin[g] = $4 }
+      if (!(g in gpct) || p > gpct[g]) { gpct[g] = p; gwin[g] = $4; gres[g] = WR[g, k] }
       if (($4 == "5h" || $4 == "primary") && (!(g in g5) || p > g5[g])) g5[g] = p
       if (($4 == "7d" || $4 == "secondary") && (!(g in g7) || p > g7[g])) g7[g] = p
     }
@@ -305,7 +463,7 @@ summarise() {
       nw = split(want, W, " ")
       for (w = 1; w <= nw; w++) {
         split(W[w], f, ":"); id = f[1]; m = f[2]; auto = f[3] == 1
-        ng = 0; nrow = 0; toplevel = 0; worst = ""; i = ""
+        ng = 0; toplevel = 0; worst = ""; i = ""
         if (id in idx) {
           i = idx[id]
           for (a = 1; a <= nacct[i]; a++) {
@@ -318,78 +476,25 @@ summarise() {
         }
         ok = (id in idx) && status[id] == "ok"
 
-        value = ""
-        if (m == "worst" || m == "windows") {
-          if (worst != "") value = pctlabel(gpct[worst], suffix(gwin[worst], id))
-        } else if (m == "cost") {
-          if (pcost[id] != "") value = usd(pcost[id], 10)
-        } else if (m == "balance") {
-          if (pbal[id] != "") value = usd(pbal[id], 1000)
-        } else if (m == "quota") {
-          if (pfrac[id] != "") value = pctlabel(pfrac[id], "")
-        } else if ((id, m) in WNAME) {
-          b = best(WNAME[id, m])
-          if (b != "") value = pctlabel(b, WSUF[id, m])
-        }
-        tagp = id == "openrouter" ? pfrac[id] : worst != "" ? gpct[worst] : ""
-
-        top = topb = bot = botb = ""
-        if (ok && value != "") {
-          shown = 1; label = value
-          if (stale) { tb = "grey"; lb = "grey" }
-          else { tb = tagp != "" ? band(tagp) : "white"; lb = "white" }
-          if (m == "windows" && ((worst in g5) || (worst in g7))) {
-            top = "5h " ((worst in g5) ? sprintf("%3d%%", g5[worst]) : " --")
-            topb = (worst in g5) && !stale ? band(g5[worst]) : "grey"
-            bot = (id == "codex" ? "wk " : "7d ") ((worst in g7) ? sprintf("%3d%%", g7[worst]) : " --")
-            botb = (worst in g7) && !stale ? band(g7[worst]) : "grey"
+        # A split gives each account with windows a slot of its own; a
+        # provider without one fills slot 0 as a merged segment would.
+        nslot = 1
+        if (byacct && ng && !toplevel) {
+          abbrev(i)
+          nacc = ng
+          nslot = nacc > 4 ? 4 : nacc
+          for (s = 1; s <= nacc; s++) SG[s] = G[s]
+          for (s = 1; s <= nslot; s++) {
+            ng = 1; G[1] = SG[s]; worst = SG[s]
+            slot(id "." (s - 1), SG[s], s == nslot ? nacc - nslot : 0)
           }
-        } else if (auto) {
-          shown = 0; label = tb = lb = ""
         } else {
-          shown = 1; tb = lb = "grey"
-          label = (id in idx) && status[id] == "unauthenticated" ? "sign in" : "--"
+          slot(byacct ? id ".0" : id, "", 0)
         }
-        print "seg" US id US shown US label US tb US lb US top US topb US bot US botb
-        print "head" US id US (pcost[id] != "" ? sprintf("$%.2f", pcost[id]) : "") US \
-          (ptok[id] != "" ? tok(ptok[id]) " tok" : "")
-
-        if (!(id in idx)) {
-        } else if (status[id] != "ok") {
-          if (status[id] in WORD) addrow(DISPLAY[id], WORD[status[id]], "grey", "grey")
-        } else {
-          for (a = 1; a <= nacct[i]; a++) {
-            g = i SUBSEP acct[i, a]
-            if (!nwin[g]) { addrow(aname[g], "no limit", "grey", "grey"); continue }
-            addrow(aname[g], acost[g] != "" ? sprintf("$%.2f", acost[g]) : "", "white", "white")
-            for (k = 1; k <= nwin[g]; k++)
-              addrow("  " wrow(id, WN[g, k], k), line(WP[g, k], WR[g, k]), band(WP[g, k]), "white")
-          }
-          if (toplevel) {
-            g = i SUBSEP "-"
-            for (k = 1; k <= nwin[g]; k++) {
-              l = line(WP[g, k], WR[g, k])
-              if (id == "grok" && WN[g, k] == "billing" && pused[id] != "" && plim[id] != "")
-                l = l "  " amount(pused[id]) " / " amount(plim[id])
-              addrow(wrow(id, WN[g, k], k), l, band(WP[g, k]), "white")
-            }
-          }
-          if (id == "openrouter") {
-            if (pfrac[id] != "")
-              addrow("credits", bar(pfrac[id]) " " sprintf("%3d%%", pfrac[id]) \
-                (pbal[id] != "" ? sprintf("  $%.2f left", pbal[id]) : ""), band(pfrac[id]), "white")
-            else if (pbal[id] != "")
-              addrow("credits", sprintf("$%.2f left", pbal[id]), "white", "white")
-            if (plim[id] != "") addrow("limit", sprintf("$%.2f", plim[id]), "white", "white")
-          }
+        for (s = nslot; byacct && s < 4; s++) {
+          print "seg" US id "." s US 0
+          print "end" US id "." s
         }
-        if (nrow > rows) {
-          hidden = nrow - (rows - 1)
-          nrow = rows - 1
-          addrow("", "+" hidden " more", "grey", "white")
-        }
-        for (n = 1; n <= nrow; n++) print "row" US RN[n] US RL[n] US RB[n] US RNB[n]
-        print "end" US id
       }
     }
   ' "$WORK/rec"
@@ -411,10 +516,13 @@ emit() {
   printf '%s\n' "$@" >>"$WORK/args"
 }
 
-# segment <p> — make <p> the segment the next show / hide / popup acts on.
+# segment <id> — make <id> (from $segs) the segment the next show / hide /
+# popup acts on; its provider is $p.
 segment() {
-  p=$1
-  seg=$NAME.$p
+  p=${1%%.*}
+  seg=$NAME.$1
+  slot=""
+  case $1 in *.*) slot=${1#*.} ;; esac
   for x in $enabled; do
     case $x in "$p":*)
       metric=${x#*:}
@@ -468,6 +576,10 @@ icon_set() {
     # 40x40 px -> 20 pt; an app's image was loaded by its probe.
     [ "$probing" = 1 ] && [ "$img" = file ] &&
       emit "icon.background.image=$icon_dir/$p.png" icon.background.image.scale=0.5
+    # The probe loaded an app image on slot 0's tag only.
+    case "$probing:$img:$slot" in
+      1:app.*:[1-9]*) emit "icon.background.image=$img" icon.background.image.scale=0.625 ;;
+    esac
   fi
   return 0
 }
@@ -584,8 +696,8 @@ icon_ok() {
 # system_woke, or without a valid cache.
 # Hidden by compact mode: every segment off, no aub, no probe.
 if [ "$form" = hidden ]; then
-  for e in $enabled; do
-    segment "${e%%:*}"
+  for e in $segs; do
+    segment "$e"
     emit --set "$seg" drawing=off popup.drawing=off
     [ "$icon_item" = 1 ] && emit --set "$seg.icon" drawing=off
     [ "$pill" = 1 ] && emit --set "$seg.pill" drawing=off
@@ -625,7 +737,12 @@ if [ "${STM_AI_ICON:-}" = image ]; then
   if [ -z "$icons" ]; then
     probing=1
     for e in $enabled; do
-      segment "${e%%:*}"
+      # A split probes slot 0's tag; icon_set copies an app image to the rest.
+      if [ "$byacct" = 1 ]; then
+        segment "${e%%:*}.0"
+      else
+        segment "${e%%:*}"
+      fi
       v=none
       if [ -n "$icon_dir" ]; then
         for f in "$icon_dir"/*; do
@@ -738,8 +855,8 @@ else
     hint="open the app to start polling"
   fi
   first=1
-  for e in $enabled; do
-    segment "${e%%:*}"
+  for e in $segs; do
+    segment "$e"
     if [ "$first" = 1 ]; then
       show "$label" grey grey
       emit --set "$seg.row.head" icon=aub "label=$head" --set "$seg.row.0" drawing=on icon= "label=$hint"
