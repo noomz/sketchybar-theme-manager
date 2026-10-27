@@ -760,11 +760,172 @@ assert_eq "$(lines drawing=on icon= icon.background.drawing=on "icon.background.
 assert_eq "$lines_tag" "$(seg stm.ai.claude)" "windows: both lines keep their bands"
 done_it
 
+it "label details at their defaults, or bad values: today's argv (V74, V75)"
+run_plugin "$FIXTURE" STM_AI_CLAUDE=windows STM_AI_GROK=billing
+base=$SB
+run_plugin "$FIXTURE" STM_AI_CLAUDE=windows STM_AI_GROK=billing STM_AI_ACCOUNTS=merged STM_AI_PERCENT=used \
+  STM_AI_PERIOD=on STM_AI_RESET=off
+assert_eq "$base" "$SB" "defaults spelled out"
+run_plugin "$FIXTURE" STM_AI_CLAUDE=windows STM_AI_GROK=billing STM_AI_ACCOUNTS=SPLIT STM_AI_PERCENT='left;x' \
+  STM_AI_PERIOD=no STM_AI_RESET=1
+assert_eq "$base" "$SB" "values outside the manifest = defaults (V9)"
+done_it
+
+it "percent left: 100 minus used on the bar and in the popup, band stays on used (V75)"
+run_plugin "$FIXTURE" STM_AI_PERCENT=left
+assert_eq "$(shown x " 21% 7d" "$WHITE" 68)" "$(seg stm.ai.claude)" "claude 79% used = 21% left"
+assert_eq "$(lines drawing=on "background.color=$YELLOW")" "$(seg stm.ai.claude.icon)" "band from used"
+assert_eq "$(shown x " 86% wk" "$WHITE" 68)" "$(seg stm.ai.codex)" "codex"
+assert_eq "$(shown x "\$5.95" "$WHITE" 52)" "$(seg stm.ai.openrouter)" "openrouter balance unaffected"
+assert_eq "$(lines drawing=on "icon=  7d" "icon.color=$WHITE" "label=██▏░░░░░░░  21%  ↻ 1d 8h" \
+  "label.color=$YELLOW")" "$(seg stm.ai.claude.row.3)" "row: bar and number left, band used"
+run_plugin "$FIXTURE" STM_AI_PERCENT=left STM_AI_CLAUDE=windows
+assert_eq "$(lines drawing=on icon.drawing=on "icon=5h  59%" "icon.color=$GREEN" "label=7d  21%" \
+  "label.color=$YELLOW" label.y_offset=-5 label.width=68)" "$(seg stm.ai.claude)" "windows lines left"
+run_plugin "$FIXTURE" STM_AI_PERCENT=left STM_AI_CLAUDE=cost STM_AI_OPENROUTER=quota
+assert_eq "$(shown x "\$164" "$WHITE" 44)" "$(seg stm.ai.claude)" "cost unaffected"
+assert_eq "$(shown x "  4%" "$WHITE" 44)" "$(seg stm.ai.openrouter)" "quota: credit left"
+assert_eq "$(lines drawing=on "background.color=$RED")" "$(seg stm.ai.openrouter.icon)" "quota band from used"
+done_it
+
+it "period off drops the window suffix, reset on appends the time to reset (V75, V76)"
+run_plugin "$FIXTURE" STM_AI_PERIOD=off
+assert_eq "$(shown x " 79%" "$WHITE" 44)" "$(seg stm.ai.claude)" "no 7d"
+assert_eq "$(shown x " 14%" "$WHITE" 44)" "$(seg stm.ai.codex)" "no wk"
+run_plugin "$FIXTURE" STM_AI_PERIOD=off STM_AI_CLAUDE=windows
+assert_contains "$(seg stm.ai.claude)" "icon=5h  41%" "windows lines keep their names"
+run_plugin "$FIXTURE" STM_AI_RESET=on
+assert_eq "$(shown x " 79% 7d 1d8h" "$WHITE" 108)" "$(seg stm.ai.claude)" "worst window's reset"
+assert_eq "$(shown x " 14% wk 4d18h" "$WHITE" 116)" "$(seg stm.ai.codex)" "codex"
+assert_eq "$(shown x " 41% 3d22h" "$WHITE" 92)" "$(seg stm.ai.grok)" "grok billing"
+assert_eq "$(shown x "\$5.95" "$WHITE" 52)" "$(seg stm.ai.openrouter)" "balance: no reset"
+run_plugin "$FIXTURE" STM_AI_RESET=on STM_AI_CLAUDE=5h STM_AI_CODEX=weekly
+assert_eq "label= 41% 5h 4h9m" "$(seg stm.ai.claude | sed -n 2p)" "named window's reset"
+assert_eq "label= 14% wk 4d18h" "$(seg stm.ai.codex | sed -n 2p)" "codex weekly"
+run_plugin "$FIXTURE" STM_AI_RESET=on STM_AI_PERIOD=off STM_AI_PERCENT=left
+assert_eq "label= 21% 1d8h" "$(seg stm.ai.claude | sed -n 2p)" "all three"
+run_plugin "$FIXTURE" STM_AI_RESET=on STM_AI_CLAUDE=windows
+assert_contains "$(seg stm.ai.claude)" "label=7d  79%" "windows: no reset on the bar"
+mk_json "$J" grok billing 0.5
+R=1791453600
+while read -r secs eta; do
+  run_plugin "$J" STM_AI_RESET=on STM_NOW=$((R - secs))
+  assert_eq "label= 50% $eta" "$(seg stm.ai.grok | sed -n 2p)" "reset in $secs s"
+done <<'EOF'
+2580 43m
+3599 59m
+3600 1h0m
+7980 2h13m
+86399 23h59m
+86400 1d0h
+360000 4d4h
+59 0m
+0 0m
+-600 0m
+EOF
+printf '{"asOf":"2026-10-08T05:49:39Z","providers":[{"id":"grok","status":"ok","quotaWindows":[{"name":"billing","utilization":0.5,"resetsAt":"soon"}]}]}' >"$J"
+run_plugin "$J" STM_AI_RESET=on
+assert_eq "label= 50% --" "$(seg stm.ai.grok | sed -n 2p)" "bad resetsAt"
+printf '{"asOf":"2026-10-08T05:49:39Z","providers":[{"id":"grok","status":"ok","quotaWindows":[{"name":"billing","utilization":0.5}]}]}' >"$J"
+run_plugin "$J" STM_AI_RESET=on
+assert_eq "label= 50% --" "$(seg stm.ai.grok | sed -n 2p)" "no resetsAt"
+done_it
+
+it "accounts split: one segment per account with its name, unused slots off (V77)"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split
+assert_eq "$(shown x "personal 79% 7d" "$WHITE" 131)" "$(seg stm.ai.claude.0)" "personal: its worst"
+assert_eq "$(lines drawing=on "background.color=$YELLOW")" "$(seg stm.ai.claude.0.icon)" "personal band"
+assert_eq "$(shown x "work 33% 7d" "$WHITE" 100)" "$(seg stm.ai.claude.1)" "work"
+assert_eq "$(lines drawing=on "background.color=$GREEN")" "$(seg stm.ai.claude.1.icon)" "work band"
+for s in 2 3; do
+  assert_eq "$(hidden)" "$(seg stm.ai.claude.$s)" "claude slot $s unused"
+  assert_eq "drawing=off" "$(seg stm.ai.claude.$s.icon)" "claude slot $s tag off"
+done
+assert_eq "$(shown x "plus 14% wk" "$WHITE" 100)" "$(seg stm.ai.codex.0)" "codex plus"
+assert_eq "$(shown x "team 3% wk" "$WHITE" 92)" "$(seg stm.ai.codex.1)" "codex team"
+assert_eq "$(shown x " 41%" "$WHITE" 44)" "$(seg stm.ai.grok.0)" "no accounts: provider in slot 0, no name"
+assert_eq "$(hidden)" "$(seg stm.ai.grok.1)" "grok slot 1 unused"
+assert_eq "$(shown x "\$5.95" "$WHITE" 52)" "$(seg stm.ai.openrouter.0)" "openrouter slot 0"
+assert_eq "$(hidden)" "$(seg stm.ai.gemini.0)" "gemini auto, no data: hidden"
+assert_eq "" "$(seg stm.ai.claude)" "no merged segment"
+assert_eq "" "$(seg stm.ai.claude.4)" "four slots only"
+assert_eq 1 "$SB_CALLS" "one sketchybar call (V56)"
+assert_eq "$(lines icon=today "label=\$96.72 · as of 05:49")" "$(seg stm.ai.claude.0.row.head)" "head: account cost"
+assert_eq "$(lines drawing=on "icon=5h" "icon.color=$WHITE" "label=████▏░░░░░  41%  ↻ 4h 9m" "label.color=$GREEN")" \
+  "$(seg stm.ai.claude.0.row.0)" "rows: this account's windows"
+assert_contains "$(seg stm.ai.claude.0.row.3)" "icon=7d-opus"
+assert_eq "drawing=off" "$(seg stm.ai.claude.0.row.4)" "rest of the rows off"
+assert_eq "label=Open Agents Usage Bar" "$(seg stm.ai.claude.0.row.foot)" "foot"
+assert_eq "$(lines icon=today "label=\$66.99 · as of 05:49")" "$(seg stm.ai.claude.1.row.head)" "work head"
+assert_contains "$(seg stm.ai.claude.1.row.1)" "label=███▎░░░░░░  33%  ↻ 2d 8h"
+assert_eq "$(lines icon=today "label=as of 05:49")" "$(seg stm.ai.codex.0.row.head)" "codex account w/o cost"
+assert_eq "" "$(seg stm.ai.claude.2.row.head)" "unused slot: no popup rows"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_PERCENT=left STM_AI_PERIOD=off STM_AI_RESET=on
+assert_eq "label=personal 21% 1d8h" "$(seg stm.ai.claude.0 | sed -n 2p)" "details apply per account"
+assert_eq "label=work 67% 2d8h" "$(seg stm.ai.claude.1 | sed -n 2p)" "work"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_CLAUDE=5h STM_AI_CODEX=cost
+assert_eq "label=personal 41% 5h" "$(seg stm.ai.claude.0 | sed -n 2p)" "named window per account"
+assert_eq "label=work 5% 5h" "$(seg stm.ai.claude.1 | sed -n 2p)" "work 5h"
+assert_eq "$(shown x -- "$GREY" 28)" "$(seg stm.ai.codex.0)" "account without cost: --"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_CLAUDE=windows
+assert_eq "$(lines drawing=on icon.drawing=on "icon=personal 5h  41%" "icon.color=$GREEN" "label=         7d  79%" \
+  "label.color=$YELLOW" label.y_offset=-5 label.width=139)" "$(seg stm.ai.claude.0)" "windows: name on the top line"
+done_it
+
+it "accounts split: names cleaned and cut to 8, more than 4 accounts noted (V49, V77)"
+{
+  printf '{"asOf":"2026-10-08T05:49:39Z","providers":[{"id":"claude","status":"ok","quotaWindows":[],"accounts":['
+  # shellcheck disable=SC2016 # a literal $(x): the name must arrive unexpanded
+  printf '{"name":"ab$(x);cdefghijkl","quotaWindows":[{"name":"7d","utilization":0.6}]}'
+  i=2
+  while [ $i -le 6 ]; do
+    printf ',{"name":"a%d","quotaWindows":[{"name":"5h","utilization":0.%d}]}' $i $i
+    i=$((i + 1))
+  done
+  printf ']}]}'
+} >"$J"
+run_plugin "$J" STM_AI_ACCOUNTS=split
+assert_eq "label=abxcdefg 60% 7d" "$(seg stm.ai.claude.0 | sed -n 2p)" "cleaned, 8 chars"
+assert_eq "label=a4 40% 5h" "$(seg stm.ai.claude.3 | sed -n 2p)" "slot 3 = fourth account"
+assert_eq "" "$(seg stm.ai.claude.4)" "fifth account: no segment"
+assert_eq "$(lines drawing=on "icon=" "icon.color=$WHITE" "label=+2 more accounts" "label.color=$GREY")" \
+  "$(seg stm.ai.claude.3.row.1)" "last slot's popup notes the rest"
+assert_not_contains "$(seg stm.ai.claude.2.row.1)" "more accounts"
+done_it
+
+it "accounts split: no data, compact forms and icons act on every slot (V54, V57, V77, I.form)"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split AUB_MODE=fail
+assert_eq "$(shown x -- "$GREY" 28)" "$(seg stm.ai.claude.0)" "first slot says --"
+for s in claude.1 claude.2 claude.3 codex.0 grok.0; do
+  assert_eq "$(hidden)" "$(seg stm.ai.$s)" "$s hidden"
+done
+assert_contains "$(seg stm.ai.claude.0.row.head)" "label=no cached usage yet"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_CODEX=off STM_AI_GEMINI=off STM_AI_GROK=off STM_AI_OPENROUTER=off \
+  STM_FORM=hidden
+assert_eq "$(lines --set stm.ai.claude.0 drawing=off popup.drawing=off --set stm.ai.claude.0.icon drawing=off \
+  --set stm.ai.claude.1 drawing=off popup.drawing=off --set stm.ai.claude.1.icon drawing=off \
+  --set stm.ai.claude.2 drawing=off popup.drawing=off --set stm.ai.claude.2.icon drawing=off \
+  --set stm.ai.claude.3 drawing=off popup.drawing=off --set stm.ai.claude.3.icon drawing=off)" "$SB" "hidden: every slot"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_FORM=icon
+assert_eq drawing=off "$(seg stm.ai.claude.1 | head -n 1)" "icon: slot label part goes"
+assert_eq drawing=on "$(seg stm.ai.claude.1.icon | head -n 1)" "icon: slot tag stays"
+rm -f "$CACHE"
+run_plugin "$FIXTURE" STM_AI_ACCOUNTS=split STM_AI_ICON=image STM_AI_ICON_DIR="$SANDBOX/no-icons" SENDER=forced \
+  STM_AI_CODEX=off SB_APPS="com.anthropic.claudefordesktop"
+assert_eq 2 "$SB_CALLS" "one probe per provider, on slot 0"
+assert_eq "$(lines icon.background.image=app.com.anthropic.claudefordesktop icon.background.image.scale=0.625 \
+  drawing=on "background.color=$YELLOW" icon= icon.background.drawing=on)" "$(seg stm.ai.claude.0.icon)" "slot 0 probed"
+assert_eq "$(lines drawing=on "background.color=$GREEN" icon= icon.background.drawing=on \
+  icon.background.image=app.com.anthropic.claudefordesktop icon.background.image.scale=0.625)" \
+  "$(seg stm.ai.claude.1.icon)" "slot 1 gets the app image on the probe run"
+rm -f "$CACHE"
+done_it
+
 it "lint and install item:ai (V4, V9, I.fs, I.cfg)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:ai
 assert_status 0
 assert_eq "ok	item:ai" "$STM_OUT"
-assert_file_contains "$BUNDLE/item.toml" 'version = "0.4.0"'
+assert_file_contains "$BUNDLE/item.toml" 'version = "0.5.0"'
 D="$SANDBOX/cfg"
 make_lua_config "$D"
 STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install item:ai
@@ -784,7 +945,15 @@ assert_status 0
 loader=$(cat "$D/items_generated.lua")
 assert_contains "$loader" '["claude"] = "windows"'
 assert_contains "$loader" '["grok"] = "off"'
-for bad in 'gemini = "cost"' 'view = "worst"' 'grok = "worst"' 'icon = "app"' 'icon = "/tmp/x.png"'; do
+printf '[item.ai]\naccounts = "split"\npercent = "left"\nperiod = "off"\nreset = "on"\n' >"$D/stm.config.toml"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload --force install item:ai
+assert_status 0
+loader=$(cat "$D/items_generated.lua")
+for opt in '["accounts"] = "split"' '["percent"] = "left"' '["period"] = "off"' '["reset"] = "on"'; do
+  assert_contains "$loader" "$opt"
+done
+for bad in 'gemini = "cost"' 'view = "worst"' 'grok = "worst"' 'icon = "app"' 'icon = "/tmp/x.png"' \
+  'accounts = "all"' 'percent = "free"' 'period = "5h"' 'reset = "eta"'; do
   printf '[item.ai]\n%s\n' "$bad" >"$D/stm.config.toml"
   STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload --force install item:ai
   assert_ne 0 "$STM_STATUS" "$bad refused"
@@ -933,6 +1102,37 @@ EOF
     assert_contains "$(printf '%s\n' "$out" | grep "^item stm.ai.$p.row.head ")" "position=popup.stm.ai.$p"
   done
   assert_not_contains "$out" "stm.ai.grok"
+  done_it
+
+  it "item.lua accounts split: four hidden slots per provider, rows each, one metrics pair per provider (V77, I.ais)"
+  assert_eq "item stm.ai item stm.ai.claude.0 item stm.ai.claude.1 item stm.ai.claude.2 item stm.ai.claude.3 item stm.ai.grok.0 item stm.ai.grok.1 item stm.ai.grok.2 item stm.ai.grok.3 " \
+    "$(names_of plain left "accounts=split codex=off gemini=off openrouter=off")" "plain left"
+  assert_eq "item stm.ai item stm.ai.codex.3 item stm.ai.codex.3.icon item stm.ai.codex.2 item stm.ai.codex.2.icon item stm.ai.codex.1 item stm.ai.codex.1.icon item stm.ai.codex.0 item stm.ai.codex.0.icon " \
+    "$(names_of split right "accounts=split claude=off gemini=off grok=off openrouter=off")" "split right: slot 0 leftmost"
+  assert_eq "item stm.ai item stm.ai.claude.0.icon item stm.ai.claude.0 bracket stm.ai.claude.0.pill item stm.ai.claude.1.icon item stm.ai.claude.1 bracket stm.ai.claude.1.pill item stm.ai.claude.2.icon item stm.ai.claude.2 bracket stm.ai.claude.2.pill item stm.ai.claude.3.icon item stm.ai.claude.3 bracket stm.ai.claude.3.pill " \
+    "$(names_of pill left "accounts=split claude=windows codex=off gemini=off grok=off openrouter=off")" "windows pill per slot"
+  assert_contains "$(line_of plain left "accounts=split" stm.ai.claude.2)" "drawing=false"
+  assert_contains "$(line_of split left "accounts=split" stm.ai.claude.2.icon)" "drawing=false"
+  assert_not_contains "$(line_of plain left "" stm.ai.claude)" "drawing=false"
+  out=$(probe split right "accounts=split codex=off gemini=off grok=off openrouter=off")
+  rows=$(printf '%s\n' "$out" | awk '$1 == "item" && $2 ~ /^stm\.ai\.claude\.3\.row\./ { print $2 }' | tr '\n' ' ')
+  assert_eq "stm.ai.claude.3.row.head stm.ai.claude.3.row.0 stm.ai.claude.3.row.1 stm.ai.claude.3.row.2 stm.ai.claude.3.row.3 stm.ai.claude.3.row.4 stm.ai.claude.3.row.5 stm.ai.claude.3.row.6 stm.ai.claude.3.row.7 stm.ai.claude.3.row.8 stm.ai.claude.3.row.9 stm.ai.claude.3.row.10 stm.ai.claude.3.row.11 stm.ai.claude.3.row.foot " \
+    "$rows" "slot 3 rows"
+  assert_contains "$(printf '%s\n' "$out" | grep '^item stm.ai.claude.1.row.head ')" "position=popup.stm.ai.claude.1"
+  run1=$(printf '%s\n' "$out" | grep '^exec ' | head -1)
+  assert_contains "$run1" "STM_AI_ACCOUNTS='split' STM_FORM="
+  assert_eq 1 "$(printf '%s\n' "$run1" | grep -o "STM_AI_CW_CLAUDE=" | grep -c .)" "one CW per provider"
+  assert_eq 4 "$(printf '%s\n' "$out" | grep -c '^query stm.ai.claude.[0-3]$')" "every slot measured"
+  out=$(probe plain right "accounts=split percent=left period=off reset=on codex=off gemini=off grok=off openrouter=off" \
+    ok "stm_compact=icon")
+  assert_contains "$(printf '%s\n' "$out" | grep '^exec ' | head -1)" \
+    "STM_AI_ACCOUNTS='split' STM_AI_PERCENT='left' STM_AI_PERIOD='off' STM_AI_RESET='on' STM_FORM="
+  for s in 0 1 2 3; do
+    assert_contains "$out" "set stm.ai.claude.$s {label={drawing=false}}"
+  done
+  click=$(probe split right "accounts=split codex=off gemini=off grok=off openrouter=off" ok "stm.ai.claude.1 mouse.clicked")
+  assert_contains "$click" "set stm.ai.claude.1 {popup={drawing=toggle}}"
+  assert_contains "$click" "set stm.ai.claude.0 {popup={drawing=false}}"
   done_it
 
   it "item.lua compact forms: one form for all segments, label off where the tag is on the segment, form to plugin.sh (I.form, I.ais)"
