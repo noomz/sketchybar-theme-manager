@@ -707,7 +707,8 @@ codex = "auto"      # auto | worst | 5h | weekly | windows | cost | off
 gemini = "auto"     # auto | worst | off
 grok = "auto"       # auto | billing | off
 openrouter = "auto" # auto | balance | quota | off
-accounts = "merged" # merged | split — one segment per provider, or per account
+claude_accounts = "merged" # merged | split — one Claude segment, or one per account
+codex_accounts = "merged"  # merged | split — the same for Codex
 account_label = "short" # short | name | off — the account in front of a split segment
 percent = "used"    # used | left — the share used, or 100 minus it
 period = "on"       # on | off — the window after the number (" 7d")
@@ -761,11 +762,13 @@ all:
 | `cost` | today's spend: `$4.20` under $10, then `$126`, then `$12k` |
 | `balance` | OpenRouter's credit left: `$5.95` under $1000, then `$1500`, then `$12k` |
 
-With `accounts = "split"`, a provider with several accounts gets one segment
-per account that has windows, up to four, each with the provider's metric for
-that account alone. Its popup lists that account's windows, under a head with
-the account's full name and spend; the fourth segment's popup counts any
-accounts left over. A provider without accounts keeps one segment.
+With `claude_accounts = "split"` (or `codex_accounts`), that provider gets one
+segment per account that has windows, up to four, each with the provider's
+metric for that account alone. Each provider is set on its own, so Claude can
+split while Codex stays merged. Its popup lists that account's windows, under
+a head with the account's full name and spend; the fourth segment's popup
+counts any accounts left over. Gemini, Grok and OpenRouter have no accounts and
+always keep one segment.
 `account_label` sets what goes in front of each account's number:
 
 - `short` (default): the shortest prefix, one to three letters, that no other

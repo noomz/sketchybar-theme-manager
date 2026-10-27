@@ -15,7 +15,8 @@
 #   STM_AI_CW_<P> STM_AI_PAD_<P> each segment's label character width and
 #                                paddings (empty until the bar has told
 #                                item.lua its font)
-#   STM_AI_ACCOUNTS              merged | split (a segment per account,
+#   STM_AI_CLAUDE_ACCOUNTS STM_AI_CODEX_ACCOUNTS
+#                                merged | split (a segment per account,
 #                                NAME.<provider>.<0-3>)
 #   STM_AI_ACCOUNT_LABEL STM_AI_PERCENT STM_AI_PERIOD STM_AI_RESET
 #                                short | name | off, used | left, on | off,
@@ -46,31 +47,34 @@ APP_ID=app.agents-usage-bar
 APP_URL=https://github.com/noomz/agents_usage_bar
 US=$(printf '\037')
 
-# The enabled segments, left to right, as <provider>:<metric>:<auto 1|0>.
-# An unset key is the manifest default (auto); a value outside the manifest
-# values is off.
+# The enabled segments, left to right, as
+# <provider>:<metric>:<auto 1|0>:<split 1|0>. An unset key is the manifest
+# default (auto); a value outside the manifest values is off. Only claude
+# and codex have an accounts key; anything but split is merged.
 enabled=""
 for p in claude codex gemini grok openrouter; do
+  a=""
   case $p in
-    claude) v=${STM_AI_CLAUDE-auto} auto=worst ;;
-    codex) v=${STM_AI_CODEX-auto} auto=worst ;;
+    claude) v=${STM_AI_CLAUDE-auto} auto=worst a=${STM_AI_CLAUDE_ACCOUNTS:-} ;;
+    codex) v=${STM_AI_CODEX-auto} auto=worst a=${STM_AI_CODEX_ACCOUNTS:-} ;;
     gemini) v=${STM_AI_GEMINI-auto} auto=worst ;;
     grok) v=${STM_AI_GROK-auto} auto=billing ;;
     *) v=${STM_AI_OPENROUTER-auto} auto=balance ;;
   esac
+  sp=0
+  [ "$a" = split ] && sp=1
   case "$p:$v" in
-    *:auto) enabled="$enabled $p:$auto:1" ;;
+    *:auto) enabled="$enabled $p:$auto:1:$sp" ;;
     claude:worst | claude:5h | claude:7d | claude:sonnet | claude:opus | claude:windows | claude:cost | \
       codex:worst | codex:5h | codex:weekly | codex:windows | codex:cost | gemini:worst | grok:billing | \
       openrouter:balance | openrouter:quota)
-      enabled="$enabled $p:$v:0"
+      enabled="$enabled $p:$v:0:$sp"
       ;;
   esac
 done
 [ -n "$enabled" ] || exit 0
 
-byacct=0 left=0 period=1 reset=0
-[ "${STM_AI_ACCOUNTS:-}" = split ] && byacct=1
+left=0 period=1 reset=0
 [ "${STM_AI_PERCENT:-}" = left ] && left=1
 [ "${STM_AI_PERIOD:-}" = off ] && period=0
 [ "${STM_AI_RESET:-}" = on ] && reset=1
@@ -81,7 +85,7 @@ case ${STM_AI_ACCOUNT_LABEL:-} in name | off) alabel=$STM_AI_ACCOUNT_LABEL ;; es
 # slots item.lua adds per provider in a split.
 segs=""
 for e in $enabled; do
-  if [ "$byacct" = 1 ]; then
+  if [ "${e##*:}" = 1 ]; then
     segs="$segs ${e%%:*}.0 ${e%%:*}.1 ${e%%:*}.2 ${e%%:*}.3"
   else
     segs="$segs ${e%%:*}"
@@ -207,7 +211,7 @@ parse() {
 summarise() {
   /usr/bin/awk -F'\t' -v now="$now" -v want="$enabled" -v rows="$ROWS" \
     -v stale_secs="$STALE_SECS" -v ahead_secs="$AHEAD_SECS" \
-    -v byacct="$byacct" -v left="$left" -v period="$period" -v reset="$reset" -v alabel="$alabel" '
+    -v left="$left" -v period="$period" -v reset="$reset" -v alabel="$alabel" '
     function epoch(s, y, m, d, hh, mm, ss, era, yoe, doy) {
       if (s !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9](\.[0-9]+)?Z$/) return ""
       y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
@@ -462,7 +466,7 @@ summarise() {
       print "asof" US asof US stale
       nw = split(want, W, " ")
       for (w = 1; w <= nw; w++) {
-        split(W[w], f, ":"); id = f[1]; m = f[2]; auto = f[3] == 1
+        split(W[w], f, ":"); id = f[1]; m = f[2]; auto = f[3] == 1; byacct = f[4] == 1
         ng = 0; toplevel = 0; worst = ""; i = ""
         if (id in idx) {
           i = idx[id]
@@ -739,7 +743,7 @@ if [ "${STM_AI_ICON:-}" = image ]; then
     probing=1
     for e in $enabled; do
       # A split probes slot 0's tag; icon_set copies an app image to the rest.
-      if [ "$byacct" = 1 ]; then
+      if [ "${e##*:}" = 1 ]; then
         segment "${e%%:*}.0"
       else
         segment "${e%%:*}"

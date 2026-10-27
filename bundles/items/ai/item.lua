@@ -15,8 +15,8 @@ return function(sbar, opts, colors)
   local NAME_CHARS = 18 -- a two-space indent and a 16-character name
   -- Left to right on the bar at every position. A text tag, not a brand mark.
   local PROVIDERS = {
-    { id = "claude", tag = "CL" },
-    { id = "codex", tag = "CX" },
+    { id = "claude", tag = "CL", accounts = true },
+    { id = "codex", tag = "CX", accounts = true },
     { id = "gemini", tag = "GE" },
     { id = "grok", tag = "GK" },
     { id = "openrouter", tag = "OR" },
@@ -46,13 +46,17 @@ return function(sbar, opts, colors)
     "STM_AI_ICON=" .. quote(o.icon),
     "STM_AI_ICON_DIR=" .. quote(config_dir and config_dir .. "/icons/ai" or ""),
   }
-  -- accounts = split: SLOTS segments per provider, <segment>.<0-3>, hidden
-  -- until plugin.sh fills one per account, as the popup rows are.
+  -- <provider>_accounts = split: SLOTS segments for that provider,
+  -- <segment>.<0-3>, hidden until plugin.sh fills one per account, as the
+  -- popup rows are.
   local SLOTS = 4
-  local split = o.accounts == "split"
   local segments = {}
   for _, p in ipairs(PROVIDERS) do
     env[#env + 1] = "STM_AI_" .. p.id:upper() .. "=" .. quote(o[p.id])
+    local split = p.accounts and o[p.id .. "_accounts"] == "split"
+    if split then
+      env[#env + 1] = "STM_AI_" .. p.id:upper() .. "_ACCOUNTS='split'"
+    end
     if o[p.id] ~= "off" then
       for slot = 0, split and SLOTS - 1 or 0 do
         segments[#segments + 1] = {
@@ -68,7 +72,6 @@ return function(sbar, opts, colors)
   -- plugin.sh takes an unset label detail as its default, so only the others
   -- go.
   local details = {
-    { "accounts", "merged" },
     { "account_label", "short" },
     { "percent", "used" },
     { "period", "on" },
