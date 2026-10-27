@@ -62,11 +62,16 @@ default = "auto"
 values = ["auto", "balance", "quota", "off"]
 default = "auto"
 
-# One segment per provider, or one per account (up to 4; the last one's popup
-# counts the rest). A provider without accounts keeps one segment.
+# Claude and Codex, each on its own: one segment, or one per account (up to
+# 4; the last one's popup counts the rest). The other providers have no
+# accounts and keep one segment.
 #   merged  the provider's metric across its accounts
 #   split   each account's own, its popup that account's windows
-[options.accounts]
+[options.claude_accounts]
+values = ["merged", "split"]
+default = "merged"
+
+[options.codex_accounts]
 values = ["merged", "split"]
 default = "merged"
 
