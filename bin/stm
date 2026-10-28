@@ -6613,7 +6613,7 @@ OPTIONS
   --no-backup           Do not take an auto snapshot on apply (or adopt)
   --no-wire             (adopt) Skip the Lua colors.lua wrap
   --no-layout           (adopt) Skip the conservative layout scrape
-  --reset-layout        Delete the generated layout overlay on apply
+  --reset-layout        Delete then rebuild the generated layout overlay on apply
   --all                 (backup) Snapshot the whole config dir, not just stm files
   --dry-run             Show what would change; write nothing
   --force               Allow add/import/adopt/install to overwrite
