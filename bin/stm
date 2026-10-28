@@ -4200,9 +4200,16 @@ cmd_apply() {
   fi
 
   if [ "$OPT_RESET_LAYOUT" -eq 1 ]; then
-    reset_layout_file "$RESOLVED_FORMAT"
+    if stm_records_has_layout "$records"; then
+      # Overwrite in place (commit_tmp). Do not delete first: a crash between
+      # rm and write would leave the live bar with no overlay.
+      write_layout "$records" "$RESOLVED_FORMAT"
+    else
+      reset_layout_file "$RESOLVED_FORMAT"
+    fi
+  else
+    write_layout "$records" "$RESOLVED_FORMAT"
   fi
-  write_layout "$records" "$RESOLVED_FORMAT"
 
   if [ -n "$loader" ]; then
     mktemp_in "$RESOLVED_DIR"
@@ -4293,19 +4300,26 @@ cmd_preview() {
     fi
   done
 
-  if stm_records_has_layout "$records"; then
+  if stm_records_layout "$records" | grep -q .; then
     printf '\nLayout\n'
     stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
       [ -n "$k" ] || continue
       printf '  %-14s %s\n' "$k" "$v"
     done
-    if stm_records_items "$records" | grep -q .; then
-      printf '\nItems\n'
-      stm_records_items "$records" | while IFS=$'\t' read -r k v; do
-        [ -n "$k" ] || continue
-        printf '  %-14s %s\n' "$k" "$v"
-      done
-    fi
+  fi
+  if stm_records_idef "$records" | grep -q .; then
+    printf '\nItem defaults\n'
+    stm_records_idef "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      printf '  %-14s %s\n' "$k" "$v"
+    done
+  fi
+  if stm_records_items "$records" | grep -q .; then
+    printf '\nItems\n'
+    stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+      [ -n "$k" ] || continue
+      printf '  %-14s %s\n' "$k" "$v"
+    done
   fi
 }
 

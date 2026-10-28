@@ -384,6 +384,23 @@ assert_contains "$STM_OUT" "blur_radius"
 assert_contains "$STM_OUT" "30"
 assert_contains "$STM_OUT" "corner_radius"
 assert_contains "$STM_OUT" "12"
+assert_contains "$STM_OUT" "Item defaults"
+assert_contains "$STM_OUT" "5"
+done_it
+
+it "preview with only [item_defaults] prints them, not an empty Layout heading"
+idef_only="$SANDBOX/idef-only.toml"
+{
+  printf 'sketchybar_dir = "%s"\n' "$G"
+  printf 'format = "lua"\n'
+  printf '\n[item_defaults]\ncorner_radius = "5"\n'
+} >"$idef_only"
+run_stm --config "$idef_only" preview nord
+assert_status 0
+assert_contains "$STM_OUT" "Item defaults"
+assert_contains "$STM_OUT" "corner_radius"
+assert_contains "$STM_OUT" "5"
+assert_not_contains "$STM_OUT" "Layout"
 done_it
 
 it "doctor accepts config [layout] / [item_defaults]"
@@ -396,6 +413,13 @@ run_stm --config "$GCFG" --dir "$G" --no-reload --reset-layout -q apply nord
 assert_status 0
 assert_file_exists "$G/layout_generated.lua" "config [layout] must bring the overlay back"
 assert_file_contains "$G/layout_generated.lua" "blur_radius = 30"
+done_it
+
+it "--reset-layout with palette layout overwrites in place"
+run_stm --dir "$D" --palette-dir "$P" --no-reload --reset-layout -q apply compact
+assert_status 0
+assert_file_exists "$D/layout_generated.lua" "palette layout must not be deleted first"
+assert_file_contains "$D/layout_generated.lua" "height = 32"
 done_it
 
 it "bash apply exports ITEM_DEFAULT_CORNER_RADIUS"
