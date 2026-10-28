@@ -567,7 +567,7 @@ $tmpdir"
     out=$(stm_parse_one "$cur")
     printf '%s\n' "$out" >"$tmpdir/link.$depth"
 
-    slug=$(printf '%s\n' "$out" | awk -F'\t' '$1=="meta" && $2=="slug" { print $3; exit }')
+    slug=$(stm_records_meta "$out" slug)
     case "$seen" in
       *"|$slug|"*)
         die "$EX_INVALID" "circular base chain in $file: $chain$slug"
@@ -576,7 +576,7 @@ $tmpdir"
     seen="$seen|$slug|"
     chain="$chain$slug -> "
 
-    base=$(printf '%s\n' "$out" | awk -F'\t' '$1=="meta" && $2=="base" { print $3; exit }')
+    base=$(stm_records_meta "$out" base)
     [ -n "$base" ] || break
 
     depth=$((depth + 1))
@@ -638,14 +638,14 @@ $tmpdir"
 
   # `transparent` is universally 0x00000000 and several real configs reference
   # colors.transparent unguarded, so default it once, after merging.
-  if ! printf '%s\n' "$colours" | awk -F'\t' '$2=="transparent"' | grep -q .; then
+  if ! printf '%s\n' "$colours" | awk -F'\t' '$2=="transparent" { found=1 } END { exit !found }'; then
     colours="$colours
 color	transparent	0x00000000"
   fi
 
   missing=""
   for k in $STM_REQUIRED_KEYS; do
-    if ! printf '%s\n' "$colours" | awk -F'\t' -v k="$k" '$2==k' | grep -q .; then
+    if ! printf '%s\n' "$colours" | awk -F'\t' -v k="$k" '$2==k { found=1 } END { exit !found }'; then
       missing="$missing $k"
     fi
   done
@@ -668,8 +668,10 @@ color	transparent	0x00000000"
 }
 
 # stm_records_meta <records> <key> — pull one meta value out of a record stream.
+# Drain the pipe: awk `exit` after the first hit closes it under printf, and
+# with `set -o pipefail` that SIGPIPE is a spurious 141.
 stm_records_meta() {
-  printf '%s\n' "$1" | awk -F'\t' -v k="$2" '$1=="meta" && $2==k { print $3; exit }'
+  printf '%s\n' "$1" | awk -F'\t' -v k="$2" '$1=="meta" && $2==k && !p { print $3; p=1 }'
 }
 
 # stm_records_colors <records> — emit "key<TAB>value" colour lines, sorted.
@@ -708,7 +710,7 @@ stm_records_itemopts() {
 
 # True if the resolved records carry any layout, item, or item-default data.
 stm_records_has_layout() {
-  printf '%s\n' "$1" | awk -F'\t' '$1=="layout" || $1=="item" || $1=="idef" { found=1; exit } END { exit !found }'
+  printf '%s\n' "$1" | awk -F'\t' '$1=="layout" || $1=="item" || $1=="idef" { found=1 } END { exit !found }'
 }
 
 # layout_is_int <key> — bar properties that must be emitted as Lua numbers.
@@ -4262,7 +4264,7 @@ cmd_current() {
 }
 
 cmd_preview() {
-  local slug="$1" file records use_color=0 name variant
+  local slug="$1" file records use_color=0 name variant layout idef items
 
   file=$(find_palette "$slug") || die "$EX_NOTFOUND" "theme not found: $slug"
   records=$(stm_parse_palette "$file")
@@ -4300,23 +4302,26 @@ cmd_preview() {
     fi
   done
 
-  if stm_records_layout "$records" | grep -q .; then
+  layout=$(stm_records_layout "$records")
+  if [ -n "$layout" ]; then
     printf '\nLayout\n'
-    stm_records_layout "$records" | while IFS=$'\t' read -r k v; do
+    printf '%s\n' "$layout" | while IFS=$'\t' read -r k v; do
       [ -n "$k" ] || continue
       printf '  %-14s %s\n' "$k" "$v"
     done
   fi
-  if stm_records_idef "$records" | grep -q .; then
+  idef=$(stm_records_idef "$records")
+  if [ -n "$idef" ]; then
     printf '\nItem defaults\n'
-    stm_records_idef "$records" | while IFS=$'\t' read -r k v; do
+    printf '%s\n' "$idef" | while IFS=$'\t' read -r k v; do
       [ -n "$k" ] || continue
       printf '  %-14s %s\n' "$k" "$v"
     done
   fi
-  if stm_records_items "$records" | grep -q .; then
+  items=$(stm_records_items "$records")
+  if [ -n "$items" ]; then
     printf '\nItems\n'
-    stm_records_items "$records" | while IFS=$'\t' read -r k v; do
+    printf '%s\n' "$items" | while IFS=$'\t' read -r k v; do
       [ -n "$k" ] || continue
       printf '  %-14s %s\n' "$k" "$v"
     done
@@ -5418,19 +5423,22 @@ cmd_export() {
     printf '%s\n' "$records" |
       awk -F'\t' '$1=="color" { printf("%s\t%s\n", $2, $3) }' | sort |
       while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
-    if stm_records_extras "$records" | grep -q .; then
+    extras=$(stm_records_extras "$records")
+    if [ -n "$extras" ]; then
       printf '\n[extras]\n'
-      stm_records_extras "$records" |
+      printf '%s\n' "$extras" |
         while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
     fi
-    if stm_records_layout "$records" | grep -q .; then
+    layout=$(stm_records_layout "$records")
+    if [ -n "$layout" ]; then
       printf '\n[layout]\n'
-      stm_records_layout "$records" |
+      printf '%s\n' "$layout" |
         while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
     fi
-    if stm_records_items "$records" | grep -q .; then
+    items=$(stm_records_items "$records")
+    if [ -n "$items" ]; then
       printf '\n[items]\n'
-      stm_records_items "$records" |
+      printf '%s\n' "$items" |
         while IFS=$'\t' read -r k v; do printf '%s = "%s"\n' "$k" "$v"; done
     fi
     # One [item.<name>] table per item, in first-seen order.

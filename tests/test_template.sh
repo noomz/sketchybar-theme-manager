@@ -188,6 +188,25 @@ assert_file_exists "$SANDBOX/gruvbox.toml"
 assert_file_contains "$SANDBOX/gruvbox.toml" 'slug = "gruvbox"'
 done_it
 
+it "export --out does not SIGPIPE on a large extras section"
+bigp="$SANDBOX/bigp"
+mkdir -p "$bigp"
+{
+  sed 's/^slug = .*/slug = "big"/;s/^name = .*/name = "Big"/;s/^variant_label = .*/variant_label = "Big"/' \
+    "$REPO_ROOT/palettes/nord.toml"
+  printf '\n[extras]\n'
+  i=0
+  while [ "$i" -lt 8000 ]; do
+    printf 'x%03d = "0xff000000"\n' "$i"
+    i=$((i + 1))
+  done
+} >"$bigp/big.toml"
+run_stm export big --palette-dir "$bigp" --out "$SANDBOX/big.toml"
+assert_status 0
+assert_file_exists "$SANDBOX/big.toml"
+assert_file_contains "$SANDBOX/big.toml" 'slug = "big"'
+done_it
+
 it "an exported palette re-imports to the identical colour set"
 out="$SANDBOX/exp"
 mkdir -p "$out"
