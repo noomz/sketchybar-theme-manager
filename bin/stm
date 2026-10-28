@@ -691,6 +691,11 @@ stm_records_layout() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="layout" { printf("%s\t%s\n", $2, $3) }'
 }
 
+# Item-default key<TAB>value rows (config [item_defaults] only; palettes never emit idef).
+stm_records_idef() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="idef" { printf("%s\t%s\n", $2, $3) }'
+}
+
 # Item name<TAB>slot rows, declaration order.
 stm_records_items() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="item" { printf("%s\t%s\n", $2, $3) }'
@@ -701,9 +706,9 @@ stm_records_itemopts() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="itemopt" { printf("%s\t%s\t%s\n", $2, $3, $4) }'
 }
 
-# True if the resolved records carry any layout or item data.
+# True if the resolved records carry any layout, item, or item-default data.
 stm_records_has_layout() {
-  printf '%s\n' "$1" | awk -F'\t' '$1=="layout" || $1=="item" { found=1; exit } END { exit !found }'
+  printf '%s\n' "$1" | awk -F'\t' '$1=="layout" || $1=="item" || $1=="idef" { found=1; exit } END { exit !found }'
 }
 
 # layout_is_int <key> — bar properties that must be emitted as Lua numbers.
@@ -757,6 +762,136 @@ apply_alpha() {
     ')
   done <<EOF
 $(stm_config_pairs "$RESOLVED_CONFIG" alpha)
+EOF
+
+  printf '%s\n' "$out"
+}
+
+# stm_uint_in / stm_int_in — same bounds as uint_in / int_in in STM_TOML_AWK.
+stm_uint_in() {
+  awk -v v="$1" -v lo="$2" -v hi="$3" 'BEGIN {
+    if (v !~ /^[0-9]+$/) exit 1
+    n = v + 0
+    exit (n < lo || n > hi)
+  }'
+}
+
+stm_int_in() {
+  awk -v v="$1" -v lo="$2" -v hi="$3" 'BEGIN {
+    if (v !~ /^-?[0-9]+$/) exit 1
+    n = v + 0
+    exit (n < lo || n > hi)
+  }'
+}
+
+# layout_config_validate <key> <value> — same allowlist as check_layout.
+layout_config_validate() {
+  local k="$1" v="$2"
+  case "$k" in
+    *[!a-z0-9_]* | [!a-z]*)
+      die "$EX_CONFIG" "[layout] invalid key \"$k\" (want lower-case [a-z][a-z0-9_]*)"
+      ;;
+  esac
+  case "$k" in
+    position)
+      case "$v" in top | bottom) return 0 ;; esac
+      die "$EX_CONFIG" "[layout] invalid value for \"$k\": \"$v\" (want top or bottom)"
+      ;;
+    sticky | topmost | shadow | hidden | font_smoothing)
+      case "$v" in on | off) return 0 ;; esac
+      die "$EX_CONFIG" "[layout] invalid value for \"$k\": \"$v\" (want on or off)"
+      ;;
+    display)
+      case "$v" in main | all) return 0 ;; esac
+      if stm_uint_in "$v" 1 99; then return 0; fi
+      die "$EX_CONFIG" "[layout] invalid value for \"$k\": \"$v\" (want main, all or 1-99)"
+      ;;
+    height)
+      if stm_uint_in "$v" 1 256; then return 0; fi
+      die "$EX_CONFIG" "[layout] invalid value for \"$k\": \"$v\" (want 1-256)"
+      ;;
+    y_offset)
+      if stm_int_in "$v" -256 256; then return 0; fi
+      die "$EX_CONFIG" "[layout] invalid value for \"$k\": \"$v\" (want -256-256)"
+      ;;
+    notch_display_height | margin | corner_radius | border_width | blur_radius | \
+    padding_left | padding_right | notch_width | notch_offset)
+      if stm_uint_in "$v" 0 256; then return 0; fi
+      die "$EX_CONFIG" "[layout] invalid value for \"$k\": \"$v\" (want 0-256)"
+      ;;
+    *)
+      die "$EX_CONFIG" "[layout] unsupported key \"$k\""
+      ;;
+  esac
+}
+
+# apply_layout_config <records> — insert or override layout rows from
+# stm.config.toml [layout]. Config wins per key.
+apply_layout_config() {
+  local records="$1" key val out
+  [ -n "$RESOLVED_CONFIG" ] || { printf '%s\n' "$records"; return 0; }
+  stm_config_pairs "$RESOLVED_CONFIG" layout | grep -q . || {
+    printf '%s\n' "$records"
+    return 0
+  }
+
+  out="$records"
+  while IFS=$'\t' read -r key val; do
+    [ -n "$key" ] || continue
+    layout_config_validate "$key" "$val"
+    out=$(printf '%s\n' "$out" | awk -F'\t' -v k="$key" -v v="$val" '
+      $1 == "layout" && $2 == k {
+        printf("layout\t%s\t%s\n", k, v)
+        seen = 1
+        next
+      }
+      { print }
+      END { if (!seen) printf("layout\t%s\t%s\n", k, v) }
+    ')
+  done <<EOF
+$(stm_config_pairs "$RESOLVED_CONFIG" layout)
+EOF
+
+  printf '%s\n' "$out"
+}
+
+# apply_item_defaults <records> — [item_defaults] corner_radius only, as an
+# idef row. Never a bar field. Palettes cannot emit idef.
+apply_item_defaults() {
+  local records="$1" key val out
+  [ -n "$RESOLVED_CONFIG" ] || { printf '%s\n' "$records"; return 0; }
+  stm_config_pairs "$RESOLVED_CONFIG" item_defaults | grep -q . || {
+    printf '%s\n' "$records"
+    return 0
+  }
+
+  out="$records"
+  while IFS=$'\t' read -r key val; do
+    [ -n "$key" ] || continue
+    case "$key" in
+      *[!a-z0-9_]* | [!a-z]*)
+        die "$EX_CONFIG" "[item_defaults] invalid key \"$key\" (want corner_radius)"
+        ;;
+      corner_radius)
+        if ! stm_uint_in "$val" 0 256; then
+          die "$EX_CONFIG" "[item_defaults] corner_radius = \"$val\" (want 0-256)"
+        fi
+        ;;
+      *)
+        die "$EX_CONFIG" "[item_defaults] unsupported key \"$key\" (want corner_radius)"
+        ;;
+    esac
+    out=$(printf '%s\n' "$out" | awk -F'\t' -v k="$key" -v v="$val" '
+      $1 == "idef" && $2 == k {
+        printf("idef\t%s\t%s\n", k, v)
+        seen = 1
+        next
+      }
+      { print }
+      END { if (!seen) printf("idef\t%s\t%s\n", k, v) }
+    ')
+  done <<EOF
+$(stm_config_pairs "$RESOLVED_CONFIG" item_defaults)
 EOF
 
   printf '%s\n' "$out"
@@ -3704,8 +3839,9 @@ layout_path() {
   printf '%s\n' "$RESOLVED_DIR/$name"
 }
 
-# write_layout <records> <format> — write the overlay if the palette carries
-# any layout or item rows. Colour-only palettes leave an existing file alone.
+# write_layout <records> <format> — write the overlay if records carry any
+# layout, item, or idef rows. Colour-only palettes with no config chrome leave
+# an existing file alone.
 write_layout() {
   local records="$1" fmt="$2" target
   stm_records_has_layout "$records" || return 0
@@ -3726,12 +3862,19 @@ write_layout() {
 }
 
 write_layout_lua() {
-  local records="$1" target="$2" dir tmp name slug stamp k v
+  local records="$1" target="$2" dir tmp name slug stamp k v idef_cr=""
 
   dir=$(dirname "$target")
   name=$(stm_records_meta "$records" name)
   slug=$(stm_records_meta "$records" slug)
   stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  while IFS=$'\t' read -r k v; do
+    [ "$k" = "corner_radius" ] || continue
+    idef_cr="$v"
+  done <<EOF
+$(stm_records_idef "$records")
+EOF
 
   mktemp_in "$dir"
   tmp="$STM_TMP"
@@ -3754,6 +3897,11 @@ write_layout_lua() {
       fi
     done
     printf -- '  },\n'
+    if [ -n "$idef_cr" ]; then
+      printf -- '  item = {\n'
+      printf -- '    corner_radius = %s,\n' "$idef_cr"
+      printf -- '  },\n'
+    fi
     printf -- '  items = {\n'
     stm_records_items "$records" | while IFS=$'\t' read -r k v; do
       [ -n "$k" ] || continue
@@ -3793,6 +3941,10 @@ write_layout_sh() {
       [ -n "$k" ] || continue
       # shellcheck disable=SC2018,SC2019  # ASCII keys, LC_ALL=C
       printf 'export BAR_%s=%s\n' "$(printf '%s' "$k" | tr 'a-z' 'A-Z')" "$v"
+    done
+    stm_records_idef "$records" | while IFS=$'\t' read -r k v; do
+      [ "$k" = "corner_radius" ] || continue
+      printf 'export ITEM_DEFAULT_CORNER_RADIUS=%s\n' "$v"
     done
     stm_records_items "$records" | while IFS=$'\t' read -r k v; do
       [ -n "$k" ] || continue
@@ -3949,6 +4101,8 @@ cmd_apply() {
   records=$(stm_parse_palette "$file")
   records=$(apply_mapping "$records")
   records=$(apply_alpha "$records")
+  records=$(apply_layout_config "$records")
+  records=$(apply_item_defaults "$records")
 
   # The file name and the declared slug must agree, or `stm current` lies.
   local declared
@@ -4047,9 +4201,8 @@ cmd_apply() {
 
   if [ "$OPT_RESET_LAYOUT" -eq 1 ]; then
     reset_layout_file "$RESOLVED_FORMAT"
-  else
-    write_layout "$records" "$RESOLVED_FORMAT"
   fi
+  write_layout "$records" "$RESOLVED_FORMAT"
 
   if [ -n "$loader" ]; then
     mktemp_in "$RESOLVED_DIR"
@@ -4108,6 +4261,8 @@ cmd_preview() {
   records=$(stm_parse_palette "$file")
   records=$(apply_mapping "$records")
   records=$(apply_alpha "$records")
+  records=$(apply_layout_config "$records")
+  records=$(apply_item_defaults "$records")
 
   if [ "$OPT_PORCELAIN" -eq 1 ]; then
     stm_records_colors "$records"
@@ -4401,6 +4556,8 @@ $tmpdir"
   STM_MAPPING_STRICT=0
   records=$(apply_mapping "$records")
   records=$(apply_alpha "$records")
+  records=$(apply_layout_config "$records")
+  records=$(apply_item_defaults "$records")
   STM_MAPPING_STRICT=1
   stm_records_colors "$records" | cut -f1 | sort -u >"$provided"
   config_used_keys "$RESOLVED_DIR" "$fmt" >"$used"
