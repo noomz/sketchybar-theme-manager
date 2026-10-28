@@ -87,6 +87,7 @@ reject() {
 }
 
 reject bad-layout-key        "an unknown [layout] key"              "unsupported layout key"
+reject item-defaults         "a palette [item_defaults] table"      "unsupported table"
 reject layout-lua-injection  "a hostile [layout] value"             "invalid layout value"
 reject item-path             "a path-like item name"                ""
 reject item-slot-invalid     "an item slot that is not left/right/center" "invalid item slot"
@@ -138,6 +139,7 @@ assert_file_not_contains "$L" "height = \"32\"" "integers must be unquoted"
 assert_file_contains "$L" 'name = "clock"'
 assert_file_contains "$L" "position = \"right\""
 assert_file_contains "$L" "clock = \"right\""
+assert_file_not_contains "$L" "  item = {" "no idef: omit the item table"
 done_it
 
 it "a colour-only apply leaves an existing layout file"
@@ -315,6 +317,162 @@ assert_file_contains "$SANDBOX/init-layout.out" "layout_generated"
 done_it
 
 # --- lua load ---------------------------------------------------------------
+
+# --- stm.config.toml [layout] / [item_defaults] ----------------------------
+# Bar chrome belongs in the user's config so a colour-only theme switch keeps
+# blur and corners. Palettes must not grow a second opacity system or [style].
+
+chrome_cfg() {
+  local dir="$1" cfg="$2"
+  {
+    printf 'sketchybar_dir = "%s"\n' "$dir"
+    printf 'format = "lua"\n'
+    printf '\n[alpha]\nbar_bg = "60"\n'
+    printf '\n[layout]\nblur_radius = "30"\ncorner_radius = "12"\n'
+    printf '\n[item_defaults]\ncorner_radius = "5"\n'
+  } >"$cfg"
+}
+
+G="$SANDBOX/chrome"
+make_lua_config "$G"
+GCFG="$SANDBOX/chrome.toml"
+chrome_cfg "$G" "$GCFG"
+
+it "config [layout] + [item_defaults] write an overlay on a colour-only apply"
+run_stm --config "$GCFG" --dir "$G" --no-reload apply nord
+assert_status 0
+assert_file_exists "$G/layout_generated.lua"
+L="$G/layout_generated.lua"
+assert_file_contains "$L" "blur_radius = 30"
+assert_file_contains "$L" "corner_radius = 12"
+assert_file_contains "$L" "  item = {"
+assert_file_contains "$L" "    corner_radius = 5,"
+assert_file_not_contains "$L" "blur_radius = \"30\"" "integers must be unquoted"
+in_bar=$(awk '/^  bar = [{]/,/^  [}],/ { if (index($0, "corner_radius = 5")) print "yes" }' "$L")
+assert_eq "" "$in_bar" "item.corner_radius must not live inside bar = {}"
+done_it
+
+it "a colour-only theme switch keeps config chrome"
+run_stm --config "$GCFG" --dir "$G" --no-reload apply catppuccin-mocha
+assert_status 0
+L="$G/layout_generated.lua"
+assert_file_contains "$L" "-- theme: catppuccin-mocha"
+assert_file_contains "$L" "blur_radius = 30"
+assert_file_contains "$L" "corner_radius = 12"
+assert_file_contains "$L" "    corner_radius = 5,"
+assert_file_contains "$G/colors_generated.lua" "-- theme: catppuccin-mocha"
+done_it
+
+it "palette [layout] height plus config blur_radius both appear; config blur wins"
+make_layout_palette "$P" bothblur '[layout]' 'height = "32"' 'blur_radius = "99"'
+B="$SANDBOX/bothblur"
+make_lua_config "$B"
+BCFG="$SANDBOX/bothblur.toml"
+chrome_cfg "$B" "$BCFG"
+run_stm --config "$BCFG" --dir "$B" --palette-dir "$P" --no-reload apply bothblur
+assert_status 0
+L="$B/layout_generated.lua"
+assert_file_contains "$L" "height = 32" "palette height stays"
+assert_file_contains "$L" "blur_radius = 30" "config blur wins"
+assert_file_not_contains "$L" "blur_radius = 99"
+done_it
+
+it "preview of a colour-only theme shows config layout"
+run_stm --config "$GCFG" preview nord
+assert_status 0
+assert_contains "$STM_OUT" "blur_radius"
+assert_contains "$STM_OUT" "30"
+assert_contains "$STM_OUT" "corner_radius"
+assert_contains "$STM_OUT" "12"
+assert_contains "$STM_OUT" "Item defaults"
+assert_contains "$STM_OUT" "5"
+done_it
+
+it "preview with only [item_defaults] prints them, not an empty Layout heading"
+idef_only="$SANDBOX/idef-only.toml"
+{
+  printf 'sketchybar_dir = "%s"\n' "$G"
+  printf 'format = "lua"\n'
+  printf '\n[item_defaults]\ncorner_radius = "5"\n'
+} >"$idef_only"
+run_stm --config "$idef_only" preview nord
+assert_status 0
+assert_contains "$STM_OUT" "Item defaults"
+assert_contains "$STM_OUT" "corner_radius"
+assert_contains "$STM_OUT" "5"
+assert_not_contains "$STM_OUT" "Layout"
+done_it
+
+it "doctor accepts config [layout] / [item_defaults]"
+run_stm --config "$GCFG" --dir "$G" doctor nord
+assert_status 0
+done_it
+
+it "--reset-layout rebuilds from config chrome"
+run_stm --config "$GCFG" --dir "$G" --no-reload --reset-layout -q apply nord
+assert_status 0
+assert_file_exists "$G/layout_generated.lua" "config [layout] must bring the overlay back"
+assert_file_contains "$G/layout_generated.lua" "blur_radius = 30"
+done_it
+
+it "--reset-layout with palette layout overwrites in place"
+run_stm --dir "$D" --palette-dir "$P" --no-reload --reset-layout -q apply compact
+assert_status 0
+assert_file_exists "$D/layout_generated.lua" "palette layout must not be deleted first"
+assert_file_contains "$D/layout_generated.lua" "height = 32"
+done_it
+
+it "bash apply exports ITEM_DEFAULT_CORNER_RADIUS"
+b="$SANDBOX/chrome-bash"
+make_bash_config "$b"
+bcfg="$SANDBOX/chrome-bash.toml"
+{
+  printf 'sketchybar_dir = "%s"\n' "$b"
+  printf 'format = "bash"\n'
+  printf '\n[layout]\nblur_radius = "30"\ncorner_radius = "12"\n'
+  printf '\n[item_defaults]\ncorner_radius = "5"\n'
+} >"$bcfg"
+run_stm --config "$bcfg" --dir "$b" --no-reload apply nord
+assert_status 0
+assert_file_exists "$b/layout.sh"
+assert_file_contains "$b/layout.sh" "BAR_BLUR_RADIUS=30"
+assert_file_contains "$b/layout.sh" "BAR_CORNER_RADIUS=12"
+assert_file_contains "$b/layout.sh" "ITEM_DEFAULT_CORNER_RADIUS=5"
+done_it
+
+reject_cfg() {
+  local desc="$1" body="$2" frag="$3"
+  it "rejects config $desc"
+  d="$SANDBOX/cfg-rej"
+  make_lua_config "$d"
+  bad="$SANDBOX/cfg-rej.toml"
+  {
+    printf 'sketchybar_dir = "%s"\n' "$d"
+    printf 'format = "lua"\n'
+    printf '%s\n' "$body"
+  } >"$bad"
+  run_stm --config "$bad" --dir "$d" --no-reload apply nord
+  assert_status 2 "$desc should exit 2"
+  assert_contains "$STM_ERR" "$frag"
+  done_it
+}
+
+reject_cfg "unknown [layout] key" $'[layout]\nwidget_gap = "8"' "[layout]"
+reject_cfg "hostile [layout] value" $'[layout]\nblur_radius = "30); os.execute(1)"' "[layout]"
+reject_cfg "[item_defaults] foo" $'[item_defaults]\nfoo = "1"' "[item_defaults]"
+reject_cfg "[item_defaults] corner_radius = \"-1\"" $'[item_defaults]\ncorner_radius = "-1"' "[item_defaults]"
+
+it "colour-only apply without config layout leaves an existing overlay tagged with the previous theme"
+keep="$SANDBOX/keep-overlay"
+make_lua_config "$keep"
+run_stm --dir "$keep" --palette-dir "$P" --no-reload -q apply compact
+assert_file_exists "$keep/layout_generated.lua"
+run_stm --dir "$keep" --no-reload -q apply nord
+assert_status 0
+assert_file_exists "$keep/layout_generated.lua"
+assert_file_contains "$keep/layout_generated.lua" "-- theme: compact"
+assert_file_contains "$keep/colors_generated.lua" "-- theme: nord"
+done_it
 
 it "layout_generated.lua loads in a real Lua interpreter"
 if command -v lua >/dev/null 2>&1; then

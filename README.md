@@ -113,7 +113,7 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `--no-backup` | Don't take an auto snapshot on apply (or adopt) |
 | `--no-wire` | (`adopt`) Skip the Lua `colors.lua` wrap |
 | `--no-layout` | (`adopt`) Skip the conservative layout scrape |
-| `--reset-layout` | Delete the generated layout overlay on apply |
+| `--reset-layout` | Delete then rebuild the generated layout overlay on apply |
 | `--all` | (`backup`) Snapshot the whole config dir, not just stm-owned files |
 | `--out <file>` | Write `export` output to a file |
 | `--slug <slug>` | Name for the palette `import` creates |
@@ -394,6 +394,29 @@ popup_bg = "ee"
 Values are exactly two hex digits. Keys you don't list keep whatever the
 palette says.
 
+### Bar chrome — `[layout]` and `[item_defaults]`
+
+Opacity is `[alpha]`. Blur and corners are not. Bundled palettes are colour-only,
+so mocha and nord do not carry bar chrome. Put chrome you want to keep across
+`stm apply nord` in `stm.config.toml`.
+
+```toml
+[layout]
+blur_radius = "30"
+corner_radius = "12"   # 0 = square bar
+
+[item_defaults]
+corner_radius = "5"    # 0 = square items
+```
+
+`[layout]` uses the same keys and values as a palette `[layout]` table: enums
+and small integers, with `blur_radius` and `corner_radius` in 0-256. Config
+wins per key. A palette may still ship theme geometry such as `height`.
+`[item_defaults]` is config-only. A palette that contains that table is refused.
+
+`item.corner_radius` is not a bar field. `default_bar.lua` reads
+`layout.item.corner_radius` via `sbar.default`. stm does not edit that file.
+
 ### Renaming — `[mapping]`
 
 ```toml
@@ -488,7 +511,9 @@ that points outside the config dir is skipped.
 ### Layout and item positions
 
 A palette may optionally declare bar chrome and which slot each item sits in.
-`stm` writes a generated overlay and **never edits your item files**.
+Chrome that should survive a colour-only switch belongs in `stm.config.toml`
+(`[layout]` and `[item_defaults]` above). `stm` writes a generated overlay and
+**never edits your item files**.
 
 ```toml
 [layout]
@@ -518,9 +543,18 @@ if ok and type(generated) == "table" then
 end
 
 sbar.bar({
-  position = (layout.bar and layout.bar.position) or "top",
-  height   = (layout.bar and layout.bar.height) or 32,
-  color    = colors.bar_bg,
+  position      = (layout.bar and layout.bar.position) or "top",
+  height        = (layout.bar and layout.bar.height) or 32,
+  blur_radius   = (layout.bar and layout.bar.blur_radius) or 0,
+  corner_radius = (layout.bar and layout.bar.corner_radius) or 0,
+  color         = colors.bar_bg,
+})
+
+-- default_bar.lua: item corners, not the bar's
+sbar.default({
+  background = {
+    corner_radius = (layout.item and layout.item.corner_radius) or 0,
+  },
 })
 
 local function pos(name, default)
@@ -533,9 +567,13 @@ end
 sbar.add("item", "clock", { position = pos("clock", "right") })
 ```
 
-Bash configs get `layout.sh` (`BAR_POSITION`, `ITEM_CLOCK`, `ITEM_ORDER_LEFT`,
-…). Applying a colour-only theme leaves an existing overlay in place;
-`stm apply --reset-layout <theme>` deletes it.
+Bash configs get `layout.sh` (`BAR_POSITION`, `BAR_BLUR_RADIUS`,
+`ITEM_DEFAULT_CORNER_RADIUS`, `ITEM_CLOCK`, `ITEM_ORDER_LEFT`, …).
+A palette `[layout]` is optional theme geometry. Config `[layout]` is chrome
+that should persist. Applying a colour-only theme with no config `[layout]`
+leaves an existing overlay in place. `stm apply --reset-layout <theme>` deletes
+it, then writes it again from the current records. If `stm.config.toml` has
+`[layout]` or `[item_defaults]`, the overlay comes back.
 
 ### Items
 
@@ -989,6 +1027,13 @@ gray = "grey"
 
 [alpha]
 bar_bg = "60"            # keep my bar 38% opaque whatever the theme says
+
+[layout]
+blur_radius = "30"
+corner_radius = "12"
+
+[item_defaults]
+corner_radius = "5"
 
 [notes]
 tokyo-night = "Matches my Ghostty theme"
