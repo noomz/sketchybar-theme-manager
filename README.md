@@ -585,7 +585,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 | `ai` | how much of your AI providers' quota is used: one segment each for Claude, Codex, Gemini, Grok and OpenRouter, coloured by use, each with its own popup. Needs [Agents Usage Bar](https://github.com/noomz/agents_usage_bar) | `right` |
 | `battery` | battery level, coloured by level; a bolt on power | `right` |
 | `clock` | the time | `right` |
-| `compact` | compact mode: fits the other items beside the notch. It shrinks them and a `»` lists the ones it hides, or it keeps them whole and `‹` `›` page through them | `right` (fixed) |
+| `compact` | compact mode: fits the other items beside the notch. It shrinks them and a `»` lists the ones it hides, keeps them whole and `‹` `›` pages through them, or shows one group per display with a pill per group to choose | `right` (fixed) |
 | `cpu` | CPU load: a graph and a percentage, coloured by load | `right` |
 | `date` | the date | `right` |
 | `disk` | how full the startup disk is, coloured by use | `right` |
@@ -625,8 +625,9 @@ named `stm.<name>` (`netspeed` adds `stm.netspeed.up`, `stm.netspeed.rates`
 and `stm.netspeed.pill`; `ai` is a hidden `stm.ai` that drives one segment per
 provider, `stm.ai.<provider>`, with `stm.ai.<provider>.icon` and
 `stm.ai.<provider>.pill` as its shape needs; `compact` adds the chevron
-`stm.compact` and its popup rows, and with `mode = "page"` the arrows
-`stm.compact.prev` and `stm.compact.next`). These files are kept out of the `verify` baseline and go
+`stm.compact` and its popup rows, with `mode = "page"` the arrows
+`stm.compact.prev` and `stm.compact.next`, and with `mode = "groups"` one pill
+per group per display slot, `stm.compact.<group>.<display>`). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -959,13 +960,14 @@ page through them instead:
 
 ```toml
 [item.compact]
-mode = "page"   # shrink | page
+mode = "page"   # shrink | page | groups
 ```
 
 | Mode | When the items do not fit |
 | --- | --- |
 | `shrink` | items step down `full` > `short` > `icon` > `hidden`; `»` lists the hidden ones |
 | `page` | items are `full` or `hidden`, never `short` or `icon`; `‹` `›` choose which ones show |
+| `groups` | nothing is shrunk: each display shows one group of items, and a pill per group chooses which |
 
 In `page` mode the bar shows as many items as fit, counted from the right
 edge, and hides the rest. At least one item always shows, even one wider than
@@ -980,6 +982,51 @@ A click on the bare bar, between two items, can make SketchyBar draw the bar
 over its own items, so the bar looks empty (seen with SketchyBar 2.24 on
 macOS 27). `compact` puts the items back on top every time it runs, in either
 mode: within 30 seconds, and at once on the next click on `‹` or `›`.
+
+#### Widget groups (`mode = "groups"`)
+
+`groups` answers a different question than the other two modes. It does not
+deal with items that are too wide; it decides *which items a display shows at
+all*, so two displays can show different sets. Define the sets in
+`stm.config.toml`:
+
+```toml
+[groups]
+work  = "cpu, mem, disk, front_app"
+media = "spotify, volume"
+```
+
+Names are bar items: an installed stm item by its bare name (`cpu` becomes
+`stm.cpu`), or one of your own by its full name. One group per item — an item
+listed in two groups is refused, because a display cannot choose both. Group
+names are lower-case `[a-z][a-z0-9_-]`, at most 8 groups, at most 16 items
+each. `compact` cannot be a member: it is the selector itself.
+
+Each display gets one pill per group, at the right end of its bar. The active
+group's pill is white with a box; the others are grey without one. A pill click
+puts that display on that group: the group's members are put on the display and
+every other member is taken off the bar. The choice is remembered per display,
+so a reload keeps it, and a display that has no choice yet — or whose group was
+renamed away — gets the first group in the order you wrote them.
+
+Nothing is measured in this mode: a group that is wider than the bar is clipped
+by SketchyBar, so keep each group inside one display's width. `pin`/`high`,
+`normal` and `low` mean nothing here, the `»` and the `‹` `›` arrows are not
+used, and a display change costs one `sketchybar --query displays` — a pill
+click asks the bar nothing.
+
+```toml
+[item.compact]
+mode = "groups"
+
+[groups]
+work  = "cpu, mem"
+media = "spotify"
+```
+
+Leaving the mode — `mode = "shrink"`, `mode = "page"`, or `stm uninstall
+item:compact` — puts every item the groups had claimed back on every live
+display, and turns back on only what the groups had hidden.
 
 The notch comes from macOS (`NSScreen`, one `osascript` run); widths come from
 `sketchybar --query`. Measured widths are kept in your own temp folder, so the

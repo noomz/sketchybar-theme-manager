@@ -13,15 +13,23 @@ return function(sbar, opts, colors)
     return "'" .. (tostring(s):gsub("'", "'\\''")) .. "'"
   end
 
-  -- <name>:<priority>:<forms> per item with forms, from the generator
-  -- (validated manifest and option values); plugin.sh checks them again.
-  local mode = (opts.options or {}).mode == "page" and "page" or "shrink"
+  -- How the items are fitted, from the validated manifest and option values;
+  -- anything the generator did not offer is shrink.
+  local opt_mode = (opts.options or {}).mode
+  local mode = (opt_mode == "page" or opt_mode == "groups") and opt_mode or "shrink"
+
+  local function hex(c)
+    return type(c) == "number" and string.format("0x%08x", c) or ""
+  end
+
   local env = "STM_COMPACT_UNITS=" .. quote(table.concat(opts.compact_units or {}, ","))
-  if mode == "page" then
-    -- plugin.sh colours the arrows: white, or grey at the end of the list.
-    local function hex(c)
-      return type(c) == "number" and string.format("0x%08x", c) or ""
-    end
+  if mode == "groups" then
+    -- <group>:<item>,<item> per group, from the generator (validated names).
+    env = env .. " STM_COMPACT_GROUPS=" .. quote(table.concat(opts.groups or {}, ";"))
+    env = env .. " STM_BG1=" .. quote(hex(colors.bg1))
+  end
+  if mode == "page" or mode == "groups" then
+    -- plugin.sh colours the arrows / the inactive pills: white, or grey.
     env = "STM_WHITE=" .. quote(hex(colors.white)) .. " STM_GREY=" .. quote(hex(colors.grey)) .. " " .. env
   end
   local plugin = quote(opts.plugin_dir .. "/compact.sh")
@@ -81,6 +89,31 @@ return function(sbar, opts, colors)
       arrow:subscribe("mouse.clicked", function(e)
         run(e, a[1])
       end)
+    end
+  end
+
+  -- groups mode (#35): one pill per group per display slot. A bar item's click
+  -- event carries no display id, so each display gets its own pill per group
+  -- and the display is the slot in the item's name; plugin.sh draws a pill only
+  -- while its slot is a live display, and names the group in the click.
+  -- Hidden until then; a group's items appear on the display that picked it.
+  if mode == "groups" then
+    for _, gspec in ipairs(opts.groups or {}) do
+      local gname = tostring(gspec):match("^([a-z][a-z0-9_-]*):")
+      if gname then
+        for d = 1, 8 do
+          local pill = sbar.add("item", opts.name .. "." .. gname .. "." .. d, {
+            position = "right",
+            drawing = false,
+            icon = { drawing = false },
+            label = { string = gname, color = colors.grey },
+            background = { drawing = false },
+          })
+          pill:subscribe("mouse.clicked", function(e)
+            run(e, "select:" .. gname .. ":" .. d)
+          end)
+        end
+      end
     end
   end
 

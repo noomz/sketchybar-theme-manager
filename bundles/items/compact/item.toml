@@ -5,7 +5,7 @@
 # `priority` option; hidden items are listed behind a » chevron.
 # Its position is fixed: a theme or stm.config.toml may not move it.
 name = "compact"
-version = "0.3.1"
+version = "0.4.0"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["white", "grey", "bg1", "popup_bg", "popup_border"]
@@ -18,6 +18,10 @@ events = ["display_change", "system_woke"]
 #   page    items stay full; the bar shows the ones that fit, and ‹ › at
 #           the right end slide that window one item a click (pin items
 #           always stay)
+#   groups  the bar shows one group of items per display (#35): the group names
+#           in stm.config.toml [groups] appear as pills at the right end, and
+#           the pill you click shows that group on that display. Nothing is
+#           sized away: a group that does not fit overflows (see `stm doctor`).
 [options.mode]
-values = ["shrink", "page"]
+values = ["shrink", "page", "groups"]
 default = "shrink"

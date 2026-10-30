@@ -703,6 +703,12 @@ stm_records_items() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="item" { printf("%s\t%s\n", $2, $3) }'
 }
 
+# Group name<TAB>member,member rows from [groups], declaration order. The first
+# row is the fallback group a display gets while it has no choice of its own.
+stm_records_groups() {
+  printf '%s\n' "$1" | awk -F'\t' '$1=="group" { printf("%s\t%s\n", $2, $3) }'
+}
+
 # [item.<name>] options as item<TAB>key<TAB>value rows, declaration order.
 stm_records_itemopts() {
   printf '%s\n' "$1" | awk -F'\t' '$1=="itemopt" { printf("%s\t%s\t%s\n", $2, $3, $4) }'
@@ -897,6 +903,91 @@ $(stm_config_pairs "$RESOLVED_CONFIG" item_defaults)
 EOF
 
   printf '%s\n' "$out"
+}
+
+# ---------------------------------------------------------------------------
+# [groups] — widget groups, the data behind compact's `groups` mode (#35)
+#
+#   [groups]
+#   work  = "cpu, mem, disk"
+#   media = "spotify"
+#
+# One row per group: `group<TAB><slug><TAB><name>,<name>`. Names are data the
+# whole way down: a closed charset here, checked again in compact's plugin
+# before any `--set`. A palette can never carry [groups] — the palette header
+# allowlist refuses the table — so only the user's own config defines groups.
+# Declaration order is load-bearing: it is the fallback order, never sorted.
+# Limits: 8 groups, 16 items each, one group per item (a display shows one
+# group, so an item in two groups would be ambiguous).
+# ---------------------------------------------------------------------------
+
+# shellcheck disable=SC2016  # awk source
+STM_GROUPS_AWK='
+BEGIN { FS = "\t"; ng = 0 }
+{
+  slug = $1; val = $2
+  if (slug !~ /^[a-z][a-z0-9_-]*$/ || length(slug) > 30) {
+    printf("%s: [groups] invalid group name \"%s\" (want lower-case [a-z][a-z0-9_-], max 30)\n", prog, slug) > "/dev/stderr"
+    bad = 1; next
+  }
+  if (slug == "compact" || slug == "row" || slug == "next" || slug == "prev") {
+    printf("%s: [groups] group name \"%s\" is reserved by compact\n", prog, slug) > "/dev/stderr"
+    bad = 1; next
+  }
+  if (slug in seen) {
+    printf("%s: [groups] duplicate group \"%s\"\n", prog, slug) > "/dev/stderr"
+    bad = 1; next
+  }
+  if (ng >= 8) {
+    printf("%s: [groups] too many groups (max 8)\n", prog) > "/dev/stderr"
+    bad = 1; next
+  }
+  n = split(val, part, ",")
+  m = 0; members = ""
+  for (i = 1; i <= n; i++) {
+    t = part[i]
+    gsub(/^[ \t]+/, "", t); gsub(/[ \t]+$/, "", t)
+    if (t == "") continue
+    if (t !~ /^[A-Za-z_][A-Za-z0-9_.-]*$/ || length(t) > 64) {
+      printf("%s: [groups] %s: invalid item name \"%s\" (want [A-Za-z_][A-Za-z0-9_.-], max 64)\n", prog, slug, t) > "/dev/stderr"
+      bad = 1; next
+    }
+    if (t == "compact" || index(t, "stm.compact") == 1) {
+      printf("%s: [groups] %s: \"%s\" is compact, which is the selector itself\n", prog, slug, t) > "/dev/stderr"
+      bad = 1; next
+    }
+    if (t in memberof) {
+      printf("%s: [groups] \"%s\" is in both \"%s\" and \"%s\" (an item joins one group)\n", prog, t, memberof[t], slug) > "/dev/stderr"
+      bad = 1; next
+    }
+    if (m >= 16) {
+      printf("%s: [groups] %s: too many items (max 16)\n", prog, slug) > "/dev/stderr"
+      bad = 1; next
+    }
+    memberof[t] = slug
+    members = members (m ? "," : "") t
+    m++
+  }
+  if (m == 0) {
+    printf("%s: [groups] \"%s\" lists no items\n", prog, slug) > "/dev/stderr"
+    bad = 1; next
+  }
+  seen[slug] = 1; ng++
+  printf("group\t%s\t%s\n", slug, members)
+}
+END { if (bad) exit 1 }
+'
+
+# apply_groups_config <records> — fold [groups] from stm.config.toml into the
+# record stream as `group` rows. A section the palette can never define.
+apply_groups_config() {
+  local records="$1" pairs rows
+  [ -n "$RESOLVED_CONFIG" ] || { printf '%s\n' "$records"; return 0; }
+  pairs=$(stm_config_pairs "$RESOLVED_CONFIG" groups)
+  [ -n "$pairs" ] || { printf '%s\n' "$records"; return 0; }
+  rows=$(printf '%s\n' "$pairs" | awk -v prog="$PROGNAME" "$STM_GROUPS_AWK") ||
+    die "$EX_CONFIG" "invalid [groups] in $RESOLVED_CONFIG"
+  printf '%s\n%s\n' "$records" "$rows"
 }
 
 # theme_note <slug> — the free-text note for a theme from [notes], if any.
@@ -1559,6 +1650,18 @@ stm_item_tree_sha() {
   done | stm_sha256 /dev/stdin
 }
 
+# stm_groups_rows — validated `group<TAB>slug<TAB>members` rows from [groups]
+# in stm.config.toml; nothing when the section is absent. The loader checks
+# them itself (not only apply), so install and uninstall enforce it too: a bad
+# [groups] never reaches items_generated.lua.
+stm_groups_rows() {
+  local pairs
+  [ -n "$RESOLVED_CONFIG" ] || return 0
+  pairs=$(stm_config_pairs "$RESOLVED_CONFIG" groups)
+  [ -n "$pairs" ] || return 0
+  printf '%s\n' "$pairs" | awk -v prog="$PROGNAME" "$STM_GROUPS_AWK"
+}
+
 # ---------------------------------------------------------------------------
 # items_generated.lua — the loader for every installed item
 #
@@ -1636,6 +1739,7 @@ stm_current_palette_records() {
 # An item no longer bundled is left out with a warning.
 stm_items_loader_render() {
   local names="$1" precs="$2" dir n recs pos freq ev events opts theme blocks units forms prio
+  local out cmode gstr gslug gmembers m x joined
   dir=$(cd -- "$RESOLVED_DIR" && pwd) || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
   case "$dir" in
     *[\"\\]* | *[[:cntrl:]]*)
@@ -1665,7 +1769,8 @@ stm_items_loader_render() {
   # entry per installed item that declares forms, wherever it sits in the
   # ledger. Every part of an entry is a validated manifest or option value.
   theme=$(stm_records_meta "$precs" slug)
-  blocks="" units=""
+  blocks="" units="" gstr="" cmode=""
+  grows=$(stm_groups_rows) || die "$EX_CONFIG" "invalid [groups] in $RESOLVED_CONFIG"
   for n in $names; do
     validate_item_name "$n"
     if ! recs=$(stm_item_load "$n" && printf '%s\n' "$STM_ITEM_RECORDS"); then
@@ -1695,6 +1800,37 @@ stm_items_loader_render() {
       units="$units \"$n:$prio:$forms\","
     fi
 
+    # [groups] for the selector (#35). Members are written the way the user
+    # writes them ([item.<name>], [item_defaults]); an installed item's bar name
+    # is stm.<name>, so map it here and reject a name that collides with
+    # compact's own items. Already validated by STM_GROUPS_AWK.
+    if [ "$n" = compact ]; then
+      cmode=$(printf '%s\n' "$opts" | awk -F'"' '$2=="mode" { print $4; exit }')
+      if [ "$cmode" = groups ] && [ -z "$grows" ]; then
+        die "$EX_CONFIG" "[item.compact] mode = \"groups\" needs at least one group in [groups] ($RESOLVED_CONFIG)"
+      fi
+      while IFS=$'\t' read -r gslug gmembers; do
+        [ -n "$gslug" ] || continue
+        bnames=""
+        for m in $(printf '%s\n' "$gmembers" | tr ',' ' '); do
+          for x in $names; do
+            [ "$x" = "$m" ] && { m="stm.$m"; break; }
+          done
+          case "$m" in
+            compact | stm.compact | stm.compact.*)
+              die "$EX_CONFIG" "[groups] $gslug: \"$m\" is compact, which is the selector itself"
+              ;;
+          esac
+          case " $bnames " in *" $m "*) continue ;; esac
+          bnames="$bnames $m"
+        done
+        joined="${bnames# }"
+        gstr="$gstr \"$gslug:${joined// /,}\","
+      done <<EOF
+$(stm_records_groups "$grows")
+EOF
+    fi
+
     blocks="$blocks$(
       printf '\nstm_item("%s", {\n' "$n"
       printf '  name = "stm.%s",\n' "$n"
@@ -1703,13 +1839,15 @@ stm_items_loader_render() {
       [ -n "$freq" ] && printf '  update_freq = %s,\n' "$freq"
       printf '  events = {%s },\n' "${events%,}"
       [ "$n" = compact ] && printf '  compact_units = {@STM_COMPACT_UNITS@ },\n'
+      [ "$n" = compact ] && printf '  groups = {@STM_COMPACT_GROUPS@ },\n'
       printf '  options = {\n%s  },\n' "${opts:+$opts
 }"
       printf '})'
     )
 "
   done
-  printf '%s' "${blocks/@STM_COMPACT_UNITS@/${units%,}}"
+  out="${blocks/@STM_COMPACT_UNITS@/${units%,}}"
+  printf '%s' "${out/@STM_COMPACT_GROUPS@/${gstr%,}}"
 }
 
 # ---------------------------------------------------------------------------
@@ -4105,6 +4243,7 @@ cmd_apply() {
   records=$(apply_alpha "$records")
   records=$(apply_layout_config "$records")
   records=$(apply_item_defaults "$records")
+  records=$(apply_groups_config "$records")
 
   # The file name and the declared slug must agree, or `stm current` lies.
   local declared
@@ -4272,6 +4411,7 @@ cmd_preview() {
   records=$(apply_alpha "$records")
   records=$(apply_layout_config "$records")
   records=$(apply_item_defaults "$records")
+  records=$(apply_groups_config "$records")
 
   if [ "$OPT_PORCELAIN" -eq 1 ]; then
     stm_records_colors "$records"
@@ -4564,6 +4704,7 @@ $tmpdir"
   fi
 
   doctor_items || rc=1
+  doctor_groups
 
   if ! file=$(find_palette "$slug"); then
     printf '\n  palette not found: %s\n' "$slug"
@@ -4577,6 +4718,7 @@ $tmpdir"
   records=$(apply_alpha "$records")
   records=$(apply_layout_config "$records")
   records=$(apply_item_defaults "$records")
+  records=$(apply_groups_config "$records")
   STM_MAPPING_STRICT=1
   stm_records_colors "$records" | cut -f1 | sort -u >"$provided"
   config_used_keys "$RESOLVED_DIR" "$fmt" >"$used"
@@ -4753,6 +4895,51 @@ doctor_items() {
     printf '  %-16s %s\n' "tailscale CLI" "${cli:-not found (the item shows \"not installed\")}"
   fi
   return "$rc"
+}
+
+# doctor_groups — the [groups] table and what would select it. No width
+# arithmetic: groups mode shows every member of the active group, so whether a
+# group fits the bar is the bar's business, not stm's. Notes only. A member the
+# user wrote by hand cannot be judged from here (it may live in their own
+# init.lua), but a name that matches a bundled item nobody installed is a
+# foot-gun worth printing.
+doctor_groups() {
+  local rows mode names root n m t ng=0 nm=0 x
+  [ -n "$RESOLVED_CONFIG" ] || return 0
+  rows=$(stm_groups_rows) || return 0
+  [ -n "$rows" ] || return 0
+
+  mode=$(stm_config_pairs "$RESOLVED_CONFIG" item.compact |
+    awk -F'\t' '$1 == "mode" { print $2; exit }')
+  [ -n "$mode" ] || mode=shrink
+
+  printf '\nGroups (compact mode "%s")\n' "$mode"
+  while IFS=$'\t' read -r _kind n m; do
+    printf '  %-16s %s\n' "$n" "$(printf '%s' "$m" | tr ',' ' ')"
+  done <<EOF
+$rows
+EOF
+
+  if [ "$mode" != groups ]; then
+    printf '  %-16s [groups] is defined, but compact mode is "%s": nothing selects them\n' note "$mode"
+  fi
+
+  names=$(stm_item_names)
+  root=$(bundled_item_dir 2>/dev/null) || root=""
+  ng=0
+  nm=0
+  while IFS=$'\t' read -r _kind n m; do
+    ng=$((ng + 1))
+    for x in $(printf '%s' "$m" | tr ',' ' '); do
+      nm=$((nm + 1))
+      [ -n "$root" ] && [ -d "$root/$x" ] || continue
+      printf '%s\n' "$names" | grep -qxF -- "$x" && continue
+      printf '  %-16s %s: "%s" is a bundled item that is not installed (stm install item:%s)\n' note "$n" "$x" "$x"
+    done
+  done <<EOF
+$rows
+EOF
+  printf '  %-16s %s group(s), %s member(s); one group per display, and the first group in file order for a display with no choice yet\n' shape "$ng" "$nm"
 }
 
 # ---------------------------------------------------------------------------
@@ -5845,12 +6032,57 @@ cmd_install_item() {
   info "installed item:$name -> $lua_dest"
 }
 
+# release_compact_groups — undo what compact's groups mode pinned, because the
+# item that would have undone it is about to be gone. It reads compact's own
+# state rows (`memb`, `off`) and the displays the bar has now, then puts every
+# claimed item back on every display, and turns drawing back on only where the
+# groups had hidden it (an item that hides itself is left alone). Best effort:
+# no bar, no state, no groups rows -> nothing asked, nothing said.
+release_compact_groups() {
+  local tmp st all m n=0
+  tmp=${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null)}
+  [ -n "$tmp" ] || return 0
+  st=${tmp%/}/stm-compact.state
+  [ -s "$st" ] || return 0
+  /usr/bin/grep -q '^memb ' "$st" || return 0
+  command -v sketchybar >/dev/null 2>&1 || return 0
+
+  all=$(sketchybar --query displays 2>/dev/null |
+    sed -n 's/.*"arrangement-id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' |
+    /usr/bin/sort -nu | /usr/bin/tr '\n' ',' | /usr/bin/sed 's/,$//')
+  [ -n "$all" ] || return 0
+
+  set --
+  # Both reads are read-only: grep checks whether this member was hidden.
+  # shellcheck disable=SC2094
+  while IFS= read -r line; do
+    case "$line" in
+      memb\ *)
+        m=${line#memb }
+        case "$m" in
+          '' | [!A-Za-z_]* | *[!A-Za-z0-9_.-]* | compact | stm.compact*) continue ;;
+        esac
+        [ "${#m}" -le 64 ] || continue
+        set -- "$@" --set "$m" "display=$all"
+        /usr/bin/grep -Fxq "off $m" "$st" && set -- "$@" drawing=on
+        n=$((n + 1))
+        ;;
+    esac
+  done <"$st"
+  [ "$#" -gt 0 ] || return 0
+  if sketchybar "$@" >/dev/null 2>&1; then
+    info "put $n item(s) the compact groups had claimed back on every display"
+  else
+    err "warning: sketchybar did not answer; the compact groups' display choice is still in effect (set mode = \"shrink\" with compact installed and apply, or reinstall it)"
+  fi
+}
+
 # cmd_uninstall_item <name> — remove an installed item:<name>: its files under
 # items/stm/ and plugins/stm/ and its ledger row, then regenerate the loader.
 # Works for an item no longer bundled. Every target is checked, and the ledger
 # and loader staged, before anything is removed.
 cmd_uninstall_item() {
-  local name="$1" d ledger p f loader="" led_tmp gen_tmp="" names
+  local name="$1" d ledger p f loader="" led_tmp gen_tmp="" names tmp
 
   validate_item_name "$name"
   stm_item_installed "$name" || die "$EX_NOTFOUND" "item not installed: item:$name"
@@ -5877,6 +6109,13 @@ cmd_uninstall_item() {
   fi
 
   if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    if [ "$name" = compact ]; then
+      tmp=${TMPDIR:-$(/usr/bin/getconf DARWIN_USER_TEMP_DIR 2>/dev/null)}
+      if [ -n "$tmp" ] && [ -f "${tmp%/}/stm-compact.state" ] &&
+        /usr/bin/grep -q '^memb ' "${tmp%/}/stm-compact.state"; then
+        info "would restore compact group members to live displays if the bar is available"
+      fi
+    fi
     for f in "$d/items/stm/$name.lua" "$d/plugins/stm/$name.sh"; do
       [ -e "$f" ] && info "would remove $f"
     done
@@ -5886,6 +6125,9 @@ cmd_uninstall_item() {
   fi
 
   ledger=$(stm_item_ledger_file)
+  if [ "$name" = compact ]; then
+    release_compact_groups
+  fi
   stm_ledger_stage "$ledger" "$name"
   led_tmp="$STM_TMP"
   if [ -f "$d/items_generated.lua" ]; then
