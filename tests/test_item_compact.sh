@@ -1021,8 +1021,8 @@ gpill() {
   local n="stm.compact.$2.$1"
   case "$3" in
     off) printf '%s\n' --set "$n" drawing=off ;;
-    white) printf '%s\n' --set "$n" drawing=on "label=$2" "label.color=$WHITE" "background.drawing=on" "background.color=$BG1" ;;
-    grey) printf '%s\n' --set "$n" drawing=on "label=$2" "label.color=$GREY" "background.drawing=off" ;;
+    white) printf '%s\n' --set "$n" drawing=on "label=$2" "label.color=$WHITE" "background.drawing=on" "background.color=$BG1" "display=$1" ;;
+    grey) printf '%s\n' --set "$n" drawing=on "label=$2" "label.color=$GREY" "background.drawing=off" "display=$1" ;;
   esac
 }
 # gclick <slot> <group> [VAR=value...] — a click on that pill.
@@ -1098,7 +1098,7 @@ gstate "freq 30" "hid -" "disp 1" "disp 2" "group 1 work" "group 2 media" \
   "pill 1 work 1" "pill 1 media 0" "pill 2 work 0"
 groups
 assert_contains "$SB" "$(printf '%s\n' --set stm.c display=2 drawing=on)"
-assert_contains "$SB" "$(printf '%s\n' --set stm.compact.media.2 drawing=on)"
+assert_contains "$SB" "$(gpill 2 media white)" "display 2 pill must be restricted to display 2"
 assert_contains "$(cat "$ST")" "disp 2"
 assert_contains "$(cat "$ST")" "group 2 media"
 assert_contains "$(cat "$ST")" "pill 2 media 1"

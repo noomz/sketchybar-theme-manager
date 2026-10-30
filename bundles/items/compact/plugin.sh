@@ -168,7 +168,7 @@ fit_groups() {
     -v bg1="$STM_BG1" '
   function hexok(s) { return s ~ /^0x[0-9a-f]+$/ && length(s) == 10 }
   function pilln(d, g) { return name "." g "." d }
-  function setto(nm, a1, a2, a3, a4, a5) {
+  function setto(nm, a1, a2, a3, a4, a5, a6) {
     # One --set carries one item: a new name starts a new batch, the same name
     # adds its arguments to the batch already open.
     if (!open || lastname != nm) { print "S --set"; print "S " nm; open = 1; lastname = nm }
@@ -177,6 +177,7 @@ fit_groups() {
     if (a3 != "") print "S " a3
     if (a4 != "") print "S " a4
     if (a5 != "") print "S " a5
+    if (a6 != "") print "S " a6
     sets++
   }
   function mv(a, how, b) { print "S --move"; print "S " a; print "S " how; print "S " b }
@@ -264,7 +265,7 @@ fit_groups() {
           a3 = hexok(white) && sl ? "label.color=" white : (hexok(grey) && !sl ? "label.color=" grey : "")
           setto(pilln(d, g[j]), "drawing=on", a2, a3,
                 "background.drawing=" (sl ? "on" : "off"),
-                sl && hexok(bg1) ? "background.color=" bg1 : "")
+                sl && hexok(bg1) ? "background.color=" bg1 : "", "display=" d)
         }
       }
     }
