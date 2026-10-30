@@ -5,9 +5,12 @@
 #   NAME, SENDER        the SketchyBar item (stm.compact) and event
 #   STM_COMPACT_UNITS   <name>:<priority>:<forms>,... one per installed item
 #                       that draws compact forms (a "unit")
-#   STM_CMP_MODE        shrink | page (anything else is shrink)
+#   STM_CMP_MODE        shrink | page | groups (anything else is shrink)
 #   STM_CMP_ACTION      prev | next: a click on a page arrow (page mode only)
-#   STM_WHITE, STM_GREY the page arrows' colours, 0xAARRGGBB (page mode only)
+#                       select:<group>:<display>: a click on a group pill
+#   STM_WHITE, STM_GREY arrows / inactive pills, 0xAARRGGBB (page, groups)
+#   STM_COMPACT_GROUPS  <group>:<item>,<item>;... (groups mode only)
+#   STM_BG1             the active pill's background, 0xAARRGGBB (groups)
 #
 # One run: query the bar, its displays and every bar item (one call), read
 # each screen's notch (one osascript), fit the units into the room the
@@ -29,6 +32,15 @@
 # trigger can land before a unit takes it (a reload, a display switch), so
 # each change is sent once more on the next run, and widths are fitted and
 # cached only when the run before sent nothing.
+#
+# groups mode (#35) is the selector, and it never sizes anything away: one
+# group per display is shown. A member goes on every display whose group
+# holds it with --set <item> display=<adid>,<adid>, and off the bar with
+# drawing=off when no display chose its group (an empty display list would
+# mean every display, not none). The pills select: stm.compact.<group>.<slot>,
+# one per group per display slot, because a click event carries no display id.
+# The pass asks the bar only which displays it has; a pill click asks nothing.
+# Leaving the mode puts every claimed item back on every live display.
 #
 # page mode (#31): units are only full or hidden. The bar shows a window of
 # them: from the unit `page` places in from the right end, leftward while
@@ -52,11 +64,32 @@ export LC_ALL
 NAME=${NAME:-stm.compact}
 [ "$NAME" = stm.compact ] || exit 0
 mode=shrink
-[ "$STM_CMP_MODE" = page ] && mode=page
+case "$STM_CMP_MODE" in
+  page) mode=page ;;
+  groups) mode=groups ;;
+esac
 act=""
+gsel=""
+gslot=""
 if [ "$mode" = page ]; then
   case "$STM_CMP_ACTION" in
     prev | next) act=$STM_CMP_ACTION ;;
+  esac
+elif [ "$mode" = groups ]; then
+  # select:<group>:<display slot> — a click on a pill. The slot is the display
+  # the pill belongs to; a click event carries no display id of its own.
+  case "$STM_CMP_ACTION" in
+    select:*)
+      gsel=${STM_CMP_ACTION#select:}
+      gslot=${gsel##*:}
+      gsel=${gsel%:*}
+      case "$gslot" in
+        '' | *[!0-9]*) gsel="" ;;
+      esac
+      case "$gsel" in
+        '' | [!a-z]* | *[!a-z0-9_-]*) gslot="" ;;
+      esac
+      ;;
   esac
 fi
 
@@ -83,10 +116,248 @@ printf '%s\n' "$STM_COMPACT_UNITS" | /usr/bin/tr ',' '\n' | /usr/bin/awk -F: '
 : >>"$WORK/cache"
 : >>"$WORK/state"
 
+# groups_rows — the groups, checked again here (the generator checked them
+# first): `<group> <item> <item>...` per line. A bad name drops that member, a
+# bad group drops that group; nothing here aborts a good run. False when no
+# group survived, which is the only way groups mode has nothing to do.
+groups_rows() {
+  printf '%s\n' "$STM_COMPACT_GROUPS" | /usr/bin/tr ';' '\n' | /usr/bin/awk '
+  {
+    i = index($0, ":")
+    if (i < 2) next
+    slug = substr($0, 1, i - 1)
+    if (slug !~ /^[a-z][a-z0-9_-]*$/ || length(slug) > 30) next
+    if (slug == "compact" || slug == "row" || slug == "next" || slug == "prev") next
+    if (slug in seen) next
+    seen[slug] = 1
+    out = ""
+    n = split(substr($0, i + 1), part, ",")
+    for (k = 1; k <= n; k++) {
+      t = part[k]
+      if (t == "") continue
+      if (t !~ /^[A-Za-z_][A-Za-z0-9_.-]*$/ || length(t) > 64) continue
+      if (t == "compact" || index(t, "stm.compact") == 1) continue
+      if (t in memberof) continue
+      memberof[t] = slug
+      out = out (out == "" ? "" : " ") t
+    }
+    if (out == "") next
+    print slug, out
+  }' >"$WORK/groups"
+  [ -s "$WORK/groups" ]
+}
+
+# save <tag> <file> — the <tag> records as <file>, replaced whole (mktemp +
+# mv), only when they differ.
+save() {
+  [ -n "$2" ] || return 0
+  /usr/bin/sed -n "s/^$1 //p" "$WORK/out" >"$WORK/save.$1"
+  [ -f "$2" ] && /usr/bin/cmp -s "$WORK/save.$1" "$2" && return 0
+  t=$(/usr/bin/mktemp "$2.XXXXXX" 2>/dev/null) || return 0
+  if /bin/cat "$WORK/save.$1" >"$t" && /bin/mv -f "$t" "$2"; then :; else /bin/rm -f "$t"; fi
+}
+
+# fit_groups — groups mode over groups, state and displays. Records as fit
+# does: `S <arg>` set/move argv, `X <row>` a state row. A pill click reads the
+# displays back from the state rows instead of asking the bar. Nothing when the
+# bar has no displays to name.
+fit_groups() {
+  # shellcheck disable=SC2016  # awk source
+  /usr/bin/awk -v name="$NAME" -v sender="$SENDER" -v work="$WORK" \
+    -v gsel="$gsel" -v gslot="$gslot" -v white="$STM_WHITE" -v grey="$STM_GREY" \
+    -v bg1="$STM_BG1" '
+  function hexok(s) { return s ~ /^0x[0-9a-f]+$/ && length(s) == 10 }
+  function pilln(d, g) { return name "." g "." d }
+  function setto(nm, a1, a2, a3, a4, a5, a6) {
+    # One --set carries one item: a new name starts a new batch, the same name
+    # adds its arguments to the batch already open.
+    if (!open || lastname != nm) { print "S --set"; print "S " nm; open = 1; lastname = nm }
+    if (a1 != "") print "S " a1
+    if (a2 != "") print "S " a2
+    if (a3 != "") print "S " a3
+    if (a4 != "") print "S " a4
+    if (a5 != "") print "S " a5
+    if (a6 != "") print "S " a6
+    sets++
+  }
+  function mv(a, how, b) { print "S --move"; print "S " a; print "S " how; print "S " b }
+  function dadd(v,   i) {            # dlive stays sorted ascending
+    for (i = nd; i >= 1 && dlive[i] + 0 > v + 0; i--) dlive[i + 1] = dlive[i]
+    dlive[++nd] = v
+  }
+  FILENAME != curf { curf = FILENAME; kind = substr(FILENAME, length(work) + 2) }
+  kind == "groups" {
+    g[++ng] = $1; gseen[$1] = 1
+    for (i = 2; i <= NF; i++) {
+      gin[$1 SUBSEP $i] = 1
+      if (!($i in mseen)) { mseen[$i] = 1; mem[++nm] = $i }
+    }
+    next
+  }
+  kind == "state" {
+    if ($1 == "disp" && NF == 2 && $2 ~ /^[1-9][0-9]*$/)
+      cdisp[$2] = 1
+    else if ($1 == "group" && NF == 3 && $2 ~ /^[1-9][0-9]*$/ && ($3 in gseen))
+      cgroup[$2] = $3
+    else if ($1 == "mask" && NF == 3 && $2 ~ /^[A-Za-z_]/ && $3 ~ /^[1-9][0-9]*(,[1-9][0-9]*)*$/)
+      cmask[$2] = $3
+    else if ($1 == "off" && NF == 2)
+      coff[$2] = 1
+    else if ($1 == "pill" && NF == 4 && ($4 == "0" || $4 == "1"))
+      cpill[$2 SUBSEP $3] = $4
+    else if ($1 == "hid" && NF == 2) shid = $2
+    else if ($1 == "freq" && NF == 2 && ($2 == "2" || $2 == "30")) sfreq = $2
+    next
+  }
+  kind == "displays" {
+    if (match($0, /"arrangement-id"[ \t]*:[ \t]*[0-9]+/)) {
+      v = substr($0, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", v)
+      if (v ~ /^[1-9][0-9]*$/ && !(v in dfound)) { dfound[v] = 1; dadd(v) }
+    }
+    next
+  }
+  END {
+    forced = (sender == "forced")
+    if (nd == 0) for (d in cdisp) dadd(d)      # a click run: the cached rows
+    if (nd == 0) exit
+    for (i = 1; i <= nd; i++) dlivearr[dlive[i]] = 1
+
+    # What each display shows: the click first, then the state, else the first
+    # group as the file wrote it (never sorted).
+    for (i = 1; i <= nd; i++) {
+      d = dlive[i]
+      s = (d in cgroup) ? cgroup[d] : g[1]
+      if (gsel != "" && gslot != "" && d + 0 == gslot + 0) s = (gsel in gseen) ? gsel : g[1]
+      act[d] = s
+      if (!(d in cdisp) || cgroup[d] != s) changed = 1
+    }
+
+    # Members: on every display that chose their group; off the bar when none
+    # did (drawing=off is the hide; an empty display list means every display).
+    # drawing=on comes back only where we were the ones who hid it.
+    for (k = 1; k <= nm; k++) {
+      m = mem[k]
+      list = ""
+      for (i = 1; i <= nd; i++) {
+        d = dlive[i]
+        if (gin[act[d] SUBSEP m]) list = list (list == "" ? "" : ",") d
+      }
+      if (list != "") {
+        newmask[m] = list
+        if (m in coff) setto(m, "display=" list, "drawing=on")
+        else if (forced || !(m in cmask) || cmask[m] != list) setto(m, "display=" list)
+      } else {
+        newoff[m] = 1
+        if (forced || !(m in coff)) setto(m, "drawing=off")
+      }
+    }
+
+    # Pills: one per group per live display, the chosen one boxed and white,
+    # the rest grey with no box.
+    for (i = 1; i <= nd; i++) {
+      d = dlive[i]
+      for (j = 1; j <= ng; j++) {
+        sl = (act[d] == g[j]) ? 1 : 0
+        newpill[d SUBSEP g[j]] = sl
+        key = d SUBSEP g[j]
+        if (!(key in cpill) || cpill[key] != sl || forced || changed) {
+          a2 = "label=" g[j]
+          a3 = hexok(white) && sl ? "label.color=" white : (hexok(grey) && !sl ? "label.color=" grey : "")
+          setto(pilln(d, g[j]), "drawing=on", a2, a3,
+                "background.drawing=" (sl ? "on" : "off"),
+                sl && hexok(bg1) ? "background.color=" bg1 : "", "display=" d)
+        }
+      }
+    }
+    # A pill whose display the bar left goes off.
+    for (key in cpill) {
+      split(key, kp, SUBSEP)
+      if (kp[1] in dlivearr) continue
+      setto(pilln(kp[1], kp[2]), "drawing=off")
+    }
+
+    # The chevron is shrink mode, the fast rate is fit mode: leave both.
+    if (shid != "" && shid != "-") setto(name, "drawing=off", "popup.drawing=off")
+    if (sfreq != "" && sfreq != "30") setto(name, "update_freq=30")
+
+    # Restack: the pill chain runs after this item, group order per display.
+    if (sets || forced || changed) {
+      for (i = 1; i <= nd; i++) {
+        prev = name
+        for (j = 1; j <= ng; j++) {
+          mv(pilln(dlive[i], g[j]), "after", prev)
+          prev = pilln(dlive[i], g[j])
+        }
+      }
+    }
+
+    print "X freq 30"
+    print "X hid -"
+    for (i = 1; i <= nd; i++) print "X disp " dlive[i]
+    for (i = 1; i <= nd; i++) print "X group " dlive[i] " " act[dlive[i]]
+    for (k = 1; k <= nm; k++) print "X memb " mem[k]
+    for (k = 1; k <= nm; k++) if (newmask[mem[k]] != "") print "X mask " mem[k] " " newmask[mem[k]]
+    for (k = 1; k <= nm; k++) if (newoff[mem[k]]) print "X off " mem[k]
+    for (i = 1; i <= nd; i++)
+      for (j = 1; j <= ng; j++) print "X pill " dlive[i] " " g[j] " " newpill[dlive[i] SUBSEP g[j]]
+  }' "$WORK/groups" "$WORK/state" "$WORK/displays" >"$WORK/out"
+}
+
+if [ "$mode" = groups ]; then
+  groups_rows || exit 0
+  # A pill click steps off the display rows the last full run wrote; anything
+  # else (a first run, a reload, a display change) asks the bar what it has.
+  if [ -n "$gsel" ] && [ -n "$gslot" ] &&
+     /usr/bin/grep -q "^disp $gslot\$" "$WORK/state" 2>/dev/null; then
+    : >"$WORK/displays"
+  else
+    sketchybar --query displays >"$WORK/displays" 2>/dev/null
+    [ -s "$WORK/displays" ] || exit 0
+    gsel=""; gslot=""
+  fi
+  fit_groups
+  [ -s "$WORK/out" ] || exit 0
+  save X "$state"
+  set --
+  while IFS= read -r a; do
+    [ -n "$a" ] && set -- "$@" "$a"
+  done <<EOF
+$(/usr/bin/sed -n 's/^S //p' "$WORK/out")
+EOF
+  [ "$#" -gt 0 ] && sketchybar "$@"
+  exit 0
+fi
+
+# reset_groups — leaving groups mode: every item the groups claimed goes back to
+# every live display, and drawing=on only where the groups had hidden it (an
+# item that hides itself is left alone). The rows go with the state this mode
+# writes, so a shrink or page run clears them by not writing them.
+reset_groups() {
+  [ -s "$WORK/state" ] || return 0
+  /usr/bin/grep -q '^memb ' "$WORK/state" || return 0
+  [ -s "$WORK/dids" ] || return 0
+  alld=$(/usr/bin/tr '\n' ',' <"$WORK/dids" | /usr/bin/sed 's/,$//')
+  [ -n "$alld" ] || return 0
+  /usr/bin/awk -v all="$alld" '
+    $1 == "off" && NF == 2 { off[$2] = 1; next }
+    $1 == "memb" && NF == 2 && $2 ~ /^[A-Za-z_][A-Za-z0-9_.-]*$/ &&
+      length($2) <= 64 && $2 != "compact" && index($2, "stm.compact") != 1 { memb[++n] = $2 }
+    END {
+      for (k = 1; k <= n; k++) {
+        m = memb[k]
+        print "S --set"; print "S " m; print "S display=" all
+        if (m in off) print "S drawing=on"
+      }
+    }' "$WORK/state"
+}
+
 # measure — the bar, its displays, its items and each screen's notch.
 measure() {
   sketchybar --query bar >"$WORK/bar" 2>/dev/null
   sketchybar --query displays >"$WORK/displays" 2>/dev/null
+  # The display slots, one per line, for the runs that never parse the JSON.
+  /usr/bin/sed -n 's/.*"arrangement-id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+    "$WORK/displays" | /usr/bin/sort -nu >"$WORK/dids"
 
   # Every bar item but popup rows and this item's own, in one query call. A
   # name is only ever an argv word here.
@@ -568,17 +839,12 @@ else
   fit 0 "$WORK/units" "$WORK/cache" "$WORK/state" "$WORK/screens" "$WORK/bar" "$WORK/displays" "$WORK/items"
 fi
 
-[ -s "$WORK/out" ] || exit 0
+# Leaving groups mode: every item the groups claimed goes back on every live
+# display. Appended before the empty check, so a run with nothing else to send
+# still undoes the claim.
+reset_groups >>"$WORK/out"
 
-# save <tag> <file> — the <tag> records as <file>, replaced whole (mktemp +
-# mv), only when they differ.
-save() {
-  [ -n "$2" ] || return 0
-  /usr/bin/sed -n "s/^$1 //p" "$WORK/out" >"$WORK/save.$1"
-  [ -f "$2" ] && /usr/bin/cmp -s "$WORK/save.$1" "$2" && return 0
-  t=$(/usr/bin/mktemp "$2.XXXXXX" 2>/dev/null) || return 0
-  if /bin/cat "$WORK/save.$1" >"$t" && /bin/mv -f "$t" "$2"; then :; else /bin/rm -f "$t"; fi
-}
+[ -s "$WORK/out" ] || exit 0
 # N: a click with nothing to move; the files stay as they are.
 if ! /usr/bin/grep -q '^N$' "$WORK/out"; then
   save C "$cache"

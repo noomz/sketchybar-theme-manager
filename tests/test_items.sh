@@ -980,6 +980,40 @@ done_it
 
 # --- uninstall item: --------------------------------------------------------
 
+it "uninstall compact restores group members on live displays"
+  saved_tmpdir=${TMPDIR-}
+  cp "$SANDBOX/bin/sketchybar" "$SANDBOX/sketchybar.saved"
+  reset_items
+  ship_bundle "$REPO_ROOT/bundles/items/compact" compact
+  mkdir -p "$SANDBOX/compact-tmp"
+  export TMPDIR="$SANDBOX/compact-tmp"
+  printf 'memb stm.a\nmemb stm.b\noff stm.a\nmemb --bar\nmemb stm.bad;evil\n' >"$TMPDIR/stm-compact.state"
+  cat >"$SANDBOX/bin/sketchybar" <<'STUB'
+#!/bin/sh
+if [ "$1 $2" = "--query displays" ]; then
+  printf '[{"arrangement-id": 1},\n{"arrangement-id": 2}]\n'
+else
+  printf '%s\n' "$*" >>"$STM_TEST_RELOAD_LOG"
+fi
+STUB
+  run_stm --dir "$D" --no-reload install item:compact
+  assert_status 0
+  : >"$STM_TEST_RELOAD_LOG"
+  run_stm --dir "$D" --no-reload --dry-run uninstall item:compact
+  assert_status 0
+  assert_contains "$STM_OUT$STM_ERR" 'would restore compact group members' "dry-run announces display restoration"
+  assert_file_exists "$D/items/stm/compact.lua"
+  assert_eq "" "$(cat "$STM_TEST_RELOAD_LOG")" "dry-run must not contact the bar"
+  run_stm --dir "$D" --no-reload uninstall item:compact
+  assert_status 0
+  assert_file_contains "$STM_TEST_RELOAD_LOG" '--set stm.a display=1,2 drawing=on --set stm.b display=1,2'
+  assert_file_not_contains "$STM_TEST_RELOAD_LOG" '--bar' "invalid state must not reach the bar"
+  assert_file_not_contains "$STM_TEST_RELOAD_LOG" 'stm.bad;evil' "invalid state must not reach the bar"
+  TMPDIR=$saved_tmpdir
+  export TMPDIR
+  mv "$SANDBOX/sketchybar.saved" "$SANDBOX/bin/sketchybar"
+done_it
+
 it "uninstall item: removes only its files and ledger row, keeps other items (V11, V19)"
 reset_items
 ship_ok_as two
@@ -1210,6 +1244,28 @@ STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$T_ROOT" run_stm --dir "$DC" doctor
 assert_status 0
 assert_contains "$STM_OUT" "update available"
 assert_contains "$STM_OUT" "install --force item:tailscale"
+done_it
+
+it "doctor: [groups] reported with the mode that selects them (I.grp, #35)"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" --no-reload install item:compact
+assert_status 0
+STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" --no-reload install item:cpu
+assert_status 0
+printf '[groups]\nwork = "cpu, spotify"\n' >>"$DC/stm.config.toml"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
+assert_status 0
+assert_contains "$STM_OUT" 'Groups (compact mode "shrink")'
+assert_contains "$STM_OUT" "work"
+assert_contains "$STM_OUT" "1 group(s), 2 member(s)"
+assert_contains "$STM_OUT" 'nothing selects them'
+assert_not_contains "$STM_OUT" '"cpu" is a bundled item that is not installed' "cpu is installed"
+assert_contains "$STM_OUT" '"spotify" is a bundled item that is not installed' "spotify is not"
+
+printf '[item.compact]\nmode = "groups"\n' >>"$DC/stm.config.toml"
+STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor
+assert_status 0
+assert_contains "$STM_OUT" 'Groups (compact mode "groups")'
+assert_not_contains "$STM_OUT" "nothing selects them"
 done_it
 
 it "doctor: installed item no longer bundled is reported, still OK"
