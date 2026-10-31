@@ -95,8 +95,11 @@ return function(sbar, opts, colors)
   end)
   -- expand (#31): left items hide themselves. Do not change forms here;
   -- go unsettled so the next runs refit from the new edges (V61, V70).
+  -- Run the plugin so it persists freq 2; else an unchanged fit leaves
+  -- the live rate at 2 forever.
   item:subscribe("stm_expand", function()
     item:set({ update_freq = 2 })
+    run({ SENDER = "stm_expand" })
   end)
   run()
 end

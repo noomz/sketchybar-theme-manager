@@ -1006,14 +1006,27 @@ is no plugin. Compact counts `stm.expand` as a foreign item and never hides it.
 `shape` is `plain` or `pill` (default `plain`).
 
 In your own `spaces.lua` (stm does not edit this file), subscribe and skip your
-refresh while expanded:
+refresh while expanded. Declare `refresh` first. Do not subscribe on a `space.*`
+you hide: SketchyBar skips events on hidden items unless `updates` is true, so
+use a dedicated item that stays subscribed:
 
 ```lua
 sbar.add("event", "stm_expand")
 
 local expand_on = false
 
-space:subscribe("stm_expand", function(env)
+local function refresh()
+  if expand_on then
+    return
+  end
+  -- set drawing as you already do
+end
+
+local hold = sbar.add("item", "spaces_expand_hold", {
+  drawing = false,
+  updates = true,
+})
+hold:subscribe("stm_expand", function(env)
   if env.STM_EXPAND == "on" then
     expand_on = true
     sbar.set("space.1", { drawing = false })
@@ -1021,18 +1034,9 @@ space:subscribe("stm_expand", function(env)
     -- every space.* you own
   else
     expand_on = false
-    refresh() -- your function that shows the spaces for this workspace
+    refresh()
   end
 end)
-
--- In the function that re-shows spaces on workspace change (and on a 10 s
--- timer, if you have one):
-local function refresh()
-  if expand_on then
-    return
-  end
-  -- set drawing as you already do
-end
 ```
 
 | Command | What it does |

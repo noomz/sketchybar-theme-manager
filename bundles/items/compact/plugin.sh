@@ -506,6 +506,10 @@ END {
     for (k = 1; k <= n; k++) if ((un[i] SUBSEP fl[k]) in cw) print "C " un[i] " " fl[k] " " cw[un[i], fl[k]]
   }
 
+  # Lua sets update_freq=2 on stm_expand. Persist that here or the next
+  # unchanged fit thinks sfreq is still 30 and never writes 30 back (live
+  # stays at 2). No form change of its own (V70): next runs measure.
+  if (sender == "stm_expand") unsettled = 1
   calm = unsettled ? 0 : calm + 1
   if (calm > 9) calm = 9
   freq = calm >= 2 ? 30 : 2

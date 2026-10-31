@@ -153,6 +153,8 @@ assert_contains "$r" 'experimental'
 assert_contains "$r" 'stm install item:expand'
 assert_contains "$r" 'STM_EXPAND'
 assert_contains "$r" 'spaces.lua'
+assert_contains "$r" 'spaces_expand_hold'
+assert_contains "$r" 'updates = true'
 assert_contains "$r" 'stm never hides another item'
 assert_contains "$r" 'display with no notch'
 done_it
