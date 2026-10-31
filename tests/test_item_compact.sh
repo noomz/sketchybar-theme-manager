@@ -295,8 +295,9 @@ run_plugin OSA_OUT="0 2560 1440 -"
 run_plugin OSA_OUT="0 2560 1440 -"
 run_plugin OSA_OUT="0 2560 1440 -"
 assert_eq "freq 30" "$(grep '^freq ' "$TMPD/stm-compact.state")"
-run_plugin SENDER=stm_expand OSA_OUT="0 2560 1440 -"
+run_plugin SENDER=stm_expand
 assert_eq "" "$(triggers)" "no form change of its own"
+assert_eq "" "$QUERIES" "stm_expand does not measure"
 assert_contains "$SB" "update_freq=2"
 assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 2"
 assert_contains "$(cat "$TMPD/stm-compact.state")" "calm 0"
@@ -305,6 +306,13 @@ assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 2"
 assert_eq "" "$(printf '%s\n' "$SB" | grep update_freq)" "rate stays 2"
 run_plugin OSA_OUT="0 2560 1440 -"
 assert_contains "$SB" "update_freq=30"
+done_it
+
+it "stm_expand with no compact units restores update_freq 30 (V61)"
+fresh
+run_plugin SENDER=stm_expand STM_COMPACT_UNITS=""
+assert_contains "$SB" "update_freq=30"
+assert_eq "" "$(triggers)"
 done_it
 
 it "hysteresis: grow back only with 24 to spare, at a cached width (V59)"
