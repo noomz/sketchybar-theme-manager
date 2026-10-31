@@ -964,6 +964,10 @@ dofile(item_lua)(sbar, { name = "stm.compact", position = "left", update_freq = 
   options = { mode = mode } }, { white = 1, grey = 5, bg1 = 2, popup_bg = 3, popup_border = 4 })
 handlers["mouse.exited.global"]({})
 handlers["display_change"]({ SENDER = "display_change" })
+if handlers["stm_expand"] then
+  print("expand")
+  handlers["stm_expand"]({ SENDER = "stm_expand", STM_EXPAND = "on" })
+end
 for _, n in ipairs({ "stm.compact.prev", "stm.compact.next" }) do
   if clicks[n] then clicks[n]({ SENDER = "mouse.clicked" }) end
 end
@@ -979,6 +983,14 @@ EOF
   assert_contains "$out" "set stm.compact {popup={drawing=false}}"
   assert_contains "$out" "exec STM_CMP_MODE='shrink' STM_CMP_ACTION='' STM_COMPACT_UNITS='ai:normal:full short icon,clock:pin:full short' NAME='stm.compact' SENDER='forced' '/p/plugins/stm/compact.sh'"
   assert_contains "$out" "SENDER='display_change'"
+  done_it
+
+  it "item.lua: stm_expand goes unsettled, no plugin run, no form trigger (V61, V70)"
+  assert_contains "$out" "add event stm_expand"
+  assert_contains "$out" "subscribe stm_expand"
+  assert_contains "$out" "expand"
+  assert_contains "$out" "set stm.compact {update_freq=2}"
+  assert_eq "" "$(printf '%s\n' "$out" | grep "SENDER='stm_expand'")" "stm_expand must not run the plugin"
   done_it
 
   it "item.lua shrink, no mode or a bad one: no arrows, only stm.compact + its rows (V10, I.pg)"

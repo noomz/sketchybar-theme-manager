@@ -67,6 +67,7 @@ SHIPPED=(. ./ai ./ai/item.lua ./ai/item.toml ./ai/plugin.sh
   ./cpu ./cpu/item.lua ./cpu/item.toml ./cpu/plugin.sh
   ./date ./date/item.lua ./date/item.toml
   ./disk ./disk/item.lua ./disk/item.toml ./disk/plugin.sh
+  ./expand ./expand/item.lua ./expand/item.toml
   ./mem ./mem/item.lua ./mem/item.toml ./mem/plugin.sh
   ./net ./net/item.lua ./net/item.toml ./net/plugin.sh
   ./netspeed ./netspeed/item.lua ./netspeed/item.toml ./netspeed/plugin.sh
@@ -98,7 +99,7 @@ assert_eq "$(shipped ./linky ./linky/item.toml)" \
 for f in ai/plugin.sh battery/plugin.sh compact/plugin.sh cpu/plugin.sh disk/plugin.sh mem/plugin.sh net/plugin.sh netspeed/plugin.sh spotify/plugin.sh tailscale/plugin.sh; do
   assert_files_equal "$REPO_ROOT/bundles/items/$f" "$ITEMS/$f"
 done
-for b in ai battery clock compact cpu date disk mem net netspeed spotify tailscale; do
+for b in ai battery clock compact cpu date disk expand mem net netspeed spotify tailscale; do
   for f in item.toml item.lua; do
     assert_files_equal "$REPO_ROOT/bundles/items/$b/$f" "$ITEMS/$b/$f"
   done

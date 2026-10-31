@@ -589,6 +589,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 | `cpu` | CPU load: a graph and a percentage, coloured by load | `right` |
 | `date` | the date | `right` |
 | `disk` | how full the startup disk is, coloured by use | `right` |
+| `expand` | experimental: a click asks your left items to hide, so compact can use that room on a display with no notch | `left` |
 | `mem` | memory in use: a graph and a percentage, coloured by memory pressure | `right` |
 | `net` | the network link: Wi-Fi, Ethernet, VPN or offline | `right` |
 | `netspeed` | download and upload rates: graphs and numbers | `right` |
@@ -626,7 +627,7 @@ and `stm.netspeed.pill`; `ai` is a hidden `stm.ai` that drives one segment per
 provider, `stm.ai.<provider>`, with `stm.ai.<provider>.icon` and
 `stm.ai.<provider>.pill` as its shape needs; `compact` adds the chevron
 `stm.compact` and its popup rows, and with `mode = "page"` the arrows
-`stm.compact.prev` and `stm.compact.next`). These files are kept out of the `verify` baseline and go
+`stm.compact.prev` and `stm.compact.next`; `expand` is `stm.expand`). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -986,6 +987,53 @@ The notch comes from macOS (`NSScreen`, one `osascript` run); widths come from
 first fit after a reload may take a second run. A centred `spotify` is not
 counted until `narrow` moves it to the right. `stm.compact` has a fixed
 position: a theme's `[items]` slot for it is an error.
+
+#### Expander (experimental)
+
+`item:expand` is a left-side toggle. A click fires the `stm_expand` event with
+`STM_EXPAND` set to `on` or `off`. stm never hides another item. Left items
+that should yield, such as workspace `space.*` items, subscribe in your own
+file. Compact mode hears the event and refits from the new edges. The extra
+room appears on a display with no notch. A notched built-in is bounded by the
+notch, not by the left items.
+
+```console
+$ stm install item:expand
+```
+
+The toggle starts `off` and does not fire on load, so items start shown. There
+is no plugin. Compact counts `stm.expand` as a foreign item and never hides it.
+`shape` is `plain` or `pill` (default `plain`).
+
+In your own `spaces.lua` (stm does not edit this file), subscribe and skip your
+refresh while expanded:
+
+```lua
+sbar.add("event", "stm_expand")
+
+local expand_on = false
+
+space:subscribe("stm_expand", function(env)
+  if env.STM_EXPAND == "on" then
+    expand_on = true
+    sbar.set("space.1", { drawing = false })
+    sbar.set("space.2", { drawing = false })
+    -- every space.* you own
+  else
+    expand_on = false
+    refresh() -- your function that shows the spaces for this workspace
+  end
+end)
+
+-- In the function that re-shows spaces on workspace change (and on a 10 s
+-- timer, if you have one):
+local function refresh()
+  if expand_on then
+    return
+  end
+  -- set drawing as you already do
+end
+```
 
 | Command | What it does |
 | --- | --- |
