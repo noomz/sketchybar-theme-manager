@@ -27,6 +27,7 @@ return function(sbar, opts, colors)
   local plugin = quote(opts.plugin_dir .. "/compact.sh")
 
   sbar.add("event", "stm_compact")
+  sbar.add("event", "stm_expand")
 
   -- Hidden until an item is hidden; plugin.sh shows it. A hidden item gets no
   -- events unless it asks for them (SketchyBar's default is when_shown).
@@ -91,6 +92,14 @@ return function(sbar, opts, colors)
   item:subscribe(events, run)
   item:subscribe("mouse.exited.global", function()
     item:set({ popup = { drawing = false } })
+  end)
+  -- expand (#31): left items hide themselves. Do not change forms here;
+  -- go unsettled so the next runs refit from the new edges (V61, V70).
+  -- Run the plugin so it persists freq 2; else an unchanged fit leaves
+  -- the live rate at 2 forever.
+  item:subscribe("stm_expand", function()
+    item:set({ update_freq = 2 })
+    run({ SENDER = "stm_expand" })
   end)
   run()
 end

@@ -138,7 +138,7 @@ sets() { printf '%s\n' "$SB" | grep -c -E '^--(set|trigger)$'; }
 it "lint, manifest: position right, display + wake events, mode shrink|page, grey (I.cmp, I.pg, V4)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:compact
 assert_status 0
-assert_eq 'version = "0.3.1"' "$(grep '^version' "$BUNDLE/item.toml")"
+assert_eq 'version = "0.3.2"' "$(grep '^version' "$BUNDLE/item.toml")"
 assert_eq 'default_position = "right"' "$(grep '^default_position' "$BUNDLE/item.toml")"
 assert_eq 'events = ["display_change", "system_woke"]' "$(grep '^events' "$BUNDLE/item.toml")"
 assert_eq 'update_freq = 30' "$(grep '^update_freq' "$BUNDLE/item.toml")"
@@ -279,6 +279,40 @@ scene 160 200 30 125 100
 run_plugin
 assert_contains "$(cat "$TMPD/stm-compact.state")" "calm 0"
 assert_contains "$SB" "update_freq=2"
+done_it
+
+it "stm_expand: persist freq 2 when the fit is unchanged, then two calm runs restore 30 (V61, V70)"
+fresh
+bar logo stm.a stm.b stm.b.icon stm.c stm.compact vpn >"$FIX/bar"
+displays "1 0 2560 1440" >"$FIX/displays"
+item logo left on item "1 20 40"
+item stm.a right on item "1 2200 300"
+item stm.b right on item "1 2000 200"
+item stm.b.icon right on item "1 1970 30"
+item stm.c right on item "1 1700 250"
+item vpn right on item "1 1500 100"
+run_plugin OSA_OUT="0 2560 1440 -"
+run_plugin OSA_OUT="0 2560 1440 -"
+run_plugin OSA_OUT="0 2560 1440 -"
+assert_eq "freq 30" "$(grep '^freq ' "$TMPD/stm-compact.state")"
+run_plugin SENDER=stm_expand
+assert_eq "" "$(triggers)" "no form change of its own"
+assert_eq "" "$QUERIES" "stm_expand does not measure"
+assert_contains "$SB" "update_freq=2"
+assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 2"
+assert_contains "$(cat "$TMPD/stm-compact.state")" "calm 0"
+run_plugin OSA_OUT="0 2560 1440 -"
+assert_contains "$(cat "$TMPD/stm-compact.state")" "freq 2"
+assert_eq "" "$(printf '%s\n' "$SB" | grep update_freq)" "rate stays 2"
+run_plugin OSA_OUT="0 2560 1440 -"
+assert_contains "$SB" "update_freq=30"
+done_it
+
+it "stm_expand with no compact units restores update_freq 30 (V61)"
+fresh
+run_plugin SENDER=stm_expand STM_COMPACT_UNITS=""
+assert_contains "$SB" "update_freq=30"
+assert_eq "" "$(triggers)"
 done_it
 
 it "hysteresis: grow back only with 24 to spare, at a cached width (V59)"
@@ -964,6 +998,10 @@ dofile(item_lua)(sbar, { name = "stm.compact", position = "left", update_freq = 
   options = { mode = mode } }, { white = 1, grey = 5, bg1 = 2, popup_bg = 3, popup_border = 4 })
 handlers["mouse.exited.global"]({})
 handlers["display_change"]({ SENDER = "display_change" })
+if handlers["stm_expand"] then
+  print("expand")
+  handlers["stm_expand"]({ SENDER = "stm_expand", STM_EXPAND = "on" })
+end
 for _, n in ipairs({ "stm.compact.prev", "stm.compact.next" }) do
   if clicks[n] then clicks[n]({ SENDER = "mouse.clicked" }) end
 end
@@ -979,6 +1017,15 @@ EOF
   assert_contains "$out" "set stm.compact {popup={drawing=false}}"
   assert_contains "$out" "exec STM_CMP_MODE='shrink' STM_CMP_ACTION='' STM_COMPACT_UNITS='ai:normal:full short icon,clock:pin:full short' NAME='stm.compact' SENDER='forced' '/p/plugins/stm/compact.sh'"
   assert_contains "$out" "SENDER='display_change'"
+  done_it
+
+  it "item.lua: stm_expand goes unsettled, runs the plugin, no form trigger (V61, V70)"
+  assert_contains "$out" "add event stm_expand"
+  assert_contains "$out" "subscribe stm_expand"
+  assert_contains "$out" "expand"
+  assert_contains "$out" "set stm.compact {update_freq=2}"
+  assert_contains "$out" "SENDER='stm_expand'"
+  assert_eq "" "$(printf '%s\n' "$out" | grep -i trigger)" "lua must not fire stm_compact"
   done_it
 
   it "item.lua shrink, no mode or a bad one: no arrows, only stm.compact + its rows (V10, I.pg)"

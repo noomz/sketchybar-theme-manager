@@ -76,6 +76,24 @@ printf '%s\n' "$STM_COMPACT_UNITS" | /usr/bin/tr ',' '\n' | /usr/bin/awk -F: '
   $2 ~ /^(pin|high|normal|low)$/ &&
   ($3 == "full" || $3 == "full short" || $3 == "full icon" || $3 == "full short icon") &&
   !seen[$1]++ { print $1, $2, $3 }' >"$WORK/units"
+# stm_expand: persist freq 2, do not measure or change forms (V70). No units
+# → undo the live rate Lua set, or it stays at 2 forever.
+if [ "$SENDER" = stm_expand ]; then
+  if [ ! -s "$WORK/units" ]; then
+    sketchybar --set "$NAME" update_freq=30
+    exit 0
+  fi
+  [ -n "$state" ] && [ -f "$state" ] && /bin/cat "$state" >"$WORK/state" 2>/dev/null
+  : >>"$WORK/state"
+  /usr/bin/awk '$1 != "freq" && $1 != "calm" { print }
+    END { print "freq 2"; print "calm 0" }' "$WORK/state" >"$WORK/state.exp"
+  if [ -n "$state" ]; then
+    t=$(/usr/bin/mktemp "$state.XXXXXX" 2>/dev/null) || t=""
+    if [ -n "$t" ] && /bin/cat "$WORK/state.exp" >"$t" && /bin/mv -f "$t" "$state"; then :; else /bin/rm -f "$t"; fi
+  fi
+  sketchybar --set "$NAME" update_freq=2
+  exit 0
+fi
 [ -s "$WORK/units" ] || exit 0
 
 [ -n "$cache" ] && [ -f "$cache" ] && /bin/cat "$cache" >"$WORK/cache" 2>/dev/null
