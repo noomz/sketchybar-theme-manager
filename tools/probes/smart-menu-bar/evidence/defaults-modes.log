@@ -1,0 +1,55 @@
+In Full Screen Only
+
+ui-always
+2026-10-31T07:26:48Z
+Always
+_HIHideMenuBar=1
+AppleMenuBarVisibleInFullscreen=absent
+{"menuVisible":false,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+
+direct-false-false-first-sample
+2026-10-31T07:26:51Z
+Always
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=0
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+
+direct-after-5-second-wait
+2026-10-31T07:26:59Z
+Always
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=0
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+
+direct-after-10-more-second-wait
+2026-10-31T07:27:12Z
+Always
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=0
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+
+direct-after-settings-relaunch
+2026-10-31T07:27:17Z
+Always
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=0
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+Always
+
+ui-always-again
+2026-10-31T07:27:24Z
+Always
+_HIHideMenuBar=1
+AppleMenuBarVisibleInFullscreen=0
+{"menuVisible":false,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+Always
+
+ui-fullscreen-only-again
+2026-10-31T07:27:32Z
+In Full Screen Only
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=0
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+In Full Screen Only
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+restore_result=0

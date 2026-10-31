@@ -1,0 +1,11 @@
+direct-desktop-only
+Type is boolean
+Type is boolean
+{"fullScreen":false,"menuVisible":false,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":true,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{0, 0}, {1024, 738}}"}
+{"fullScreen":false,"menuVisible":false,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+delete-to-original-absent
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":false,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{0, 0}, {1024, 768}}"}
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+restore_absence_pass=1

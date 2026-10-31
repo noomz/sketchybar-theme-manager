@@ -335,7 +335,7 @@ When enabled, keep SketchyBar clickable on a notched target display. Set macOS m
 | ID | Status | Task | Evidence / acceptance |
 | --- | --- | --- | --- |
 | T1 | x | Inspect current compact notch detection, bar reload and layout ownership, display-change subscription, and macOS preference surfaces. | Cite concrete code paths and supported API documentation. |
-| T2 | todo | Probe preference read/write, exact “In Full Screen Only” behavior, effective change latency, permissions, fullscreen and restore in Tart. Save and restore VM preference. | Record commands, version, observed outcomes, failure cases; never probe host settings by writing. |
+| T2 | x | Probe preference read/write, exact “In Full Screen Only” behavior, effective change latency, permissions, fullscreen and restore in Tart. Save and restore VM preference. | Record commands, version, observed outcomes, failure cases; never probe host settings by writing. |
 | T3 | todo | Probe target-display geometry, menu-bar clearance, disconnect/reconnect and event delivery in Tart with DeskPad and physical-notch Mac where needed. | Document gaps between virtual and physical notch; no claim based solely on synthetic geometry. |
 | T4 | todo | Design ownership, state, arbitration for global setting vs multiple target displays, user intervention, crash recovery, and interaction with existing `y_offset`. | User approves any unresolved product or system-wide policy choices before implementation. |
 | T5 | todo | Add opt-in config validation, offline behavior, status and rollback interface. | Tests assert default off, invalid config, no palette control, and no state changes on dry run. |
