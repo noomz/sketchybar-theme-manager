@@ -281,3 +281,80 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
 | B21 | 2026-10-10 | compact grow stepped only to next wider form; `date` / `spotify` went full → icon (short skipped, never measured) → icon → short needed cached short → none → stuck at icon on 2560 external forever. found in T70 real-bar smoke (lid closed + open) | V59 |
 | B22 | 2026-10-10 | page arrows sat left of leftmost shown unit → x shift every step; fast 2nd click hit bare bar → SketchyBar 2.24 / macOS 27 raise bar window over item windows (CGWindowList bar 48 of 49 → 0): whole bar smeared behind own blur, `--query` normal, stay until bar reset. scripted clicks re-read arrow x each click → never miss; VM + stub tests green. same likely #30 `»` report. found in T75 live smoke, laptop only | V71,V72 |
 | B23 | 2026-10-14 | compact took any `bounding_rects` key as display showing bar; after runtime `--bar display=all` → `main` SketchyBar left `display-2` rect at −9999 size 1 in every item → built-in notch room (741) used on Studio 2560 alone → page arrows on, 8 of 11 units hidden; width 1 vs real → unit look mid-redraw → never settle (freq 2). test fixture "two displays" had local x for display at −1728 (B19 rule broken in test only). found after T75 live smoke | V73 |
+
+
+---
+
+# Draft spec: smart menu-bar avoidance
+
+Status: draft for new session. No implementation approved by this document. This section is separate from the item-bundles spec above. Repository `FORMAT.md` was not present when this draft was written.
+
+## §G Goal
+
+When enabled, keep SketchyBar clickable on a notched target display. Set macOS menu-bar auto-hide to “In Full Screen Only” and position SketchyBar below the native menu bar. Reevaluate when the monitor setup changes.
+
+## §C Constraints
+
+- C1 Opt-in. Default off. No system preference or bar-position change unless explicitly enabled.
+- C2 Do not modify AeroSpace configuration, window gaps, or window layout. Those are a separate feature.
+- C3 macOS menu-bar preference is system-wide. SketchyBar display targeting may be per display; do not pretend the preference is per display.
+- C4 No new mandatory dependency. Keep `bin/stm` Bash 3.2, stock macOS userland, offline, atomic file writes and existing trust boundaries.
+- C5 Do not change system preferences or real bar in tests. Use sandboxed stubs. Test real preference changes in Tart first, with explicit recovery.
+- C6 Respect system-owned settings and user changes. Do not overwrite a setting the user changed after stm last set it.
+- C7 Existing `layout.y_offset`, display targeting, bottom-position bars, fullscreen behavior, and bar reload must not silently regress.
+- C8 Do not ship by guessing undocumented macOS preference keys, persistence, authorization, propagation, or event semantics. Prove them in VM for supported macOS versions first.
+- C9 This feature is separate from widget groups PR #36. Do not assume that PR has merged or that its unresolved visibility defects are fixed.
+
+## §I Interfaces
+
+- I.config: explicit opt-in in trusted `stm.config.toml`. Proposed `[menu_bar] smart_notch = "on" | "off"`; final syntax and command ownership to be decided after feasibility probe. Default off. Palette cannot change macOS preferences.
+- I.display: identify display or displays actually hosting SketchyBar; determine notch and native menu-bar clearance using real display geometry. Distinguish unknown/unavailable from confirmed no notch.
+- I.events: evaluate once at start and on monitor connect, disconnect, rearrangement, and change of SketchyBar target display. Choose actual event source after probing; no polling or background daemon assumed without evidence and an explicit design decision.
+- I.system: read current macOS auto-hide mode; set “In Full Screen Only”; verify effective result. Preserve exact prior state, including unset/default if distinguishable. System-wide behavior across displays requires verification.
+- I.bar: temporarily adjust SketchyBar vertical offset when needed. Preserve user-configured base offset and avoid cumulative offsets. Measure coordinate semantics and interaction with native menu-bar height, notch, bar position, scale and fullscreen in VM.
+- I.state: persist original setting, last value applied by stm, original/base bar offset, target display identity and any necessary ownership state. Write atomically, scoped to current user. State schema to be designed after feasibility probe.
+- I.user: status and clear rollback path must be discoverable. Warnings must identify unsupported settings and recovery without exposing private data. Do not add CLI commands or options without updating help and README.
+
+## §V Invariants
+
+- V1 Opt-out or absent config means zero macOS preference writes and no smart offset adjustment.
+- V2 For a confirmed notched target, enabled behavior attempts fullscreen-only hiding and positions the bar below the native menu area. It verifies effective outcomes before declaring success.
+- V3 For confirmed non-notched targets, restore previous preference and base offset only while stm still owns the values. Display enumeration failure is not evidence of no notch and must not trigger restoration.
+- V4 If user changes a value after stm applied it, do not overwrite that user change during restoration or future reevaluations without renewed explicit consent. Detect and report ownership conflict.
+- V5 First transition saves prior state before mutating system settings. Repeated events and process restarts do not replace the original snapshot or compound offsets.
+- V6 If state cannot be persisted or preference read/verification fails, fail safely: do not report success; preserve recoverability and avoid a half-applied state. Specify and test compensation for partial failures after probing platform behavior.
+- V7 Display events converge to latest confirmed arrangement; stale concurrent events must not overwrite newer decisions. Define ordering/coalescing and recovery before implementation.
+- V8 User `stm.config.toml`, user bar files, and AeroSpace files are not rewritten by automatic event handling. Existing base `y_offset` remains authoritative for rollback.
+- V9 Disable and uninstall have documented, testable recovery even after an interrupted operation. If restoring the system preference fails, retain recovery state and warn.
+- V10 Unsupported macOS behavior, missing permissions, unavailable `NSScreen` data, or ambiguous target displays produces a warning and no speculative preference write.
+- V11 `--dry-run`, if offered for an operation, reports intended changes without touching system settings, bar, or state.
+- V12 Native menu-bar choice is global. Multi-display policies must be explicit and must not silently disable the setting while any managed target still requires it.
+
+## §T Tasks
+
+| ID | Status | Task | Evidence / acceptance |
+| --- | --- | --- | --- |
+| T1 | x | Inspect current compact notch detection, bar reload and layout ownership, display-change subscription, and macOS preference surfaces. | Cite concrete code paths and supported API documentation. |
+| T2 | todo | Probe preference read/write, exact “In Full Screen Only” behavior, effective change latency, permissions, fullscreen and restore in Tart. Save and restore VM preference. | Record commands, version, observed outcomes, failure cases; never probe host settings by writing. |
+| T3 | todo | Probe target-display geometry, menu-bar clearance, disconnect/reconnect and event delivery in Tart with DeskPad and physical-notch Mac where needed. | Document gaps between virtual and physical notch; no claim based solely on synthetic geometry. |
+| T4 | todo | Design ownership, state, arbitration for global setting vs multiple target displays, user intervention, crash recovery, and interaction with existing `y_offset`. | User approves any unresolved product or system-wide policy choices before implementation. |
+| T5 | todo | Add opt-in config validation, offline behavior, status and rollback interface. | Tests assert default off, invalid config, no palette control, and no state changes on dry run. |
+| T6 | todo | Implement serialized event-driven reconciliation and atomic recoverable state. | Tests cover V1–V12 including race and partial-failure cases, stubs only. |
+| T7 | todo | Verify behavior in Tart including restart, fullscreen, hotplug, disable and manual preference change; then obtain permission for host test. | Inspect actual macOS preference and real SketchyBar geometry. |
+| T8 | todo | Update `stm help`, README, and contributor guidance as needed; run project gates on Bash 3.2 and 5. | Tests and lint pass; document unsupported OS and recovery. |
+
+## §B Observations and risks
+
+| ID | Observation | Evidence / follow-up |
+| --- | --- | --- |
+| B1 | Clicking group selectors at screen top revealed the hidden native macOS menu bar instead of invoking the selectors. | On host, selector bounds began at y=0; temporary `sketchybar --bar y_offset=28` moved them to y=28. User had not yet confirmed that moving resolved clicks. |
+| B2 | Host currently has beta widget groups applied for a live test. | Config and original item ledger backed up under `~/.config/sketchybar/.stm-backups/pre-widget-groups-beta-20261030`. Host's configured offset remains 0; temporary live offset is 28 until reload. |
+| B3 | Widget groups PR #36 has unresolved review findings for self-showing members and multi-part widgets. | Feature worktree `.tmp/widget-groups` has an uncommitted, tested fix for groups with zero compact units. Do not mix it into this feature without checking status. |
+| B4 | Advisor suggested using `display=0` as a hide in earlier discussion. | Reject that premise: existing design and VM evidence show empty/zero display association can mean all displays. Verify actual SketchyBar semantics before choosing any mechanism. |
+
+## New-session handoff
+
+1. Read `AGENTS.md`, `CONTRIBUTING.md`, this draft and current git/worktree state. This section is appended to the existing spec; preserve both scopes.
+2. This is a spec/planning request, not authorization to change live macOS settings or implement code. Resolve uncertain platform facts in Tart first.
+3. Keep current live beta and unfinished PR #36 distinct from this feature. Do not overwrite or discard either.
+4. Present validated spec and outstanding decisions before implementation. Explicitly preserve user changes and provide rollback.
