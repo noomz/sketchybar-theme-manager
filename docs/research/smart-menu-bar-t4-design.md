@@ -118,7 +118,9 @@ One new command, `stm menubar`, with three subcommands:
 
 ### Hook
 
-When `smart_notch = "on"`, `stm apply` adds a hidden item named `stm.menubar` to the stm-owned layout overlay (`layout_generated.lua` or the `.sh` equivalent). The item uses `drawing=off` and `updates=on`, and subscribes to `display_change`, `system_woke` and `forced`. Its script runs `<absolute stm path> menubar refresh --quiet`. stm refuses an stm path that contains a quote, a backslash or a control character, as the items loader already does. When the config is `off`, `apply` removes the item. stm writes no user-owned file (V8). If the user has not wired the layout overlay, `status` reports that the hook is not loaded, and automatic reconciliation does not run.
+The layout overlay cannot carry the hook: it is data-only (a returned Lua table, or `export` lines), lint enforces that, and it exists only when `[layout]` does (SPEC B6, V13). The user moved the hook on 2026-11-01 to a bundled item, `item:menubar`, installed with `stm install item:menubar`. Like every item it works in Lua configs only.
+
+The item `stm.menubar` is hidden (`drawing=off`, `updates=on`) and subscribes to `display_change` and `system_woke`. SketchyBar also runs its script once after every config load (`forced`). The plugin runs `stm --dir "$CONFIG_DIR" menubar refresh --quiet`, finding `stm` on `PATH` or in the Homebrew prefixes. The plugin carries no policy: `stm` reads the config, so `smart_notch = "off"` makes every event a no-op. Bash-format configs run `stm menubar refresh` by hand. `status` reports a missing hook.
 
 ### State
 
@@ -143,6 +145,6 @@ bar.y_offset.applied=none|<integer>
 bar.y_offset.owner=...
 ```
 
-- Lock: `mkdir menubar.lock`, holding the PID and the process start time. stm never deletes a lock automatically. If an event arrives while another run holds the lock, it creates a `menubar.dirty` file and exits. Before it releases the lock, the running holder repeats the cycle while `menubar.dirty` exists, so the last run reflects the newest observation (V7).
+- Lock: `menubar.lock`, created atomically with `ln` from a temporary file that already holds the PID and the process start time, so a lock never exists without its owner. A run that finds the lock held by a live process touches `menubar.dirty`, tries the lock once more, and otherwise exits 0. The holder clears `menubar.dirty` at the start of each cycle and, after it releases the lock, takes the lock again while `menubar.dirty` exists, so no event is lost and the last cycle sees the newest observation (V7). A lock whose PID is not running, or now belongs to a process with a different start time, is stale. stm never deletes a lock automatically: it refuses to run and `status` names the file to remove.
 
 The scratch-item probe permission does not authorize any global-preference write on the host.
