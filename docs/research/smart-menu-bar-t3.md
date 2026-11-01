@@ -1,6 +1,6 @@
 # Smart menu-bar geometry and event probes
 
-T3 remains incomplete. This report records source inspection and experiments on 2026-11-01. No product code, host preference, host bar property, or AeroSpace configuration changed.
+T3 is complete. This report records source inspection and experiments on 2026-11-01. No product code, host preference, or AeroSpace configuration changed. The approved host probes temporarily added a scratch item and changed the runtime offset, then verified that both were restored.
 
 ## Environment and isolation
 
@@ -195,11 +195,36 @@ Subsequent read-only inspection found a full-display, on-screen `Screenshot` ove
 
 The user then reported excessive top offset. Read-only queries showed the group's selector at y=59 with runtime `y_offset=28` and `topmost=off`: native placement was already contributing 31 points. The user explicitly chose to remove the old 28-point workaround and pause host click probes. One runtime `sketchybar --bar y_offset=0` was applied. Re-query verified offset 0 and selector origin `(1678, 31)` with size `(44, 34)`. No config file or macOS preference changed.
 
-**Current host baseline is runtime `y_offset=0`, not 28.** Do not replay the earlier probe snapshot to restore 28. That snapshot is historical and has been superseded by the user's explicit correction. Host click automation is paused until the user resumes it. Screenshot causation and physical click safety must not be advertised as verified.
+**Current host baseline is runtime `y_offset=0`, not 28.** Do not replay the earlier probe snapshot to restore 28. That snapshot is historical and has been superseded by the user's explicit correction. The user later resumed host click testing; see the next section.
+
+## Physical-notch click delivery
+
+The user resumed automated host click testing on 2026-11-01. The baseline was runtime `y_offset=0`, `topmost=off`, `position=top`.
+
+The first rerun refused to start: `screencaptureui` held an on-screen window that covered the whole display at layer 24. With the user's approval, the process was quit. The overlay did not come back.
+
+The next run delivered 0 clicks at `(1120, 48)`. The item rectangle was `{{1070, 31}, {100, 34}}`, below the 34-point clearance. A read-only check of the window stack at that point showed an Open Design window at layer 0 above the SketchyBar window at layer -20. The bar is not raised when `topmost=off`, so any app window that overlaps the bar receives the clicks. Both earlier zero-delivery host runs therefore say nothing about the notch.
+
+The probe now refuses to click unless the front-most on-screen window at the click point belongs to SketchyBar, and reports the window that is in the way. The first version of this check passed `.excludeDesktopElements` to CoreGraphics. That option hides the layer -20 bar window, so the check refused every click. It now lists all on-screen windows. The cursor-restoration check now polls for up to 1 second instead of reading once after 0.1 seconds, and every click is logged before the check.
+
+The final run used a temporary empty AeroSpace workspace and returned to the user's workspace afterwards. It delivered 7 of 7 clicks:
+
+| Phase | Offset | Item rectangle | Edges clicked | Deliveries |
+| --- | --- | --- | --- | --- |
+| Current placement | 0 | `{{1070, 31}, {100, 34}}` | center | 1 of 1 |
+| Right of the camera housing | 3 (temporary) | `{{1070, 34}, {100, 34}}` | top, center, bottom | 3 of 3 |
+| Left of the camera housing | 3 (temporary) | `{{504, 34}, {100, 34}}` | top, center, bottom | 3 of 3 |
+
+Cleanup verified offset 0, removal of the scratch item, and cursor restoration after every click. Evidence is `tools/probes/smart-menu-bar/evidence/host-notch-click.log`.
+
+This result supports these conclusions:
+
+- With the menu shown on the desktop, SketchyBar's automatic 31-point clearance already keeps the item center clickable on this notched display. The 3 points between y=31 and the measured 34-point clearance were not clicked at offset 0.
+- When the item starts at the measured clearance, its top edge, center, and bottom edge are all clickable on both sides of the camera housing.
+- When `topmost=off`, app windows that overlap the bar take its clicks. Clearance below the native menu is necessary, but not sufficient. Clicks also depend on window gaps, which C2 keeps out of scope, or on `topmost`.
+
+No click targeted the camera-housing gap itself. No click was tested in fullscreen, or while the native menu was hidden on the desktop.
 
 ## Remaining T3 gates
 
-1. Verify physical-notch click delivery after the user resumes host click testing. Synthetic geometry cannot establish physical-notch behavior. The prior automated attempt failed and was cleaned up.
-2. Decide T4 policy for global native-menu preferences, unequal per-display clearance, and runtime retarget changes. Do not add a watcher or fixed offset before those choices have evidence and approval.
-
-T3 stays `todo` in SPEC.md. No product implementation is approved by these probe results.
+None. T4 policy choices 1 to 3 were approved on 2026-11-01; see [the T4 design](smart-menu-bar-t4-design.md).

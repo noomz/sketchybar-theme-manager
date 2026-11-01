@@ -154,6 +154,18 @@ do {
               !CGEventSource.buttonState(.combinedSessionState, button: .left) else {
             throw ProbeFailure("Refusing click outside confirmed clear scratch-item area")
         }
+        // An unraised bar sits below app windows; a click that lands on another window proves nothing about the notch.
+        // Keep desktop elements: an unraised bar's layer -20 window counts as one.
+        let stack = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        let front = stack.first { window in
+            guard let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return false }
+            return rect.contains(point)
+        }
+        let frontOwner = front?[kCGWindowOwnerName as String] as? String ?? "no listed window"
+        guard frontOwner == "sketchybar" else {
+            throw ProbeFailure("Click point occluded by \(frontOwner); no click posted")
+        }
         let before = try String(contentsOf: marker, encoding: .utf8).split(separator: "\n").count
         let source = CGEventSource(stateID: .hidSystemState)
         guard let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left),
@@ -169,14 +181,18 @@ do {
         up.post(tap: .cghidEventTap)
         Thread.sleep(forTimeInterval: 0.3)
         restore.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.1)
         let after = try String(contentsOf: marker, encoding: .utf8).split(separator: "\n").count
-        let currentPointer = CGEvent(source: nil)?.location
-        guard let currentPointer, abs(currentPointer.x - pointer.x) <= 1, abs(currentPointer.y - pointer.y) <= 1 else {
-            throw ProbeFailure("Cursor restoration not verified")
+        var currentPointer = CGEvent(source: nil)?.location
+        for _ in 0..<10 {
+            if let current = currentPointer, abs(current.x - pointer.x) <= 1, abs(current.y - pointer.y) <= 1 { break }
+            Thread.sleep(forTimeInterval: 0.1)
+            currentPointer = CGEvent(source: nil)?.location
         }
+        let restored = currentPointer.map { abs($0.x - pointer.x) <= 1 && abs($0.y - pointer.y) <= 1 } ?? false
         try emit(["phase": phase, "edge": edge, "item_rect": NSStringFromRect(rect),
-                  "click": ["x": point.x, "y": point.y], "deliveries": after - before, "cursor_restored": true])
+                  "click": ["x": point.x, "y": point.y], "deliveries": after - before, "cursor_restored": restored,
+                  "cursor": currentPointer.map { ["x": $0.x, "y": $0.y] } ?? [:]])
+        guard restored else { throw ProbeFailure("Cursor restoration not verified") }
         guard after - before == 1 else { throw ProbeFailure("Scratch handler did not receive exactly one click") }
     }
 

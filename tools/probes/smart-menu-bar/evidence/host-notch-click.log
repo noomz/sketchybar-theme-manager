@@ -2,3 +2,27 @@
 {"click":{"x":1120,"y":76},"cursor_restored":true,"deliveries":0,"edge":"center","item_rect":"{{1070, 59}, {100, 34}}","phase":"current-offset"}
 {"cleanup_verified":true,"restored_y_offset":28,"scratch_removed":true}
 probe_failed=Scratch handler did not receive exactly one click
+# 2026-11-01 rerun: offset 0, Screenshot overlay quit first; Open Design window (layer 0) covered click point above bar (layer -20)
+{"measured_clearance":34,"original_y_offset":0,"snapshot":"<scratch>"}
+{"click":{"x":1120,"y":48},"cursor_restored":true,"deliveries":0,"edge":"center","item_rect":"{{1070, 31}, {100, 34}}","phase":"current-offset"}
+{"cleanup_verified":true,"restored_y_offset":0,"scratch_removed":true}
+probe_failed=Scratch handler did not receive exactly one click
+# 2026-11-01 guard run on empty workspace: excludeDesktopElements hid the layer -20 bar window; refused, no click posted
+{"measured_clearance":34,"original_y_offset":0,"snapshot":"<scratch>"}
+{"cleanup_verified":true,"restored_y_offset":0,"scratch_removed":true}
+probe_failed=Click point occluded by no listed window; no click posted
+# 2026-11-01 guard fixed: first click delivered (clicks.log=1), then single 0.1 s cursor check aborted
+{"measured_clearance":34,"original_y_offset":0,"snapshot":"<scratch>"}
+{"cleanup_verified":true,"restored_y_offset":0,"scratch_removed":true}
+probe_failed=Cursor restoration not verified
+# 2026-11-01 final: empty AeroSpace workspace, no occluder, polling cursor check; 7 of 7 clicks delivered
+{"measured_clearance":34,"original_y_offset":0,"snapshot":"<scratch>"}
+{"click":{"x":1120,"y":48},"cursor":{"x":686.20703125,"y":324.48828125},"cursor_restored":true,"deliveries":1,"edge":"center","item_rect":"{{1070, 31}, {100, 34}}","phase":"current-offset"}
+{"extra_clearance":3,"tested_y_offset":3}
+{"click":{"x":1120,"y":36},"cursor":{"x":686.20703125,"y":324.48828125},"cursor_restored":true,"deliveries":1,"edge":"top","item_rect":"{{1070, 34}, {100, 34}}","phase":"right"}
+{"click":{"x":1120,"y":51},"cursor":{"x":686.20703125,"y":324.48828125},"cursor_restored":true,"deliveries":1,"edge":"center","item_rect":"{{1070, 34}, {100, 34}}","phase":"right"}
+{"click":{"x":1120,"y":66},"cursor":{"x":686.20703125,"y":324.48828125},"cursor_restored":true,"deliveries":1,"edge":"bottom","item_rect":"{{1070, 34}, {100, 34}}","phase":"right"}
+{"click":{"x":554,"y":36},"cursor":{"x":686.20703125,"y":324.48828125},"cursor_restored":true,"deliveries":1,"edge":"top","item_rect":"{{504, 34}, {100, 34}}","phase":"left"}
+{"click":{"x":554,"y":51},"cursor":{"x":686.20703125,"y":324.48828125},"cursor_restored":true,"deliveries":1,"edge":"center","item_rect":"{{504, 34}, {100, 34}}","phase":"left"}
+{"click":{"x":554,"y":66},"cursor":{"x":686.20703125,"y":324.48828125},"cursor_restored":true,"deliveries":1,"edge":"bottom","item_rect":"{{504, 34}, {100, 34}}","phase":"left"}
+{"cleanup_verified":true,"restored_y_offset":0,"scratch_removed":true}

@@ -9,7 +9,7 @@ Preliminary T4 design, not an approved implementation contract. T3 physical-clic
 - [T3](smart-menu-bar-t3.md): display topology and focus changes emit `display_change`; runtime bar retargeting does not. Reload requires initial reconciliation.
 - T3 shows unequal per-display automatic clearance. One global offset can clear a secondary while adding excess primary space. `notch_offset` is implemented for built-in displays, not confirmed notches.
 - The physical host's old workaround added 28 to an automatic 31, putting selectors at y=59. The user removed that workaround. Current runtime baseline is 0 and selector y=31. Never reuse historical 28 as its current baseline.
-- The physical click attempt failed with zero handler deliveries. A Screenshot overlay was later observed, but its causal role is unknown. Host clicks are paused by user choice.
+- Physical-notch clicks were delivered 7 of 7 once no app window covered the bar. When `topmost=off`, the bar sits at layer -20, so any overlapping app window takes its clicks. Clearance below the native menu is necessary but not sufficient.
 
 ## Compare command ownership
 
@@ -88,11 +88,16 @@ For multiple targets, one global offset cannot guarantee individually minimal sp
 
 Bottom-position bars need an explicit opt-out policy. The current draft requires preserving their behavior; a top-menu fix must not move them as a side effect.
 
-## Approval needed before implementation
+## Policy decisions
 
-1. Global menu preference policy: manage fullscreen-only while any confirmed notched target requires it, with ownership-preserving restore when none do; decide bottom-bar treatment explicitly.
-2. Mixed-target geometry: accept conservative extra spacing on other displays, or refuse unsupported combinations until per-display placement is proved.
-3. Silent runtime retargeting: require explicit refresh, or approve a separately evidenced observer/polling design.
-4. Public status, disable/recovery commands, trusted-hook installation, and durable state schema.
+The user approved these on 2026-11-01:
 
-Host click tests remain paused. Finish physical-click evidence only after the user resumes it. No global-preference host writes are authorized by the prior scratch-item probe permission.
+1. Global menu preference: manage "In Full Screen Only" only while at least one confirmed notched target has a top-position bar. When no target needs it, restore the preference, but only if stm still owns it. Bottom-position bars are out of scope: stm never changes the preference or the offset for them.
+2. Mixed-target geometry: use the maximum clearance that any managed target needs. Other displays get extra space as a result. Status must report this trade-off.
+3. Silent runtime retargeting: no daemon and no polling. stm reconciles at startup and reload, and on `display_change` and `system_woke`. A documented explicit refresh command handles manual retargeting.
+
+## Approval still needed before implementation
+
+1. The public status, refresh, disable and recovery command names; how the trusted hook is installed; and the durable state schema.
+
+The scratch-item probe permission does not authorize any global-preference write on the host.
