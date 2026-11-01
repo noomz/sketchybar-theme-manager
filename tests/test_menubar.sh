@@ -13,23 +13,49 @@ STATE="$STATE_DIR/menubar.state"
 CFG="$SANDBOX/stm.config.toml"
 export MB
 
-# The bar stub answers queries from fixture files and logs every call, so a
-# test can prove that no mutating command (--bar, --set, --add, --reload) ran.
+# The bar stub is stateful. $MB/disp holds one display per line,
+#   arrangement-id uuid x y w h auto
+# in CoreGraphics coordinates, where "auto" is SketchyBar's own clearance on
+# that display. $MB/yoff holds the runtime y_offset and $MB/pos the position.
+# One item, logo, is drawn on every display at auto + y_offset below its top.
+# Every call is logged so a test can prove that nothing mutated the bar.
 cat >"$SANDBOX/bin/sketchybar" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$*" >>"$MB/sketchybar.log"
 [ -f "$MB/bar-down" ] && exit 1
 case "$1" in
+  --bar)
+    shift
+    for a in "$@"; do
+      case "$a" in
+        y_offset=*) [ -f "$MB/bar-ignore" ] || printf '%s\n' "${a#y_offset=}" >"$MB/yoff" ;;
+      esac
+    done
+    exit 0
+    ;;
   --query) : ;;
   *) exit 0 ;;
 esac
+yoff=$(cat "$MB/yoff")
 while [ "$#" -gt 0 ]; do
   [ "$1" = "--query" ] || exit 1
   case "$2" in
-    bar) cat "$MB/bar.json" ;;
-    displays) cat "$MB/displays.json" ;;
+    bar)
+      printf '{\n\t"position": "%s",\n\t"topmost": "off",\n\t"height": 34,\n\t"y_offset": %s,\n\t"items": [\n\t\t "logo"\n\t]\n}\n' \
+        "$(cat "$MB/pos")" "$yoff"
+      ;;
+    displays)
+      awk 'BEGIN { print "[" }
+        { printf("%s\t{\n\t\t\"arrangement-id\":%s,\n\t\t\"UUID\":\"%s\",\n\t\t\"frame\":{\n\t\t\"x\":%s.0000,\n\t\t\"y\":%s.0000,\n\t\t\"w\":%s.0000,\n\t\t\"h\":%s.0000\n\t\t}\n\t}", (NR > 1 ? ",\n" : ""), $1, $2, $3, $4, $5, $6) }
+        END { print "\n]" }' "$MB/disp"
+      ;;
     stm.menubar) [ -f "$MB/hook" ] || exit 1; printf '{ "name": "stm.menubar" }\n' ;;
-    *) [ -f "$MB/item.$2.json" ] || exit 1; cat "$MB/item.$2.json" ;;
+    logo)
+      awk -v yo="$yoff" 'BEGIN { printf("{\n\t\"name\": \"logo\",\n\t\"bounding_rects\": {\n") }
+        { printf("%s\t\t\"display-%s\": {\n\t\t\t\"origin\": [ %d.000000, %d.000000 ],\n\t\t\t\"size\": [ 45.000000, 34.000000 ]\n\t\t}", (NR > 1 ? ",\n" : ""), $1, $3 + 8, $4 + $7 + yo) }
+        END { print "\n\t}\n}" }' "$MB/disp"
+      ;;
+    *) exit 1 ;;
   esac
   shift 2
 done
@@ -47,14 +73,32 @@ STUB
 chmod 755 "$SANDBOX/bin/osascript-stub"
 export STM_OSASCRIPT="$SANDBOX/bin/osascript-stub"
 
-# Preference stub: one file per key holds its value ("1", "0", or "string:x").
+# Preference stub: one file per key holds "1" or "0" ("string:x" for a key of
+# another type). Writes change the files. Faults: $MB/defaults-fail-<key>
+# makes a write to that key fail; $MB/defaults-ignore makes writes succeed
+# without effect; $MB/on-write runs after every write.
 cat >"$SANDBOX/bin/defaults-stub" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$*" >>"$MB/defaults.log"
 [ -f "$MB/defaults-down" ] && exit 1
 case "$1" in
   read-type | read) : ;;
-  *) printf '%s\n' "$*" >>"$MB/defaults-writes.log"; exit 0 ;;
+  write | delete)
+    printf '%s\n' "$*" >>"$MB/defaults-writes.log"
+    [ -f "$MB/defaults-fail-$3" ] && exit 1
+    if [ ! -f "$MB/defaults-ignore" ]; then
+      if [ "$1" = delete ]; then
+        rm -f "$MB/prefs/$3"
+      elif [ "$5" = true ]; then
+        printf '1\n' >"$MB/prefs/$3"
+      else
+        printf '0\n' >"$MB/prefs/$3"
+      fi
+    fi
+    [ -x "$MB/on-write" ] && "$MB/on-write" "$3"
+    exit 0
+    ;;
+  *) exit 1 ;;
 esac
 [ "$2" = "-g" ] || exit 1
 f="$MB/prefs/$3"
@@ -75,36 +119,31 @@ STUB
 chmod 755 "$SANDBOX/bin/defaults-stub"
 export STM_DEFAULTS="$SANDBOX/bin/defaults-stub"
 
-# mb_fixture [position] [y_offset] — one built-in notched display hosting a top
-# bar with one visible item, both menu preferences absent, no state.
+NOTCH_UUID=37D8832A-2D66-02CA-B9F7-8F30A301B230
+
+# mb_fixture [position] [y_offset] — one built-in notched display (SketchyBar
+# clears 31 points, the menu needs 34) hosting a bar with one item, both menu
+# preferences absent, no state.
 mb_fixture() {
-  local position="${1:-top}" offset="${2:-0}"
   rm -rf "$MB" "$STATE_DIR" "$CFG"
   mkdir -p "$MB/prefs"
   : >"$MB/sketchybar.log"
   : >"$MB/defaults.log"
   : >"$STM_FETCH_LOG"
   : >"$STM_POST_LOG"
-  printf '{\n\t"position": "%s",\n\t"topmost": "off",\n\t"height": 34,\n\t"y_offset": %s,\n\t"items": [\n\t\t "logo"\n\t]\n}\n' \
-    "$position" "$offset" >"$MB/bar.json"
-  cat >"$MB/displays.json" <<'JSON'
-[
-	{
-		"arrangement-id":1,
-		"DirectDisplayID":1,
-		"UUID":"37D8832A-2D66-02CA-B9F7-8F30A301B230",
-		"frame":{
-		"x":0.0000,
-		"y":0.0000,
-		"w":1728.0000,
-		"h":1117.0000
-		}
-	}
-]
-JSON
-  printf '{\n\t"name": "logo",\n\t"bounding_rects": {\n\t\t"display-1": {\n\t\t\t"origin": [ 8.000000, 31.000000 ],\n\t\t\t"size": [ 45.000000, 34.000000 ]\n\t\t}\n\t}\n}\n' \
-    >"$MB/item.logo.json"
-  printf '0 1728 1117 32 771.5 956.5\n' >"$MB/screens"
+  printf '%s\n' "${1:-top}" >"$MB/pos"
+  printf '%s\n' "${2:-0}" >"$MB/yoff"
+  printf '1 %s 0 0 1728 1117 31\n' "$NOTCH_UUID" >"$MB/disp"
+  printf '0 1728 1117 32 771.5 956.5 34\n' >"$MB/screens"
+}
+
+# pref <key> — the stub's current value, as stm reports it.
+pref() {
+  if [ -f "$MB/prefs/$1" ]; then
+    case "$(cat "$MB/prefs/$1")" in 1) echo bool:true ;; 0) echo bool:false ;; *) echo other ;; esac
+  else
+    echo absent
+  fi
 }
 
 mb_config() {
@@ -261,13 +300,22 @@ assert_not_contains "$STM_OUT" "would set"
 assert_no_writes
 done_it
 
-it "without --dry-run a plan that needs writes is refused, not half-applied"
+it "without --dry-run the plan is applied and verified (V2)"
 mb_fixture
 mb_config 'smart_notch = "on"'
 run_stm --config "$CFG" menubar refresh
-assert_ne 0 "$STM_STATUS"
-assert_contains "$STM_ERR" "--dry-run"
-assert_no_writes
+assert_status 0
+assert_eq bool:false "$(pref _HIHideMenuBar)" "_HIHideMenuBar applied"
+assert_eq bool:false "$(pref AppleMenuBarVisibleInFullscreen)" "fullscreen key applied"
+assert_eq 3 "$(cat "$MB/yoff")" "offset raised to the measured 34-point clearance"
+assert_contains "$STM_OUT" "set y_offset to 3 (base 0 + 3)"
+assert_file_contains "$STATE" "phase=active"
+assert_file_contains "$STATE" "pref._HIHideMenuBar.original=absent"
+assert_file_contains "$STATE" "pref._HIHideMenuBar.owner=applied"
+assert_file_contains "$STATE" "bar.y_offset.applied=3"
+assert_eq 600 "$(stat -f %Lp "$STATE")" "state file mode"
+assert_eq 700 "$(stat -f %Lp "$STATE_DIR")" "state dir mode"
+assert_file_absent "$STATE_DIR/menubar.lock" "lock released"
 done_it
 
 it "bottom bars are out of scope: no preference plan"
@@ -283,7 +331,7 @@ done_it
 it "a confirmed no-notch display needs nothing"
 mb_fixture
 mb_config 'smart_notch = "on"'
-printf '0 1728 1117 0 - -\n' >"$MB/screens"
+printf '0 1728 1117 0 - - 24\n' >"$MB/screens"
 run_stm --config "$CFG" menubar refresh --dry-run
 assert_status 0
 assert_contains "$STM_OUT" "nothing to do"
@@ -354,7 +402,7 @@ mb_fixture
 write_state bool:false 3
 printf '0\n' >"$MB/prefs/_HIHideMenuBar"
 printf '0\n' >"$MB/prefs/AppleMenuBarVisibleInFullscreen"
-sed -i '' 's/"y_offset": 0/"y_offset": 3/' "$MB/bar.json"
+printf '3\n' >"$MB/yoff"
 cp "$STATE" "$SANDBOX/state.before"
 run_stm menubar restore --dry-run
 assert_status 0
@@ -375,7 +423,7 @@ assert_status 0
 assert_contains "$STM_OUT" "conflict: _HIHideMenuBar is now bool:true"
 assert_not_contains "$STM_OUT" "would restore _HIHideMenuBar"
 assert_contains "$STM_OUT" "would restore AppleMenuBarVisibleInFullscreen"
-assert_contains "$STM_OUT" "conflict: y_offset is now 0"
+assert_contains "$STM_OUT" "y_offset is already back at 0"
 done_it
 
 it "config off with owned values plans a restore"
@@ -457,6 +505,255 @@ mb_fixture
 touch "$MB/hook"
 run_stm menubar status --porcelain
 assert_contains "$STM_OUT" "hook	loaded"
+done_it
+
+
+# ---------------------------------------------------------------------------
+# T6: apply, ownership and recovery
+# ---------------------------------------------------------------------------
+
+# applied — a fixture in which stm has already applied fullscreen-only and
+# raised the offset to 3.
+applied() {
+  mb_fixture
+  mb_config 'smart_notch = "on"'
+  run_stm --config "$CFG" menubar refresh
+  assert_status 0 "setup refresh"
+}
+
+it "a second refresh changes nothing and keeps the first originals (V5)"
+applied
+cp "$STATE" "$SANDBOX/state.before"
+before=$(wc -l <"$MB/defaults-writes.log")
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq "$before" "$(wc -l <"$MB/defaults-writes.log")" "no further preference write"
+assert_eq 3 "$(cat "$MB/yoff")" "offset not compounded"
+assert_file_contains "$STATE" "pref._HIHideMenuBar.original=absent"
+assert_not_contains "$(/usr/bin/grep -v '^--query' "$MB/sketchybar.log" | tail -n +2)" "y_offset" "no second offset write"
+done_it
+
+it "after a reload resets the offset, refresh re-baselines instead of compounding (V5, V8)"
+applied
+printf '0\n' >"$MB/yoff"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq 3 "$(cat "$MB/yoff")" "back to base 0 + 3, not 6"
+assert_file_contains "$STATE" "bar.y_offset.original=0"
+done_it
+
+it "a new user base offset becomes the base; stm adds only what is still needed (V8)"
+applied
+printf '10\n' >"$MB/yoff"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq 10 "$(cat "$MB/yoff")" "10 already clears the menu"
+assert_file_contains "$STATE" "bar.y_offset.owner=unchanged"
+done_it
+
+it "a preference the user changed is not overwritten (V4)"
+applied
+printf '1\n' >"$MB/prefs/_HIHideMenuBar"
+: >"$MB/defaults-writes.log"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_contains "$STM_ERR" "_HIHideMenuBar was changed after stm set it"
+assert_eq bool:true "$(pref _HIHideMenuBar)" "user value kept"
+assert_eq "" "$(cat "$MB/defaults-writes.log")" "no preference write"
+assert_file_contains "$STATE" "pref._HIHideMenuBar.owner=conflict"
+assert_file_contains "$STATE" "phase=conflict"
+run_stm --config "$CFG" menubar refresh
+assert_eq "" "$(cat "$MB/defaults-writes.log")" "still no write on the next event"
+done_it
+
+it "restore hands back every owned value and drops the state (V9)"
+applied
+run_stm --config "$CFG" menubar restore
+assert_status 0
+assert_eq absent "$(pref _HIHideMenuBar)"
+assert_eq absent "$(pref AppleMenuBarVisibleInFullscreen)"
+assert_eq 0 "$(cat "$MB/yoff")"
+assert_file_absent "$STATE" "state removed once nothing is owned"
+done_it
+
+it "restore keeps a user change and restores the rest (V4)"
+applied
+printf '1\n' >"$MB/prefs/_HIHideMenuBar"
+run_stm --config "$CFG" menubar restore
+assert_status 0
+assert_eq bool:true "$(pref _HIHideMenuBar)" "user value kept"
+assert_eq absent "$(pref AppleMenuBarVisibleInFullscreen)" "owned value restored"
+assert_file_absent "$STATE"
+done_it
+
+it "turning the config off restores on the next refresh (V9)"
+applied
+mb_config 'smart_notch = "off"'
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq absent "$(pref _HIHideMenuBar)"
+assert_eq 0 "$(cat "$MB/yoff")"
+assert_file_absent "$STATE"
+done_it
+
+it "a confirmed no-notch arrangement restores; an unknown one does not (V3)"
+applied
+rm -f "$MB/screens"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq bool:false "$(pref _HIHideMenuBar)" "unknown keeps stm's value"
+printf '0 1728 1117 0 - - 24\n' >"$MB/screens"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq absent "$(pref _HIHideMenuBar)" "no notch hands it back"
+assert_file_absent "$STATE"
+done_it
+
+it "moving the bar to the bottom hands back what stm owns"
+applied
+printf 'bottom\n' >"$MB/pos"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq absent "$(pref AppleMenuBarVisibleInFullscreen)"
+assert_eq 0 "$(cat "$MB/yoff")"
+done_it
+
+it "a failed write rolls back this run's earlier writes and keeps recovery state (V6)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+touch "$MB/defaults-fail-AppleMenuBarVisibleInFullscreen"
+run_stm --config "$CFG" menubar refresh
+assert_ne 0 "$STM_STATUS"
+assert_contains "$STM_ERR" "could not write AppleMenuBarVisibleInFullscreen"
+assert_eq absent "$(pref _HIHideMenuBar)" "earlier write rolled back"
+assert_eq 0 "$(cat "$MB/yoff")" "offset never touched"
+assert_file_contains "$STATE" "phase=recovery-required"
+assert_file_absent "$STATE_DIR/menubar.lock" "lock released after failure"
+rm -f "$MB/defaults-fail-AppleMenuBarVisibleInFullscreen"
+run_stm --config "$CFG" menubar restore
+assert_status 0
+assert_file_absent "$STATE" "restore resolves the uncertain write"
+done_it
+
+it "a write that does not take effect is reported, not trusted (V2, V6)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+touch "$MB/defaults-ignore"
+run_stm --config "$CFG" menubar refresh
+assert_ne 0 "$STM_STATUS"
+assert_contains "$STM_ERR" "reads absent after writing bool:false"
+assert_file_contains "$STATE" "phase=recovery-required"
+done_it
+
+it "an offset the bar ignores fails and rolls the preferences back (V2, V6)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+touch "$MB/bar-ignore"
+run_stm --config "$CFG" menubar refresh
+assert_ne 0 "$STM_STATUS"
+assert_contains "$STM_ERR" "y_offset reads 0 after writing 3"
+assert_eq absent "$(pref _HIHideMenuBar)"
+assert_eq absent "$(pref AppleMenuBarVisibleInFullscreen)"
+done_it
+
+it "no write happens when the state cannot be saved (V6)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+mkdir -p "$XDG_STATE_HOME"
+chmod 500 "$XDG_STATE_HOME"
+run_stm --config "$CFG" menubar refresh
+chmod 700 "$XDG_STATE_HOME"
+assert_ne 0 "$STM_STATUS"
+assert_file_absent "$MB/defaults-writes.log" "nothing written before the journal"
+assert_eq 0 "$(cat "$MB/yoff")"
+done_it
+
+it "a crash between write and verification is settled by the current value (V5, V9)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+write_state bool:false 3
+sed -i '' 's/^pref._HIHideMenuBar.owner=applied$/pref._HIHideMenuBar.owner=uncertain/; s/^phase=active$/phase=applying/' "$STATE"
+printf '0\n' >"$MB/prefs/_HIHideMenuBar"
+printf '0\n' >"$MB/prefs/AppleMenuBarVisibleInFullscreen"
+printf '3\n' >"$MB/yoff"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_file_contains "$STATE" "pref._HIHideMenuBar.owner=applied"
+assert_file_contains "$STATE" "phase=active"
+done_it
+
+it "a run that finds a live lock marks dirty and leaves (V7)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+sleep 30 &
+holder=$!
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+printf '%s\t%s\n' "$holder" "$(ps -o lstart= -p "$holder" | awk '{ $1 = $1; print }')" >"$STATE_DIR/menubar.lock"
+run_stm --config "$CFG" menubar refresh
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+assert_status 0
+assert_contains "$STM_OUT" "in progress"
+assert_file_exists "$STATE_DIR/menubar.dirty" "dirty mark for the holder"
+assert_file_absent "$MB/defaults-writes.log" "no write without the lock"
+done_it
+
+it "a stale lock is reported and never removed automatically (V7)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+printf '999999\tThu Jan  1 00:00:00 1970\n' >"$STATE_DIR/menubar.lock"
+run_stm --config "$CFG" menubar refresh
+assert_status 2
+assert_contains "$STM_ERR" "stale lock"
+assert_file_exists "$STATE_DIR/menubar.lock" "lock kept"
+assert_file_absent "$MB/defaults-writes.log"
+run_stm --config "$CFG" menubar status --porcelain
+assert_contains "$STM_OUT" "lock	stale"
+assert_contains "$STM_OUT" "lock.path	$STATE_DIR/menubar.lock"
+done_it
+
+it "an event during a run gets its own cycle with the newest observation (V7)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+cat >"$MB/on-write" <<HOOK
+#!/bin/sh
+[ -f "$MB/once" ] && exit 0
+touch "$MB/once" "$STATE_DIR/menubar.dirty"
+printf '0 1728 1117 0 - - 24\n' >"$MB/screens"
+HOOK
+chmod 755 "$MB/on-write"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq absent "$(pref _HIHideMenuBar)" "second cycle saw no notch and handed back"
+assert_file_absent "$STATE_DIR/menubar.dirty"
+assert_file_absent "$STATE_DIR/menubar.lock"
+assert_file_absent "$STATE"
+done_it
+
+it "user config files are never written (V8)"
+mb_fixture
+mkdir -p "$SANDBOX/sbdir"
+printf '[menu_bar]\nsmart_notch = "on"\n' >"$SANDBOX/sbdir/stm.config.toml"
+printf 'sketchybar --bar y_offset=0\n' >"$SANDBOX/sbdir/sketchybarrc"
+before=$(cd "$SANDBOX/sbdir" && cksum stm.config.toml sketchybarrc)
+run_stm --dir "$SANDBOX/sbdir" menubar refresh
+assert_status 0
+assert_eq "$before" "$(cd "$SANDBOX/sbdir" && cksum stm.config.toml sketchybarrc)"
+assert_eq "sketchybarrc stm.config.toml" "$(cd "$SANDBOX/sbdir" && echo *)" "no new file in the config dir"
+done_it
+
+it "mixed displays: any notched target keeps fullscreen-only; offset is the maximum need (V12)"
+mb_fixture
+mb_config 'smart_notch = "on"'
+printf '1 %s 0 0 1728 1117 31\n2 0B2C 1728 0 1440 900 0\n' "$NOTCH_UUID" >"$MB/disp"
+printf '0 1728 1117 32 771.5 956.5 34\n1728 1440 900 0 - - 30\n' >"$MB/screens"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq bool:false "$(pref AppleMenuBarVisibleInFullscreen)"
+assert_eq 30 "$(cat "$MB/yoff")" "secondary needs 30, more than the notch's 3"
 done_it
 
 # ---------------------------------------------------------------------------
