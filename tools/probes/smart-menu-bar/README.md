@@ -65,3 +65,67 @@ Expected final markers are `restore_result=0` for the first three scripts and `r
 For a disconnected session or forced process termination, inspect the retained snapshot before any recovery. For this specific absent baseline, recovery consists of deleting each of the two tested keys in the guest and verifying effective desktop/fullscreen behavior. Never delete keys belonging to an unknown baseline or reuse these scripts for a present-value snapshot.
 
 The recorded final replay used `/Users/admin/stm-smart-menu-probe.8MvYHg`. It left both keys absent. See [`docs/research/smart-menu-bar-t2.md`](../../../docs/research/smart-menu-bar-t2.md) for results and unsupported cases.
+
+## Run geometry and display-event probes
+
+These T3 probes do not change menu preferences. They start a temporary guest SketchyBar and stop it on exit. They refuse a physical Mac or an existing SketchyBar process. Coordinate use of an already-running guest before changing its display topology.
+
+Use SketchyBar 2.24.0 at `/opt/homebrew/bin/sketchybar` in the guest. These development probes also require the guest Swift compiler. Swift and DeskPad are not product dependencies.
+
+From this directory on the host, copy and compile the helpers:
+
+```sh
+VM=mac_jr
+D=$(tart exec "$VM" /usr/bin/mktemp -d /Users/admin/stm-t3.XXXXXX)
+for f in geometry.swift click.swift focus.swift geometry.sh placement.sh display-events.sh; do
+  tart exec -i "$VM" /usr/bin/tee "$D/$f" < "$f" >/dev/null || exit 1
+done
+for f in geometry click focus; do
+  tart exec "$VM" /usr/bin/swiftc "$D/$f.swift" -o "$D/$f" || exit 1
+done
+
+tart exec "$VM" /bin/sh "$D/geometry.sh" "$D/geometry" || exit 1
+tart exec "$VM" /bin/sh "$D/placement.sh" "$D/geometry" "$D/click" || exit 1
+```
+
+`placement.sh` posts real center clicks to its own `stm.placement` item. If event-posting permission is missing, the helper refuses without requesting permission. Expect three `click_deliveries=1` markers.
+
+For display events, copy the installed DeskPad application to the guest scratch directory. The recorded probe uses DeskPad 1.3.2. Do not replace a guest application or grant screen-recording permission for this probe.
+
+```sh
+/usr/bin/tar -C /Applications -cf - DeskPad.app |
+  tart exec -i "$VM" /usr/bin/tar -C "$D" -xf - || exit 1
+
+tart exec "$VM" /bin/sh "$D/display-events.sh" \
+  "$D/geometry" "$D/DeskPad.app/Contents/MacOS/DeskPad" "$D/focus" || exit 1
+```
+
+The script adds, removes, reconnects, and removes the DeskPad display. It changes only its temporary bar's target and offset. The native focus helper briefly activates its window on each display, then closes it and checks restoration of the previous application's focus. The script refuses an existing DeskPad process.
+
+Expected evidence includes two displays after add and reconnect, one after each removal, and `display_change` events for those topology changes. Active-display transitions produce INFO=2 then INFO=1. Actual bar retargeting produces no display-change event in the recorded run.
+
+The guest stays running if it was already running. Scratch files remain for inspection. See [`smart-menu-bar-t3.md`](../../../docs/research/smart-menu-bar-t3.md) for findings and remaining gates.
+
+## Test preference transitions and fullscreen placement
+
+Obtain explicit approval before this probe changes guest preferences. Do not run it on the host. Use a guest with one display, no running SketchyBar, and both tested preference keys absent. The probe refuses other preference baselines. Do not delete an existing key to make the probe run.
+
+From this directory on the host, create a fresh guest scratch directory:
+
+```sh
+VM=mac_jr
+D=$(tart exec "$VM" /usr/bin/mktemp -d /Users/admin/stm-menu-transitions.XXXXXX)
+for f in geometry.swift bar-fullscreen.swift menu-transitions.sh; do
+  tart exec -i "$VM" /usr/bin/tee "$D/$f" < "$f" >/dev/null || exit 1
+done
+for f in geometry bar-fullscreen; do
+  tart exec "$VM" /usr/bin/swiftc "$D/$f.swift" -o "$D/$f" || exit 1
+done
+tart exec "$VM" /bin/sh "$D/menu-transitions.sh" "$D" || exit 1
+```
+
+Expect ten `case_pass` records, eleven `focus_restore_verified=true` records, `restore_behavior_pass=1`, and `cleanup_result=0`. The first eight cases cover all four menu modes with both `topmost` values. Two more cover fullscreen-only mode with `show_in_fullscreen=on`. Every fullscreen round trip asserts display intersection, exact desktop-bound restoration, and preservation of `topmost`, `y_offset`, `sticky`, `show_in_fullscreen`, and `position`.
+
+The script snapshots both keys before changing them. Its exit trap restores their absence and stops its own bar. The final native fullscreen round trip verifies effective restoration before exit. If cleanup fails, retain the scratch directory and inspect both `*.type` snapshots and `*.restore-error` files. Do not apply absent-key recovery to a different baseline.
+
+The final replay used `/Users/admin/stm-menu-transitions.LGbDgd`. Output is in `evidence/menu-transitions-verified.log`. The earlier `evidence/menu-transitions.log` records eight observation cases before explicit bar-placement assertions were added. No host settings or live-bar properties changed.
