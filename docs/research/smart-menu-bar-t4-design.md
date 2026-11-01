@@ -1,6 +1,6 @@
 # Smart menu-bar ownership and recovery design
 
-Preliminary T4 design, not an approved implementation contract. T3 physical-click verification remains incomplete. The user approved probe work followed by design, not product implementation. This document does not amend SPEC.md.
+T4 design, approved by the user on 2026-11-01. T3 is complete. This document is the contract for T5 and T6. Implementation still has to prove each invariant with sandboxed tests.
 
 ## Evidence that constrains the design
 
@@ -96,8 +96,53 @@ The user approved these on 2026-11-01:
 2. Mixed-target geometry: use the maximum clearance that any managed target needs. Other displays get extra space as a result. Status must report this trade-off.
 3. Silent runtime retargeting: no daemon and no polling. stm reconciles at startup and reload, and on `display_change` and `system_woke`. A documented explicit refresh command handles manual retargeting.
 
-## Approval still needed before implementation
+## Interfaces
 
-1. The public status, refresh, disable and recovery command names; how the trusted hook is installed; and the durable state schema.
+The user approved the commands, the hook location and the state location on 2026-11-01.
+
+### Config
+
+`[menu_bar] smart_notch = "on" | "off"` in `stm.config.toml`. The default is `off`. stm reads it only from the trusted config file. A palette that contains `[menu_bar]` fails lint.
+
+### Commands
+
+One new command, `stm menubar`, with three subcommands:
+
+| Subcommand | Writes | Purpose |
+| --- | --- | --- |
+| `status [--porcelain]` | Nothing | Shows the config value, the targets and the notch state of each (`confirmed-notch`, `confirmed-no-notch` or `unknown`), the stored and effective menu preference, the base and managed offsets, ownership, conflicts, whether the hook item is loaded, and app windows that overlap the bar (B5). |
+| `refresh [--dry-run]` | Preferences, bar offset, state | Runs one observe, decide, apply and verify cycle. The hook calls it, and the user runs it after a manual `--bar display=` change. When the config is `off`, it restores the values it still owns, so disabling is: set `off`, then `refresh` or `apply`. |
+| `restore [--dry-run]` | Preferences, bar offset, state | Recovery. Restores every value stm still owns, whatever the config says, and deletes the state only after it verifies the restore. If the config is still `on`, it warns that the next refresh applies the values again. |
+
+`--dry-run` prints the plan and writes nothing (V11). Help and README change in T8.
+
+### Hook
+
+When `smart_notch = "on"`, `stm apply` adds a hidden item named `stm.menubar` to the stm-owned layout overlay (`layout_generated.lua` or the `.sh` equivalent). The item uses `drawing=off` and `updates=on`, and subscribes to `display_change`, `system_woke` and `forced`. Its script runs `<absolute stm path> menubar refresh --quiet`. stm refuses an stm path that contains a quote, a backslash or a control character, as the items loader already does. When the config is `off`, `apply` removes the item. stm writes no user-owned file (V8). If the user has not wired the layout overlay, `status` reports that the hook is not loaded, and automatic reconciliation does not run.
+
+### State
+
+The menu preference and the running bar both belong to the user, not to one config directory, so state is per user rather than in `.stm-state`:
+
+- File: `${XDG_STATE_HOME:-$HOME/.local/state}/stm/menubar.state`, mode 0600, in a 0700 directory. stm refuses symlinks and writes the file atomically.
+- Format: one `key=value` per line from a closed set of keys, beginning with `version=1`. stm parses it with `case` and `awk`, never with `source` or `eval`. An unknown key or value is an error, not a default.
+
+```text
+version=1
+phase=applying|active|restoring|conflict|recovery-required
+generation=<integer>
+targets=<display UUID>,...
+pref._HIHideMenuBar.original=absent|bool:true|bool:false
+pref._HIHideMenuBar.applied=none|bool:true|bool:false
+pref._HIHideMenuBar.owner=unchanged|applied|conflict|uncertain
+pref.AppleMenuBarVisibleInFullscreen.original=...
+pref.AppleMenuBarVisibleInFullscreen.applied=...
+pref.AppleMenuBarVisibleInFullscreen.owner=...
+bar.y_offset.original=<integer>
+bar.y_offset.applied=none|<integer>
+bar.y_offset.owner=...
+```
+
+- Lock: `mkdir menubar.lock`, holding the PID and the process start time. stm never deletes a lock automatically. If an event arrives while another run holds the lock, it creates a `menubar.dirty` file and exits. Before it releases the lock, the running holder repeats the cycle while `menubar.dirty` exists, so the last run reflects the newest observation (V7).
 
 The scratch-item probe permission does not authorize any global-preference write on the host.
