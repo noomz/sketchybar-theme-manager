@@ -8,7 +8,8 @@ SB=/opt/homebrew/bin/sketchybar
 OBSERVER=${1:?Provide compiled geometry.swift observer}
 DESKPAD=${2:?Provide disposable DeskPad executable}
 FOCUS=${3:?Provide compiled focus.swift helper}
-[ -x "$SB" ] && [ -x "$OBSERVER" ] && [ -x "$DESKPAD" ] && [ -x "$FOCUS" ] || exit 1
+REARRANGE=${4:?Provide compiled rearrange.swift helper}
+[ -x "$SB" ] && [ -x "$OBSERVER" ] && [ -x "$DESKPAD" ] && [ -x "$FOCUS" ] && [ -x "$REARRANGE" ] || exit 1
 if /usr/bin/pgrep -x sketchybar >/dev/null || /usr/bin/pgrep -x DeskPad >/dev/null; then
   printf '%s\n' 'Refusing to replace an existing probe application' >&2
   exit 1
@@ -20,6 +21,14 @@ deskpid=
 cleanup() {
   rc=$?
   trap - EXIT HUP INT TERM
+  if [ -f "$D/topology.json" ]; then
+    if ! "$REARRANGE" restore "$D/topology.json"; then
+      printf 'Topology recovery failed; inspect %s before further display changes\n' "$D/topology.json" >&2
+      rc=1
+      # Keep DeskPad alive so the saved display still exists for recovery.
+      deskpid=
+    fi
+  fi
   if [ -n "$deskpid" ]; then
     kill "$deskpid" 2>/dev/null || :
     wait "$deskpid" 2>/dev/null || :
@@ -66,6 +75,20 @@ sample before_add
 deskpid=$!
 sleep 5
 sample after_add
+"$REARRANGE" snapshot "$D/topology.json"
+events_before=$(grep -c '^sender=display_change ' "$D/events.log" || :)
+"$REARRANGE" move "$D/topology.json"
+sample after_rearrange
+events_after=$(grep -c '^sender=display_change ' "$D/events.log" || :)
+[ "$events_after" -gt "$events_before" ] || { printf '%s\n' 'No display_change event after rearrangement' >&2; exit 1; }
+printf 'rearrange_events=%s\n' "$((events_after - events_before))"
+"$REARRANGE" restore "$D/topology.json"
+sample after_restore
+events_restored=$(grep -c '^sender=display_change ' "$D/events.log" || :)
+[ "$events_restored" -gt "$events_after" ] || { printf '%s\n' 'No display_change event after restoration' >&2; exit 1; }
+printf 'restore_events=%s\n' "$((events_restored - events_after))"
+# Restoration was verified before removing the recovery snapshot from the trap.
+mv "$D/topology.json" "$D/topology-restored.json"
 "$SB" --bar y_offset=0
 sleep 1
 sample all_zero

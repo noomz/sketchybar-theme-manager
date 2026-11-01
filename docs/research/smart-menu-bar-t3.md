@@ -139,11 +139,67 @@ ShellCheck and Bash 3.2 and 5 syntax checks cover the shell probes. Swift progra
 
 Both full product suites passed, 29 of 29 test files on Bash 3.2 and Bash 5. Project and probe ShellCheck commands were silent. `sh -n install.sh` and `git diff --check` passed. The first combined test command exhausted its 300-second execution limit after Bash 3.2 passed and while Bash 5 was still running. Bash 5 then passed when run alone with a 600-second limit. No test assertion failure or product defect was reported, so no product invariant or SPEC change follows from this execution timeout.
 
+## Display rearrangement and restoration
+
+A later T3 replay on 2026-11-01 used `/Users/admin/stm-t3-rearrange.C7fOQV` and recorded its runtime snapshot in `/Users/admin/stm-display-events.0ZTvPt`. The guest was already running, with no SketchyBar or DeskPad process. No menu preferences were changed.
+
+`rearrange.swift` refuses a non-VirtualMac machine. It snapshots the two active displays' IDs and origins before changing either display. Its session-scoped CoreGraphics transaction moves the secondary to the left of the primary. Restoration accepts only the saved original or expected moved topology, so an unexpected external rearrangement is not overwritten.
+
+| Observation | Original | Moved | Restored |
+| --- | --- | --- | --- |
+| Primary CoreGraphics origin | `(0, 0)` | `(0, 0)` | `(0, 0)` |
+| Secondary CoreGraphics origin | `(960, -154)` | `(-1440, 80)` | `(960, -154)` |
+| Secondary item origin, offset 30 | `(980, -124)` | `(-1420, 110)` | `(980, -124)` |
+| New `display_change` events | Baseline | 3 | 3 |
+
+The helper asserted exact effective origins after move and restoration. The shell asserted positive event deltas for both operations. The moved secondary's item remained 20 points from its display's left edge and 30 points below its top. AppKit reported `{{-1440, -303}, {1440, 900}}`; conversion with primary height 677 gives CoreGraphics top `677 - (-303 + 900) = 80`. The native menu window also moved to `(-1440, 80)` and remained 30 points high. This verifies coordinate matching after an actual negative-origin rearrangement, not a synthetic fixture.
+
+The shell retains an active topology snapshot until restoration succeeds. Its exit trap attempts restoration before removing DeskPad. Unexpected topology causes a nonzero exit and leaves DeskPad running for inspection. Forced process termination can bypass this trap; the snapshot remains in guest scratch storage. The successful run renamed its snapshot to `topology-restored.json` before later disconnect/reconnect tests.
+
+The complete event probe returned exit 0. Its focus helper reported `focus_restore_verified=true`. Independent post-run process checks found no SketchyBar or DeskPad process. The guest stayed running. Evidence is `tools/probes/smart-menu-bar/evidence/display-rearrange.log`. Swift compiled in the guest; the existing focus helper emitted its macOS 14 activation-option deprecation warning. The changed shell probe passed ShellCheck and Bash 3.2 and 5 syntax checks. After this replay, both full product suites passed sequentially, 29 of 29 test files on Bash 3.2 and 29 of 29 on Bash 5. Product and probe ShellCheck commands were silent. `sh -n install.sh` and `git diff --check` passed.
+
+## Multi-display fullscreen placement
+
+`multidisplay-fullscreen.sh` ran on 2026-11-01 in the already-running guest. It starts only its own temporary SketchyBar and disposable DeskPad processes. Both menu preference keys were absent before and after the probe. The script makes no preference writes and refuses an existing SketchyBar or DeskPad process.
+
+The first replay used `/Users/admin/stm-t3-fullscreen.WoLNIw`. The final replay used `/Users/admin/stm-t3-fullscreen.UGQdnE` after adding an explicit assertion that the other display's visibility stays unchanged. Both used `display=all`, `sticky=on`, `y_offset=30`, and `notch_offset=0`. The native fullscreen window was centered on the selected display before entry, and the helper verified the actual fullscreen window's display ID.
+
+| `topmost` | `show_in_fullscreen` | Fullscreen target | Target bar intersects display | Other bar intersects display |
+| --- | --- | --- | --- | --- |
+| off | off | primary | false | true |
+| off | off | secondary | false | true |
+| off | on | primary | true | true |
+| off | on | secondary | true | true |
+| on | off | primary | false | true |
+| on | off | secondary | false | true |
+| on | on | primary | true | true |
+| on | on | secondary | true | true |
+
+The primary fullscreen window occupied AppKit `{{0, 0}, {960, 677}}`. The secondary occupied `{{960, -69}, {1440, 900}}`, matching that display. Native menu visibility was true on desktop and false in fullscreen. The helper matched SketchyBar's display arrangement IDs to CoreGraphics display IDs and tested each item's rectangle against its own display bounds. It did not accept intersection with any other display as evidence of target visibility.
+
+All eight multi-display cases asserted fullscreen entry on the intended screen, target visibility matching `show_in_fullscreen`, unchanged visibility on the other screen, unchanged bar settings, and exact desktop item-bound restoration. The shell checked native-menu visibility and focus restoration. After DeskPad closed, two more cases exercised the helper's original no-argument single-display interface with `show_in_fullscreen` off and on. All ten cases passed, with ten verified focus restorations and `cleanup_result=0`.
+
+Final evidence is `tools/probes/smart-menu-bar/evidence/multidisplay-fullscreen-verified.log`. The initial eight-case observation is retained as `multidisplay-fullscreen.log`. No fullscreen clicks were posted, so these results prove geometry and restoration, not click delivery on either display.
+
+The first compile of the extended helper failed because its class referred to a top-level `guard let` binding. Passing the target screen and ID through `Probe.init` fixed that probe-only Swift scope error. It is not a product defect or a new platform invariant. Both helpers then compiled in the guest. After the final replay, both full product suites passed sequentially, 29 of 29 test files on Bash 3.2 and 29 of 29 on Bash 5. Product and probe ShellCheck commands were silent. The new runner passed Bash 3.2 and 5 syntax checks. `sh -n install.sh` and `git diff --check` passed.
+
+A read-only host capture after these probes still showed `y_offset=28`, `topmost=off`, `position=top`, and `show_in_fullscreen=off`. The sole display remained 1728 by 1117, with top safe inset 32. Its two auxiliary areas ended at x=771.5 and began at x=956.5, respectively, identifying the camera-housing gap. The current visible frame ended at y=1083, not the earlier y=1085. This changed observation reinforces that visible-frame clearance must not be cached or equated with the safe inset. No host item, offset, pointer, preference, or configuration was changed.
+
+## Physical-host click attempt and user offset correction
+
+The user explicitly approved an automated temporary physical-host probe, followed by design only. Scope excluded macOS preference writes, config edits, reload, and grouping changes. The probe was allowed to add one scratch item, temporarily adjust runtime offset if needed, post clicks only on that item using existing permission, and restore cursor and bar offset.
+
+`host-notch-click.swift` compiled on the host. A deliberate mismatched-model invocation refused before mutation. The approved invocation on `Mac16,5` saved `/tmp/stm-host-notch.ogrgAy/snapshot.json` before creating a unique scratch item. It measured clearance 34 and original runtime offset 28. The scratch rectangle was `{{1070, 59}, {100, 34}}`; a synthetic center click at `(1120, 76)` produced zero handler deliveries. The probe failed, restored the cursor, removed its scratch item, and verified `y_offset=28`. Evidence is `tools/probes/smart-menu-bar/evidence/host-notch-click.log`. No offset write was needed or attempted during that failed run.
+
+Subsequent read-only inspection found a full-display, on-screen `Screenshot` overlay. It may explain interception, but causation has not been proved. The probe now refuses that overlay before item, offset, or pointer mutations. The updated helper compiled, but no second host click was attempted. A failed click is not proof that either the notch or the offset caused the failure. T3 click delivery remains unverified.
+
+The user then reported excessive top offset. Read-only queries showed the group's selector at y=59 with runtime `y_offset=28` and `topmost=off`: native placement was already contributing 31 points. The user explicitly chose to remove the old 28-point workaround and pause host click probes. One runtime `sketchybar --bar y_offset=0` was applied. Re-query verified offset 0 and selector origin `(1678, 31)` with size `(44, 34)`. No config file or macOS preference changed.
+
+**Current host baseline is runtime `y_offset=0`, not 28.** Do not replay the earlier probe snapshot to restore 28. That snapshot is historical and has been superseded by the user's explicit correction. Host click automation is paused until the user resumes it. Screenshot causation and physical click safety must not be advertised as verified.
+
 ## Remaining T3 gates
 
-1. Exercise display rearrangement and confirm event delivery and coordinate matching. Negative origins are already measured, but no display was explicitly rearranged by the probes.
-2. Verify physical-notch placement and clicks only with explicit host-test permission. The current approval excludes host changes. Synthetic geometry cannot establish physical-notch behavior.
-3. Multi-display fullscreen placement remains unverified. The completed fullscreen cases use the guest's single display.
-4. Decide T4 policy for global native-menu preferences, unequal per-display clearance, and runtime retarget changes. Do not add a watcher or fixed offset before those choices have evidence and approval.
+1. Verify physical-notch click delivery after the user resumes host click testing. Synthetic geometry cannot establish physical-notch behavior. The prior automated attempt failed and was cleaned up.
+2. Decide T4 policy for global native-menu preferences, unequal per-display clearance, and runtime retarget changes. Do not add a watcher or fixed offset before those choices have evidence and approval.
 
 T3 stays `todo` in SPEC.md. No product implementation is approved by these probe results.

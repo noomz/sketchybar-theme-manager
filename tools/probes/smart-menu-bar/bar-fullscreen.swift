@@ -16,20 +16,62 @@ func query(_ name: String) throws -> Any {
     return try JSONSerialization.jsonObject(with: data)
 }
 
+let machine = Process()
+let machineOutput = Pipe()
+machine.executableURL = URL(fileURLWithPath: "/usr/sbin/sysctl")
+machine.arguments = ["-n", "hw.model"]
+machine.standardOutput = machineOutput
+try machine.run()
+let model = String(decoding: machineOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+machine.waitUntilExit()
+guard machine.terminationStatus == 0, model.hasPrefix("VirtualMac") else {
+    fputs("Refusing fullscreen probe outside VirtualMac\n", stderr)
+    exit(1)
+}
 let previous = NSWorkspace.shared.frontmostApplication
 let application = NSApplication.shared
-guard NSScreen.screens.count == 1 else {
-    fputs("Probe requires one guest display\n", stderr)
+let requestedScreen = CommandLine.arguments.dropFirst().first
+let targetScreen: NSScreen
+if let requestedScreen {
+    guard CommandLine.arguments.count == 2, NSScreen.screens.count == 2,
+          requestedScreen == "primary" || requestedScreen == "secondary",
+          let screen = NSScreen.screens.first(where: {
+              let id = $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
+              return (id == CGMainDisplayID()) == (requestedScreen == "primary")
+          }) else {
+        fputs("Usage: bar-fullscreen [primary|secondary], with exactly two displays when specified\n", stderr)
+        exit(1)
+    }
+    targetScreen = screen
+} else {
+    guard NSScreen.screens.count == 1, let screen = NSScreen.screens.first else {
+        fputs("Probe requires one guest display unless primary or secondary is specified\n", stderr)
+        exit(1)
+    }
+    targetScreen = screen
+}
+guard let targetID = targetScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else {
+    fputs("Missing target display ID\n", stderr)
     exit(1)
 }
 
 final class Probe: NSObject, NSWindowDelegate {
+    let targetScreen: NSScreen
+    let targetID: UInt32
+
+    init(targetScreen: NSScreen, targetID: UInt32) {
+        self.targetScreen = targetScreen
+        self.targetID = targetID
+        super.init()
+    }
+
     let window = NSWindow(contentRect: NSRect(x: 160, y: 140, width: 640, height: 400),
                           styleMask: [.titled, .closable, .resizable, .miniaturizable],
                           backing: .buffered, defer: false)
     var finished = false
     var initialBounds: NSDictionary?
     var initialSettings: NSDictionary?
+    var initialVisibility: [String: Bool] = [:]
 
     func sample(_ phase: String) {
         do {
@@ -52,24 +94,41 @@ final class Probe: NSObject, NSWindowDelegate {
                 throw NSError(domain: "MissingBarGeometry", code: 1)
             }
             let settings = NSDictionary(dictionary: bar.filter {
-                ["topmost", "y_offset", "sticky", "show_in_fullscreen", "position"].contains($0.key)
+                ["topmost", "y_offset", "sticky", "show_in_fullscreen", "position", "display"].contains($0.key)
             })
-            let intersects = bounds.values.contains { row in
-                guard let origin = row["origin"] as? [Double], origin.count == 2,
-                      let size = row["size"] as? [Double], size.count == 2 else { return false }
-                let rect = CGRect(x: origin[0], y: origin[1], width: size[0], height: size[1])
-                return NSScreen.screens.contains { screen in
-                    guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return false }
-                    return CGDisplayBounds(id).intersects(rect)
+            guard let displays = try query("displays") as? [[String: Any]] else {
+                throw NSError(domain: "MissingDisplays", code: 1)
+            }
+            var visibility: [String: Bool] = [:]
+            for display in displays {
+                guard let id = display["DirectDisplayID"] as? UInt32,
+                      let arrangement = display["arrangement-id"] as? Int else {
+                    throw NSError(domain: "InvalidDisplayIdentity", code: 1)
                 }
+                let row = bounds["display-\(arrangement)"]
+                var visible = false
+                if let origin = row?["origin"] as? [Double], origin.count == 2,
+                   let size = row?["size"] as? [Double], size.count == 2 {
+                    let rect = CGRect(x: origin[0], y: origin[1], width: size[0], height: size[1])
+                    visible = CGDisplayBounds(id).intersects(rect)
+                }
+                visibility[String(id)] = visible
+            }
+            guard let intersects = visibility[String(targetID)] else {
+                throw NSError(domain: "TargetDisplayMissing", code: 1)
             }
             let isFullScreen = window.styleMask.contains(.fullScreen)
             if phase == "desktop-before" {
                 initialBounds = NSDictionary(dictionary: bounds)
                 initialSettings = settings
+                initialVisibility = visibility
             }
             if phase == "fullscreen" {
+                guard visibility.filter({ $0.key != String(targetID) }) == initialVisibility.filter({ $0.key != String(targetID) }) else {
+                    throw NSError(domain: "OtherDisplayVisibilityChanged", code: 1)
+                }
                 guard isFullScreen,
+                      window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 == targetID,
                       intersects == (bar["show_in_fullscreen"] as? String == "on") else {
                     throw NSError(domain: "FullscreenPlacementMismatch", code: 1)
                 }
@@ -86,6 +145,9 @@ final class Probe: NSObject, NSWindowDelegate {
             }
             let output: [String: Any] = [
                 "phase": phase,
+                "targetDisplayID": targetID,
+                "visibilityByDisplayID": visibility,
+                "windowFrame": NSStringFromRect(window.frame),
                 "menuVisible": NSMenu.menuBarVisible(),
                 "fullScreen": window.styleMask.contains(.fullScreen),
                 "bar": bar,
@@ -111,6 +173,7 @@ final class Probe: NSObject, NSWindowDelegate {
         window.title = "STM temporary fullscreen bar probe"
         window.collectionBehavior = [.fullScreenPrimary]
         window.delegate = self
+        window.setFrameOrigin(NSPoint(x: targetScreen.frame.midX - 320, y: targetScreen.frame.midY - 200))
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -148,6 +211,6 @@ final class Probe: NSObject, NSWindowDelegate {
     }
 }
 
-let probe = Probe()
+let probe = Probe(targetScreen: targetScreen, targetID: targetID)
 probe.start()
 application.run()

@@ -77,10 +77,10 @@ From this directory on the host, copy and compile the helpers:
 ```sh
 VM=mac_jr
 D=$(tart exec "$VM" /usr/bin/mktemp -d /Users/admin/stm-t3.XXXXXX)
-for f in geometry.swift click.swift focus.swift geometry.sh placement.sh display-events.sh; do
+for f in geometry.swift click.swift focus.swift rearrange.swift geometry.sh placement.sh display-events.sh; do
   tart exec -i "$VM" /usr/bin/tee "$D/$f" < "$f" >/dev/null || exit 1
 done
-for f in geometry click focus; do
+for f in geometry click focus rearrange; do
   tart exec "$VM" /usr/bin/swiftc "$D/$f.swift" -o "$D/$f" || exit 1
 done
 
@@ -97,12 +97,16 @@ For display events, copy the installed DeskPad application to the guest scratch 
   tart exec -i "$VM" /usr/bin/tar -C "$D" -xf - || exit 1
 
 tart exec "$VM" /bin/sh "$D/display-events.sh" \
-  "$D/geometry" "$D/DeskPad.app/Contents/MacOS/DeskPad" "$D/focus" || exit 1
+  "$D/geometry" "$D/DeskPad.app/Contents/MacOS/DeskPad" "$D/focus" "$D/rearrange" || exit 1
 ```
 
-The script adds, removes, reconnects, and removes the DeskPad display. It changes only its temporary bar's target and offset. The native focus helper briefly activates its window on each display, then closes it and checks restoration of the previous application's focus. The script refuses an existing DeskPad process.
+The script adds the DeskPad display, snapshots both display origins, moves the secondary display to the left of the primary, and restores the exact saved origins. The move uses a session-scoped CoreGraphics display transaction, not a permanent display preference. The helper verifies effective origins after both operations, and the shell asserts that each operation delivers `display_change`.
 
-Expected evidence includes two displays after add and reconnect, one after each removal, and `display_change` events for those topology changes. Active-display transitions produce INFO=2 then INFO=1. Actual bar retargeting produces no display-change event in the recorded run.
+An exit trap restores the topology before stopping DeskPad if the snapshot is still active. Recovery refuses a topology that matches neither the original nor the probe's expected moved state. On recovery failure, the probe returns nonzero and leaves DeskPad running so the saved display still exists. Inspect the printed snapshot path before any manual recovery. A forced kill can bypass the shell trap.
+
+The script then removes, reconnects, and removes the DeskPad display. It also changes its temporary bar's target and offset. The native focus helper briefly activates its window on each display, then closes it and checks restoration of the previous application's focus. The script refuses an existing DeskPad process.
+
+Expected evidence includes two displays after add and reconnect, one after each removal, and `display_change` events for those topology changes. Rearrangement adds `move_verified=true`, `restore_verified=true`, and positive `rearrange_events` and `restore_events` counts. Active-display transitions produce INFO=2 then INFO=1. Actual bar retargeting produces no display-change event in the recorded run.
 
 The guest stays running if it was already running. Scratch files remain for inspection. See [`smart-menu-bar-t3.md`](../../../docs/research/smart-menu-bar-t3.md) for findings and remaining gates.
 
@@ -129,3 +133,38 @@ Expect ten `case_pass` records, eleven `focus_restore_verified=true` records, `r
 The script snapshots both keys before changing them. Its exit trap restores their absence and stops its own bar. The final native fullscreen round trip verifies effective restoration before exit. If cleanup fails, retain the scratch directory and inspect both `*.type` snapshots and `*.restore-error` files. Do not apply absent-key recovery to a different baseline.
 
 The final replay used `/Users/admin/stm-menu-transitions.LGbDgd`. Output is in `evidence/menu-transitions-verified.log`. The earlier `evidence/menu-transitions.log` records eight observation cases before explicit bar-placement assertions were added. No host settings or live-bar properties changed.
+
+## Test fullscreen on two displays without preference writes
+
+Use an already-running disposable VirtualMac guest, no running SketchyBar or DeskPad, and both tested menu keys absent. This probe refuses a different preference baseline and never writes preferences. Coordinate guest use before adding its temporary display.
+
+```sh
+VM=mac_jr
+D=$(tart exec "$VM" /usr/bin/mktemp -d /Users/admin/stm-t3-fullscreen.XXXXXX)
+for f in geometry.swift bar-fullscreen.swift multidisplay-fullscreen.sh; do
+  tart exec -i "$VM" /usr/bin/tee "$D/$f" < "$f" >/dev/null || exit 1
+done
+for f in geometry bar-fullscreen; do
+  tart exec "$VM" /usr/bin/swiftc "$D/$f.swift" -o "$D/$f" || exit 1
+done
+/usr/bin/tar -C /Applications -cf - DeskPad.app |
+  tart exec -i "$VM" /usr/bin/tar -C "$D" -xf - || exit 1
+tart exec "$VM" /bin/sh "$D/multidisplay-fullscreen.sh" \
+  "$D" "$D/DeskPad.app/Contents/MacOS/DeskPad" || exit 1
+```
+
+The runner tests primary and secondary fullscreen entry with both `topmost` values and both `show_in_fullscreen` values. It then closes DeskPad and checks the helper's original single-display interface with fullscreen visibility off and on. Expect ten `case_pass` records, ten `focus_restore_verified=true` records, and `cleanup_result=0`.
+
+`bar-fullscreen primary` and `bar-fullscreen secondary` require exactly two guest displays. Without an argument, the helper requires one. It matches each SketchyBar arrangement ID to a CoreGraphics display ID before testing item intersection with that display. During fullscreen, it checks the target window's screen and requires other displays' item visibility to remain unchanged. Every round trip checks exact desktop bounds and unchanged bar settings. It does not post clicks or prove physical-notch clearance.
+
+The exit trap stops only the runner's own SketchyBar and DeskPad processes and verifies that the two preference keys remain absent. It reports an unexpected external preference change without overwriting it. Guest scratch files remain for inspection. Forced termination can bypass cleanup.
+
+The final replay used `/Users/admin/stm-t3-fullscreen.UGQdnE`. Evidence is `evidence/multidisplay-fullscreen-verified.log`; the initial eight-case observation is `evidence/multidisplay-fullscreen.log`.
+
+## Physical-host click probe status
+
+`host-notch-click.swift` is a separately approved host-only experiment, not an installable feature. It requires an exact approved machine model, existing event-posting permission, one confirmed notched built-in screen, and a fresh snapshot directory. It snapshots before mutation, refuses a full-screen Screenshot overlay, adds only a unique scratch item, and posts clicks only below measured clearance. It removes its item and verifies restoration of any owned offset; unexpected external offset changes are not overwritten. A process kill can bypass cleanup, so retain the snapshot.
+
+The first host attempt failed with zero handler deliveries. Cleanup and cursor restoration succeeded. Evidence is `evidence/host-notch-click.log`. A Screenshot overlay was subsequently observed; interception remains an unproved explanation, not a verified cause.
+
+**Host click probes are paused by the user. Do not run this helper until testing is resumed.** The user separately removed the historical runtime offset workaround. Current host `y_offset` is 0, not 28. Never replay `/tmp/stm-host-notch.ogrgAy/snapshot.json` to restore its obsolete value of 28. See the T3 report for the permission and recovery history.

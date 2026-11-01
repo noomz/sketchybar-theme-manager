@@ -1,0 +1,4 @@
+{"measured_clearance":34,"original_y_offset":28,"snapshot":"\/tmp\/stm-host-notch.ogrgAy\/snapshot.json"}
+{"click":{"x":1120,"y":76},"cursor_restored":true,"deliveries":0,"edge":"center","item_rect":"{{1070, 59}, {100, 34}}","phase":"current-offset"}
+{"cleanup_verified":true,"restored_y_offset":28,"scratch_removed":true}
+probe_failed=Scratch handler did not receive exactly one click
