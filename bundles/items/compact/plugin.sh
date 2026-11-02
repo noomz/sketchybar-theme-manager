@@ -35,9 +35,11 @@
 #
 # groups mode (#35) is the selector, and it never sizes anything away: one
 # group per display is shown. A member goes on every display whose group
-# holds it with --set <item> display=<adid>,<adid>, and off the bar with
-# drawing=off when no display chose its group (an empty display list would
-# mean every display, not none). The pills select: stm.compact.<group>.<slot>,
+# holds it with --set <item> display=<adid>,<adid>, and off the bar when no
+# display chose its group (an empty display list would mean every display, not
+# none). A bundled unit goes as a whole: its sub-items share the mask, and the
+# stm_compact trigger hides it with its form. Any other member gets drawing=off.
+# The pills select: stm.compact.<group>.<slot>,
 # one per group per display slot, because a click event carries no display id.
 # The pass asks the bar which displays exist and which of them the bar is on
 # (its own item's bounding_rects, which SketchyBar lists only for the bar's
@@ -179,9 +181,9 @@ save() {
 }
 
 # fit_groups — groups mode over groups, state and displays. Records as fit
-# does: `S <arg>` set/move argv, `X <row>` a state row. A pill click reads the
-# displays back from the state rows instead of asking the bar. Nothing when the
-# bar has no displays to name.
+# does: `S <arg>` set/move argv, `X <row>` a state row, `T <arg>` a trigger
+# argument. A pill click reads the displays and sub-items back from the state
+# rows instead of asking the bar. Nothing when the bar has no displays to name.
 fit_groups() {
   # shellcheck disable=SC2016  # awk source
   /usr/bin/awk -v name="$NAME" -v sender="$SENDER" -v work="$WORK" \
@@ -215,8 +217,17 @@ fit_groups() {
     }
     next
   }
+  kind == "units" { un[++nu] = $1; isu[$1] = 1; next }
+  kind == "bar" {
+    line = $0
+    gsub(/[ \t",]/, "", line)
+    if (index(line, "stm.") == 1) baritem[++nbi] = line
+    next
+  }
   kind == "state" {
-    if ($1 == "disp" && NF == 2 && $2 ~ /^[1-9][0-9]*$/)
+    if ($1 == "form" && NF == 3 && $3 == "hidden") chid[$2] = 1
+    else if ($1 == "part" && NF == 3) { cpm[++ncp] = $2; cpp[ncp] = $3 }
+    else if ($1 == "disp" && NF == 2 && $2 ~ /^[1-9][0-9]*$/)
       cdisp[$2] = 1
     else if ($1 == "group" && NF == 3 && $2 ~ /^[1-9][0-9]*$/ && ($3 in gseen))
       cgroup[$2] = $3
@@ -264,9 +275,27 @@ fit_groups() {
       if (!(d in cdisp) || cgroup[d] != s) changed = 1
     }
 
+    # A member that is a bundled unit owns its sub-items. Listing one of them
+    # as well adds nothing. Popup rows are not on the bar.
+    for (k = 1; k <= nm; k++)
+      if (index(mem[k], "stm.") == 1 && (substr(mem[k], 5) in isu)) unit[mem[k]] = substr(mem[k], 5)
+    k2 = 0
+    for (k = 1; k <= nm; k++) {
+      own = 0
+      for (u in unit) if (index(mem[k], u ".") == 1) own = 1
+      if (!own) mem[++k2] = mem[k]
+    }
+    nm = k2
+    for (i = 1; i <= nbi; i++) {
+      if (baritem[i] ~ /\.row\./) continue
+      for (u in unit) if (index(baritem[i], u ".") == 1) { pm[++np] = u; pp[np] = baritem[i] }
+    }
+    if (nbi == 0) for (i = 1; i <= ncp; i++) if (cpm[i] in unit) { pm[++np] = cpm[i]; pp[np] = cpp[i] }
+
     # Members: on every display that chose their group; off the bar when none
-    # did (drawing=off is the hide; an empty display list means every display).
-    # drawing=on comes back only where we were the ones who hid it.
+    # did (an empty display list means every display). A unit hides by its form,
+    # because its own handler sets drawing on every update. Any other member
+    # gets drawing=off, and drawing=on comes back only where we hid it.
     for (k = 1; k <= nm; k++) {
       m = mem[k]
       list = ""
@@ -278,11 +307,31 @@ fit_groups() {
         newmask[m] = list
         if (m in coff) setto(m, "display=" list, "drawing=on")
         else if (forced || !(m in cmask) || cmask[m] != list) setto(m, "display=" list)
+        for (i = 1; i <= np; i++) {
+          if (pm[i] != m) continue
+          newmask[pp[i]] = list
+          if (forced || !(pp[i] in cmask) || cmask[pp[i]] != list) setto(pp[i], "display=" list)
+        }
+      } else if (m in unit) {
+        newhid[unit[m]] = 1
+        if (m in coff) newoff[m] = 1
       } else {
         newoff[m] = 1
         if (forced || !(m in coff)) setto(m, "drawing=off")
       }
     }
+
+    # A unit reads a missing form as full, so a trigger names every unit.
+    # Reloaded items start full, so a reload sends the hidden forms again.
+    for (i = 1; i <= nu; i++) {
+      if (un[i] in newhid) anyhid = 1
+      if ((un[i] in newhid) != (un[i] in chid)) formchg = 1
+    }
+    if (formchg || (forced && anyhid))
+      for (i = 1; i <= nu; i++) {
+        key = toupper(un[i]); gsub(/[.-]/, "_", key)
+        print "T STM_FORM_" key "=" ((un[i] in newhid) ? "hidden" : "full")
+      }
 
     # Pills: one per group per live display, the chosen one boxed and white,
     # the rest grey with no box.
@@ -328,15 +377,20 @@ fit_groups() {
     for (i = 1; i <= nd; i++) print "X disp " dlive[i]
     for (i = 1; i <= nd; i++) print "X group " dlive[i] " " act[dlive[i]]
     for (k = 1; k <= nm; k++) print "X memb " mem[k]
+    for (i = 1; i <= np; i++) print "X memb " pp[i]
+    for (i = 1; i <= np; i++) print "X part " pm[i] " " pp[i]
     for (k = 1; k <= nm; k++) if (newmask[mem[k]] != "") print "X mask " mem[k] " " newmask[mem[k]]
+    for (i = 1; i <= np; i++) if (newmask[pp[i]] != "") print "X mask " pp[i] " " newmask[pp[i]]
     for (k = 1; k <= nm; k++) if (newoff[mem[k]]) print "X off " mem[k]
+    for (i = 1; i <= nu; i++) if (un[i] in newhid) print "X form " un[i] " hidden"
     for (i = 1; i <= nd; i++)
       for (j = 1; j <= ng; j++) print "X pill " dlive[i] " " g[j] " " newpill[dlive[i] SUBSEP g[j]]
-  }' "$WORK/groups" "$WORK/state" "$WORK/displays" "$WORK/self" >"$WORK/out"
+  }' "$WORK/groups" "$WORK/units" "$WORK/bar" "$WORK/state" "$WORK/displays" "$WORK/self" >"$WORK/out"
 }
 
 if [ "$mode" = groups ]; then
   groups_rows || exit 0
+  : >"$WORK/bar"
   # A pill click steps off the display rows the last full run wrote; anything
   # else (a first run, a reload, a display change) asks the bar what it has.
   if [ -n "$gsel" ] && [ -n "$gslot" ] &&
@@ -347,11 +401,19 @@ if [ "$mode" = groups ]; then
     sketchybar --query displays >"$WORK/displays" 2>/dev/null
     [ -s "$WORK/displays" ] || exit 0
     sketchybar --query "$NAME" >"$WORK/self" 2>/dev/null || : >"$WORK/self"
+    [ -s "$WORK/units" ] && sketchybar --query bar >"$WORK/bar" 2>/dev/null
     gsel=""; gslot=""
   fi
   fit_groups
   [ -s "$WORK/out" ] || exit 0
   save X "$state"
+  set --
+  while IFS= read -r a; do
+    [ -n "$a" ] && set -- "$@" "$a"
+  done <<EOF
+$(/usr/bin/sed -n 's/^T //p' "$WORK/out")
+EOF
+  [ "$#" -gt 0 ] && sketchybar --trigger stm_compact "$@"
   set --
   while IFS= read -r a; do
     [ -n "$a" ] && set -- "$@" "$a"

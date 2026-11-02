@@ -1046,7 +1046,7 @@ BG1=0xff1e1e2e
 
 # groups [VAR=value...] — one plugin run in groups mode.
 groups() {
-  run_plugin STM_CMP_MODE=groups STM_COMPACT_GROUPS="$GRP" \
+  run_plugin STM_COMPACT_UNITS= STM_CMP_MODE=groups STM_COMPACT_GROUPS="$GRP" \
     STM_WHITE="$WHITE" STM_GREY="$GREY" STM_BG1="$BG1" "$@"
 }
 
@@ -1069,6 +1069,109 @@ gclick() {
 gstate() {
   printf '%s\n' "$@" >"$ST"
 }
+
+# --- groups with bundled units: forms carry the hide, sub-items follow the mask
+# Codex review on #36: a hidden battery came back on its next update, and a
+# split item's icon stayed outside its group.
+
+# ugroups [VAR=value...] — groups mode where stm.a, stm.b and stm.c are bundled.
+ugroups() { groups STM_COMPACT_UNITS="$UNITS" "$@"; }
+ubar() {
+  fresh
+  displays "$@" >"$FIX/displays"
+  rm -f "$FIX"/item.*
+  bar logo stm.a stm.b stm.b.icon stm.c stm.compact stm.a.row.0 stm.bx >"$FIX/bar"
+}
+
+it "groups: a bundled member is hidden by its form, not by drawing=off"
+ubar "1 0 1728 1117"
+ugroups
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+assert_not_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)"
+assert_contains "$(cat "$ST")" "form c hidden"
+done_it
+
+it "groups: a bundled member's sub-item follows its mask; popup rows and lookalikes do not"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=1)"
+assert_not_contains "$SB" "stm.a.row.0"
+assert_not_contains "$SB" "stm.bx"
+assert_contains "$QUERIES" "query --query bar"
+done_it
+
+it "groups: the same scene twice sends no trigger, so a member's own updates decide nothing"
+ugroups
+assert_eq "" "$(triggers)"
+assert_eq "" "$SB"
+done_it
+
+it "groups: a reload sends the forms again, because reloaded items start full"
+ugroups SENDER=forced
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+done_it
+
+it "groups: a pill click swaps the forms and masks the sub-item without asking the bar"
+gclick 1 media STM_COMPACT_UNITS="$UNITS"
+assert_eq "$(trigger_of hidden hidden full)" "$(triggers)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c display=1)"
+assert_eq "" "$QUERIES"
+gclick 1 work STM_COMPACT_UNITS="$UNITS"
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=1)"
+assert_eq "" "$QUERIES"
+done_it
+
+it "groups: two displays on different groups give the sub-item only its group's display"
+ubar "1 0 1728 1117" "2 1728 2560 1440"
+ugroups
+gclick 1 media STM_COMPACT_UNITS="$UNITS"
+assert_eq "$(trigger_of full full full)" "$(triggers)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=2)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c display=1)"
+done_it
+
+it "groups: a listed sub-item of a listed member is one member, not two"
+ubar "1 0 1728 1117"
+ugroups STM_COMPACT_GROUPS='work:stm.a,stm.b,stm.b.icon;media:stm.c'
+assert_eq 1 "$(printf '%s\n' "$SB" | grep -c '^stm\.b\.icon$')"
+gclick 1 media STM_COMPACT_UNITS="$UNITS" STM_COMPACT_GROUPS='work:stm.a,stm.b,stm.b.icon;media:stm.c'
+assert_not_contains "$SB" "$(printf '%s\n' --set stm.b.icon drawing=off)"
+done_it
+
+it "groups: your own item in the same group keeps the direct hide"
+ubar "1 0 1728 1117"
+ugroups STM_COMPACT_GROUPS='work:stm.a;media:stm.c,front_app'
+assert_contains "$SB" "$(printf '%s\n' --set front_app drawing=off)"
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+done_it
+
+it "leaving groups: the reload shows a hidden unit again, and the sub-item gets every display back"
+ubar "1 0 1728 1117"
+ugroups
+gclick 1 media STM_COMPACT_UNITS="$UNITS"
+scene 100 100 30 100 10
+run_plugin SENDER=forced
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=1)"
+assert_not_contains "$(triggers)" "=hidden"
+assert_not_contains "$(cat "$ST")" "memb "
+done_it
+
+it "groups: the real battery plugin stays hidden through its updates (Codex review on #36)"
+ubar "1 0 1728 1117"
+ugroups STM_COMPACT_UNITS="battery:high:full icon,a:high:full" STM_COMPACT_GROUPS='work:stm.a;power:stm.battery'
+form=$(printf '%s\n' "$SB" | sed -n 's/^STM_FORM_BATTERY=//p')
+assert_eq hidden "$form"
+cat >"$SANDBOX/pmset" <<'EOF'
+#!/bin/sh
+printf ' -InternalBattery-0 (id=1)\t80%%; discharging\n'
+EOF
+chmod 755 "$SANDBOX/pmset"
+rm -f "$SB_LOG"
+env -i HOME="$HOME" PATH="$SANDBOX/bin:/bin:/usr/bin" SB_LOG="$SB_LOG" FIX="$FIX" NAME=stm.battery \
+  SENDER=routine STM_FORM="$form" STM_PMSET="$SANDBOX/pmset" \
+  /bin/sh "$(dirname "$PLUGIN")/../battery/plugin.sh" >/dev/null 2>&1
+assert_contains "$(cat "$SB_LOG")" "$(printf '%s\n' --set stm.battery drawing=off)"
+assert_not_contains "$(cat "$SB_LOG")" "drawing=on"
+done_it
 
 it "groups work with only user items and no compact units"
 fresh

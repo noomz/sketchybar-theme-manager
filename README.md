@@ -1006,7 +1006,12 @@ each. `compact` cannot be a member: it is the selector itself.
 Each display gets one pill per group, at the right end of its bar. The active
 group's pill is white with a box; the others are grey without one. A pill click
 puts that display on that group: the group's members are put on the display and
-every other member is taken off the bar. The choice is remembered per display,
+every other member is taken off the bar. An installed stm item goes as a whole,
+with its icon and other parts, and stays hidden through its own updates. One of
+your own items is hidden with `drawing=off`, so a script of yours that sets
+`drawing=on` shows it again until the next reload. List each part
+of your own items, and the same goes for a part of an stm item listed without
+the item itself, such as `stm.ai.claude.0`. The choice is remembered per display,
 so a reload keeps it, and a display that has no choice yet — or whose group was
 renamed away — gets the first group in the order you wrote them. Only the
 displays your bar is on take part: with `display = "main"` the other displays
@@ -1015,7 +1020,7 @@ get no pill and claim no group, so no member is moved to a display with no bar.
 Nothing is measured in this mode: a group that is wider than the bar is clipped
 by SketchyBar, so keep each group inside one display's width. `pin`/`high`,
 `normal` and `low` mean nothing here, the `»` and the `‹` `›` arrows are not
-used, and a display change costs `sketchybar --query displays` plus one query of `stm.compact` — a pill
+used, and a display change costs `sketchybar --query displays`, one query of `stm.compact` and, with installed stm items, `--query bar` — a pill
 click asks the bar nothing.
 
 ```toml
