@@ -1,0 +1,22 @@
+# stm.expand — expander (#31, experimental).
+# Installed with `stm install item:expand`; options go in stm.config.toml
+# (or a theme's palette) under [item.expand].
+#
+# A click fires the stm_expand event (on | off). stm never hides another
+# item: left items that should yield (workspace spaces) subscribe in the
+# user's own file. Compact mode refits from the new edges. Gain is on a
+# display with no notch; a notched built-in is bounded by the notch, not
+# the left items.
+name = "expand"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua"]
+colors = ["white", "bg1"]
+default_position = "left"
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  the icon, no background
+#   pill   [ icon ], one bg1 background
+[options.shape]
+values = ["plain", "pill"]
+default = "plain"
