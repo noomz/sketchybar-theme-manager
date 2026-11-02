@@ -3117,7 +3117,9 @@ detect_format() {
   die "$EX_CONFIG" "could not detect a config format in $dir (expected colors.lua, another .lua file, colors.sh, or config.sh)"
 }
 
-resolve_format() {
+# configured_format — the format chosen by --format, STM_FORMAT or the config
+# file, in that order. Prints nothing when none chose one.
+configured_format() {
   local f=""
   if [ -n "$OPT_FORMAT" ]; then
     f="$OPT_FORMAT"
@@ -3126,6 +3128,12 @@ resolve_format() {
   elif [ -n "$RESOLVED_CONFIG" ] && f=$(stm_config_get "$RESOLVED_CONFIG" format 2>/dev/null); then
     [ "$f" = "auto" ] && f=""
   fi
+  printf '%s' "$f"
+}
+
+resolve_format() {
+  local f
+  f=$(configured_format)
   if [ -z "$f" ]; then
     f=$(detect_format "$RESOLVED_DIR")
   fi
@@ -4526,18 +4534,26 @@ $tmpdir"
     return 2
   fi
 
-  if fmt=$(detect_format "$RESOLVED_DIR" 2>/dev/null); then
-    printf '  %-16s %s\n' "format" "$fmt (detected)"
-  else
-    if [ -n "$OPT_FORMAT" ]; then
-      fmt="$OPT_FORMAT"
-      printf '  %-16s %s\n' "format" "$fmt (forced)"
-    else
-      printf '  %-16s %s\n' "format" "COULD NOT DETECT (pass --format)"
+  fmt=$(configured_format)
+  case "$fmt" in
+    lua | bash | config-sh)
+      printf '  %-16s %s\n' "format" "$fmt (configured)"
+      ;;
+    "")
+      if fmt=$(detect_format "$RESOLVED_DIR" 2>/dev/null); then
+        printf '  %-16s %s\n' "format" "$fmt (detected)"
+      else
+        printf '  %-16s %s\n' "format" "COULD NOT DETECT (pass --format)"
+        printf '\nFAIL\n'
+        return 2
+      fi
+      ;;
+    *)
+      printf '  %-16s UNKNOWN "%s" (want lua, bash or config-sh)\n' "format" "$fmt"
       printf '\nFAIL\n'
       return 2
-    fi
-  fi
+      ;;
+  esac
   RESOLVED_FORMAT="$fmt"
 
   if [ "$fmt" = "lua" ]; then
