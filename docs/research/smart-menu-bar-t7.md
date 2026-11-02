@@ -58,10 +58,27 @@ Four runs failed or stopped for reasons in the runner, not in stm. They are list
 3. The guest's `tart exec` PATH has no `/opt/homebrew/bin`, and its `/usr/local/bin/sketchybar` points at a missing build. stm could not query the bar, so it warned and wrote nothing, as V10 requires. The brew service PATH starts with the Homebrew prefix. The runner now does the same.
 4. After the V14 change the screen query has eight fields, and the notch wrapper still matched seven, so no notch was injected. The wrapper now matches eight.
 
+## Host test
+
+The user approved this test on 2026-11-02. It ran on the user's `Mac16,5` on macOS 27.2, with the built-in notched display and an external 2560-point display. SketchyBar ran as the brew service. The real config was backed up first, then `display` was set to `"all"` and `smart_notch` to `"on"`, because the host bar normally sits only on the external display.
+
+The stm under test was a throwaway merge of this branch with `feat/widget-groups`, because the live config uses groups. A dry run on a copy of the config showed that the install only added the `stm.menubar` block and one ledger row.
+
+| Check | Observed |
+|---|---|
+| Notch detection | Built-in `confirmed-notch`, external `confirmed-no-notch`. |
+| Clearance | Built-in clearance 33, bar top 33. External clearance 31, bar top 32. |
+| Offset | `y_offset` went from 0 to 2 through the real hook on reload, and stayed 2 after a second reload. |
+| Preferences | Both already `bool:false` before the test. stm recorded `owner` as `unchanged` and wrote nothing. |
+| Placement and clicks | The user confirmed the bar below the native menu on both displays, and clicks on native menus and bar items. |
+| Undo | `stm menubar restore` set `y_offset` to 0 and warned that the config was still on. After `stm uninstall item:menubar` and restoring the two edited files, all 97 config and ledger files matched their backup checksums. |
+
+The host preferences did not change, so the write path ran only in Tart. The hook used a temporary `STM_BIN` line in its installed plugin copy, because the host's installed stm predates `menubar`. The plugin's own stm lookup therefore did not run on the host.
+
 ## Not covered here
 
-- A physical camera housing. The notch observation was synthetic. T3 measured the real geometry on the host, but not this code path.
-- The SketchyBar brew service and its PATH. The runner started the bar directly.
+- Preference writes on physical hardware. The host already had both values set to false.
+- The plugin's stm lookup under the brew service PATH. The host test set `STM_BIN`.
 - Sleep and wake. `system_woke` was triggered with `--trigger`, not by a real wake.
 - Settings changes through the GUI. The user change was simulated with `defaults write`, which T2 showed has the same effect.
 - Other macOS releases, standard users, managed preferences, and a reboot.
