@@ -35,18 +35,21 @@ return function(sbar, opts, colors)
   -- its own `drawing` back. A form change during a run therefore gets one more
   -- run once they have all ended.
   local running, stale = 0, false
+  local ended
 
   local function run(e, action)
     local sender = (e and e.SENDER) or "forced"
     running = running + 1
     sbar.exec(string.format("%s STM_FORM=%s STM_SP_ACTION=%s NAME=%s SENDER=%s %s",
-      env, quote(form), quote(action or ""), quote(name), quote(sender), plugin), function()
-      running = running - 1
-      if running == 0 and stale then
-        stale = false
-        run()
-      end
-    end)
+      env, quote(form), quote(action or ""), quote(name), quote(sender), plugin), ended)
+  end
+
+  ended = function()
+    running = running - 1
+    if running == 0 and stale then
+      stale = false
+      run({ SENDER = "stm_compact" })
+    end
   end
 
   -- Spotify posts this distributed notification on every play, pause and

@@ -483,6 +483,7 @@ end
 local function finish_runs()
   while #pending > 0 do
     local done = table.remove(pending, 1)
+    print("run ended")
     if done then done("", 0) end
   end
 end
@@ -605,6 +606,18 @@ event stm_compact" "$(names pill center)" "pill"
   it "item.lua: a form change during a run gets one more run on the new form, after every run ends (V79, B24)"
   assert_eq "STM_FORM='hidden'" "$(after_finish hidden)" "hidden during the load run"
   assert_eq "STM_FORM='icon'" "$(after_finish hidden,icon)" "the latest form wins"
+  done_it
+
+  it "item.lua: the extra run starts only after the last run ends, as stm_compact with no action (V79, B24)"
+  out=$(PROBE_FINISH=1 PROBE_FORMS=hidden probe split right flat click)
+  assert_contains "$out" "STM_SP_ACTION='play'" "a click run was in flight"
+  tail=$(printf '%s\n' "$out" | sed -n '/^finish$/,$p')
+  ended=$(($(printf '%s\n' "$out" | grep -c "^exec ") - 1))
+  assert_eq "$ended" "$(printf '%s\n' "$tail" | awk '/^exec /{exit} /^run ended$/{n++} END{print n}')" "every earlier run has ended"
+  rerun=$(printf '%s\n' "$tail" | grep "^exec ")
+  assert_contains "$rerun" "STM_FORM='hidden'"
+  assert_contains "$rerun" "STM_SP_ACTION=''"
+  assert_contains "$rerun" "SENDER='stm_compact'"
   done_it
 
   it "item.lua: no extra run without a form change during a run (V79)"

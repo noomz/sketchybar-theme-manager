@@ -240,6 +240,7 @@ return function(sbar, opts, colors)
   -- the next tick is a minute away. A form change during a run therefore gets
   -- one more run once they have all ended.
   local running, stale = 0, false
+  local ended
 
   local function run(e, action)
     local sender = (e and e.SENDER) or "forced"
@@ -254,13 +255,15 @@ return function(sbar, opts, colors)
     metrics[#metrics + 1] = "STM_AI_ACTION=" .. quote(action or "")
     running = running + 1
     sbar.exec(string.format("%s STM_FORM=%s %s NAME=%s SENDER=%s %s",
-      env, quote(form), table.concat(metrics, " "), quote(name), quote(sender), plugin), function()
-      running = running - 1
-      if running == 0 and stale then
-        stale = false
-        run()
-      end
-    end)
+      env, quote(form), table.concat(metrics, " "), quote(name), quote(sender), plugin), ended)
+  end
+
+  ended = function()
+    running = running - 1
+    if running == 0 and stale then
+      stale = false
+      run({ SENDER = "stm_compact" })
+    end
   end
 
   -- Each segment's popup: a totals line, up to ROWS account and window rows
