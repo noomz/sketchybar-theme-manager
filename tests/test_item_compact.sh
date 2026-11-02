@@ -1036,6 +1036,16 @@ gstate() {
   printf '%s\n' "$@" >"$ST"
 }
 
+it "groups work with only user items and no compact units"
+fresh
+displays "1 0 1728 1117" >"$FIX/displays"
+groups STM_COMPACT_UNITS= STM_COMPACT_GROUPS='work:front_app;media:volume'
+assert_contains "$SB" "$(printf '%s\n' --set front_app display=1)"
+assert_contains "$SB" "$(printf '%s\n' --set volume drawing=off)"
+assert_contains "$SB" "$(gpill 1 work white)"
+fresh
+done_it
+
 it "groups, one display: first group shown, other group hidden, pills drawn (I.grp, #35)"
 displays "1 0 1728 1117" >"$FIX/displays"
 groups

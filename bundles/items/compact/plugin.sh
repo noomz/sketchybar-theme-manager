@@ -109,7 +109,7 @@ printf '%s\n' "$STM_COMPACT_UNITS" | /usr/bin/tr ',' '\n' | /usr/bin/awk -F: '
   $2 ~ /^(pin|high|normal|low)$/ &&
   ($3 == "full" || $3 == "full short" || $3 == "full icon" || $3 == "full short icon") &&
   !seen[$1]++ { print $1, $2, $3 }' >"$WORK/units"
-[ -s "$WORK/units" ] || exit 0
+[ "$mode" = groups ] || [ -s "$WORK/units" ] || exit 0
 
 [ -n "$cache" ] && [ -f "$cache" ] && /bin/cat "$cache" >"$WORK/cache" 2>/dev/null
 [ -n "$state" ] && [ -f "$state" ] && /bin/cat "$state" >"$WORK/state" 2>/dev/null
