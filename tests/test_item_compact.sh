@@ -135,17 +135,17 @@ MOVE_CLICK=$(printf '%s\n' --move stm.compact.prev after stm.compact.next)
 moves() { printf '%s\n' "$SB" | grep -c '^--move$'; }
 sets() { printf '%s\n' "$SB" | grep -c -E '^--(set|trigger)$'; }
 
-it "lint, manifest: position right, display + wake events, mode shrink|page, grey (I.cmp, I.pg, V4)"
+it "lint, manifest: position right, display + wake events, mode shrink|page|groups, grey (I.cmp, I.pg, I.grp, V4)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:compact
 assert_status 0
-assert_eq 'version = "0.3.2"' "$(grep '^version' "$BUNDLE/item.toml")"
+assert_eq 'version = "0.4.0"' "$(grep '^version' "$BUNDLE/item.toml")"
 assert_eq 'default_position = "right"' "$(grep '^default_position' "$BUNDLE/item.toml")"
 assert_eq 'events = ["display_change", "system_woke"]' "$(grep '^events' "$BUNDLE/item.toml")"
 assert_eq 'update_freq = 30' "$(grep '^update_freq' "$BUNDLE/item.toml")"
 assert_contains "$(grep '^colors' "$BUNDLE/item.toml")" '"grey"'
 assert_eq '[options.mode]' "$(grep '^\[options' "$BUNDLE/item.toml")"
 assert_eq '[options.mode]
-values = ["shrink", "page"]
+values = ["shrink", "page", "groups"]
 default = "shrink"' "$(grep -A 2 '^\[options\.mode\]' "$BUNDLE/item.toml")"
 done_it
 
@@ -165,6 +165,85 @@ STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:compac
 assert_status 1
 assert_contains "$STM_ERR" '"tabs"'
 assert_eq "$loader" "$(cat "$D/items_generated.lua" 2>/dev/null || true)" "a bad mode leaves the loader as it was"
+done_it
+
+it "install: [groups] reaches the loader as bar names; an installed item is stm.<name> (I.grp, #35)"
+D="$SANDBOX/grp"
+make_lua_config "$D"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:compact
+assert_status 0
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:cpu
+assert_status 0
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:mem
+assert_status 0
+printf '[groups]
+work = "cpu, mem, front_app"
+media = "spotify"
+' >"$D/stm.config.toml"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:cpu
+assert_status 0
+loader=$(cat "$D/items_generated.lua")
+assert_contains "$loader" 'groups = { "work:stm.cpu,stm.mem,front_app", "media:spotify" },'
+assert_not_contains "$loader" 'groups = { "media:spotify", "work:' "declaration order, not sorted"
+done_it
+
+it "install: mode groups needs [groups]; a hostile [groups] leaves the loader alone (I.grp, #35)"
+D="$SANDBOX/grp2"
+make_lua_config "$D"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:compact
+assert_status 0
+loader=$(cat "$D/items_generated.lua")
+assert_contains "$loader" 'groups = { },' "no [groups]: the field is there and empty"
+printf '[item.compact]
+mode = "groups"
+' >"$D/stm.config.toml"
+STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:compact
+assert_status 2
+assert_contains "$STM_ERR" "needs at least one group"
+assert_eq "$loader" "$(cat "$D/items_generated.lua")" "no groups: the loader is not rewritten"
+for bad in \
+  '[groups]
+work = "cpu, cpu"
+' \
+  '[groups]
+work = "cpu, mem"
+media = "cpu"
+' \
+  '[groups]
+Work = "cpu"
+' \
+  '[groups]
+row = "cpu"
+' \
+  '[groups]
+work = ""
+' \
+  '[groups]
+work = "cpu;mem"
+' \
+  '[groups]
+work = "stm.compact"
+' \
+  '[groups]
+work = "cpu, ../x"
+'; do
+  printf '%s\n' "$bad" >"$D/stm.config.toml"
+  STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install --force item:compact
+  assert_status 2 "[$bad]"
+  assert_eq "$loader" "$(cat "$D/items_generated.lua")" "[$bad]: the loader is not rewritten"
+done
+done_it
+
+it "install: a palette cannot define [groups] (I.grp, #35)"
+mkdir -p "$SANDBOX/pal"
+printf 'slug = "grpbad"
+name = "Bad Groups"
+[groups]
+work = "cpu"
+' >"$SANDBOX/pal/grpbad.toml"
+STM_ROOT="$REPO_ROOT" run_stm lint "$SANDBOX/pal/grpbad.toml"
+assert_status 1
+assert_contains "$STM_ERR" "unsupported table [groups]"
 done_it
 
 it "1728 notch: low steps to short first, then high; b has no short (V58)"
@@ -956,6 +1035,330 @@ assert_eq "" "$SB"
 assert_eq "$before" "$(cksum <"$ST")"
 done_it
 
+# --- groups mode (#35) ------------------------------------------------------
+# The bar shows one group per display: a member is shown on the displays whose
+# group contains it (`--set <item> display=<adid>,...`), hidden from the rest
+# (`drawing=off`). The pills select the group; the display is the slot in the
+# pill's name, because a click event carries no display id. No fit math here.
+
+GRP="work:stm.a,stm.b;media:stm.c"
+BG1=0xff1e1e2e
+
+# groups [VAR=value...] — one plugin run in groups mode.
+groups() {
+  run_plugin STM_COMPACT_UNITS= STM_CMP_MODE=groups STM_COMPACT_GROUPS="$GRP" \
+    STM_WHITE="$WHITE" STM_GREY="$GREY" STM_BG1="$BG1" "$@"
+}
+
+# gpill <slot> <group> <white|grey|off> — the argv that draws one pill.
+gpill() {
+  local n="stm.compact.$2.$1"
+  case "$3" in
+    off) printf '%s\n' --set "$n" drawing=off ;;
+    white) printf '%s\n' --set "$n" drawing=on "label=$2" "label.color=$WHITE" "background.drawing=on" "background.color=$BG1" "display=$1" ;;
+    grey) printf '%s\n' --set "$n" drawing=on "label=$2" "label.color=$GREY" "background.drawing=off" "display=$1" ;;
+  esac
+}
+# gclick <slot> <group> [VAR=value...] — a click on that pill.
+gclick() {
+  local slot="$1" g="$2"
+  shift 2
+  groups STM_CMP_ACTION="select:$g:$slot" SENDER=mouse.clicked "$@"
+}
+# gstate <row>... — the state file, after the groups rows this mode owns.
+gstate() {
+  printf '%s\n' "$@" >"$ST"
+}
+
+# --- groups with bundled units: forms carry the hide, sub-items follow the mask
+# Codex review on #36: a hidden battery came back on its next update, and a
+# split item's icon stayed outside its group.
+
+# ugroups [VAR=value...] — groups mode where stm.a, stm.b and stm.c are bundled.
+ugroups() { groups STM_COMPACT_UNITS="$UNITS" "$@"; }
+ubar() {
+  fresh
+  displays "$@" >"$FIX/displays"
+  rm -f "$FIX"/item.*
+  bar logo stm.a stm.b stm.b.icon stm.c stm.compact stm.a.row.0 stm.bx >"$FIX/bar"
+}
+
+it "groups: a bundled member is hidden by its form, not by drawing=off"
+ubar "1 0 1728 1117"
+ugroups
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+assert_not_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)"
+assert_contains "$(cat "$ST")" "form c hidden"
+done_it
+
+it "groups: a bundled member's sub-item follows its mask; popup rows and lookalikes do not"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=1)"
+assert_not_contains "$SB" "stm.a.row.0"
+assert_not_contains "$SB" "stm.bx"
+assert_contains "$QUERIES" "query --query bar"
+done_it
+
+it "groups: the same scene twice sends no trigger, so a member's own updates decide nothing"
+ugroups
+assert_eq "" "$(triggers)"
+assert_eq "" "$SB"
+done_it
+
+it "groups: a reload sends the forms again, because reloaded items start full"
+ugroups SENDER=forced
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+done_it
+
+it "groups: a pill click swaps the forms and masks the sub-item without asking the bar"
+gclick 1 media STM_COMPACT_UNITS="$UNITS"
+assert_eq "$(trigger_of hidden hidden full)" "$(triggers)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c display=1)"
+assert_eq "" "$QUERIES"
+gclick 1 work STM_COMPACT_UNITS="$UNITS"
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=1)"
+assert_eq "" "$QUERIES"
+done_it
+
+it "groups: two displays on different groups give the sub-item only its group's display"
+ubar "1 0 1728 1117" "2 1728 2560 1440"
+ugroups
+gclick 1 media STM_COMPACT_UNITS="$UNITS"
+assert_eq "$(trigger_of full full full)" "$(triggers)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=2)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c display=1)"
+done_it
+
+it "groups: a listed sub-item of a listed member is one member, not two"
+ubar "1 0 1728 1117"
+ugroups STM_COMPACT_GROUPS='work:stm.a,stm.b,stm.b.icon;media:stm.c'
+assert_eq 1 "$(printf '%s\n' "$SB" | grep -c '^stm\.b\.icon$')"
+gclick 1 media STM_COMPACT_UNITS="$UNITS" STM_COMPACT_GROUPS='work:stm.a,stm.b,stm.b.icon;media:stm.c'
+assert_not_contains "$SB" "$(printf '%s\n' --set stm.b.icon drawing=off)"
+done_it
+
+it "groups: your own item in the same group keeps the direct hide"
+ubar "1 0 1728 1117"
+ugroups STM_COMPACT_GROUPS='work:stm.a;media:stm.c,front_app'
+assert_contains "$SB" "$(printf '%s\n' --set front_app drawing=off)"
+assert_eq "$(trigger_of full full hidden)" "$(triggers)"
+done_it
+
+it "leaving groups: the reload shows a hidden unit again, and the sub-item gets every display back"
+ubar "1 0 1728 1117"
+ugroups
+gclick 1 media STM_COMPACT_UNITS="$UNITS"
+scene 100 100 30 100 10
+run_plugin SENDER=forced
+assert_contains "$SB" "$(printf '%s\n' --set stm.b.icon display=1)"
+assert_not_contains "$(triggers)" "=hidden"
+assert_not_contains "$(cat "$ST")" "memb "
+done_it
+
+it "groups: the real battery plugin stays hidden through its updates (Codex review on #36)"
+ubar "1 0 1728 1117"
+ugroups STM_COMPACT_UNITS="battery:high:full icon,a:high:full" STM_COMPACT_GROUPS='work:stm.a;power:stm.battery'
+form=$(printf '%s\n' "$SB" | sed -n 's/^STM_FORM_BATTERY=//p')
+assert_eq hidden "$form"
+cat >"$SANDBOX/pmset" <<'EOF'
+#!/bin/sh
+printf ' -InternalBattery-0 (id=1)\t80%%; discharging\n'
+EOF
+chmod 755 "$SANDBOX/pmset"
+rm -f "$SB_LOG"
+env -i HOME="$HOME" PATH="$SANDBOX/bin:/bin:/usr/bin" SB_LOG="$SB_LOG" FIX="$FIX" NAME=stm.battery \
+  SENDER=routine STM_FORM="$form" STM_PMSET="$SANDBOX/pmset" \
+  /bin/sh "$(dirname "$PLUGIN")/../battery/plugin.sh" >/dev/null 2>&1
+assert_contains "$(cat "$SB_LOG")" "$(printf '%s\n' --set stm.battery drawing=off)"
+assert_not_contains "$(cat "$SB_LOG")" "drawing=on"
+done_it
+
+it "groups work with only user items and no compact units"
+fresh
+displays "1 0 1728 1117" >"$FIX/displays"
+groups STM_COMPACT_UNITS= STM_COMPACT_GROUPS='work:front_app;media:volume'
+assert_contains "$SB" "$(printf '%s\n' --set front_app display=1)"
+assert_contains "$SB" "$(printf '%s\n' --set volume drawing=off)"
+assert_contains "$SB" "$(gpill 1 work white)"
+fresh
+done_it
+
+it "groups, one display: first group shown, other group hidden, pills drawn (I.grp, #35)"
+displays "1 0 1728 1117" >"$FIX/displays"
+groups
+assert_contains "$SB" "$(printf '%s\n' --set stm.a display=1)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b display=1)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)"
+assert_contains "$SB" "$(gpill 1 work white)"
+assert_contains "$SB" "$(gpill 1 media grey)"
+assert_contains "$SB" "$(printf '%s\n' --move stm.compact.work.1 after stm.compact --move stm.compact.media.1 after stm.compact.work.1)"
+done_it
+
+it "groups: two queries (displays, its own item for the bar's displays), no osascript (I.grp, #35)"
+assert_eq "query --query displays
+query --query stm.compact" "$QUERIES"
+assert_eq 0 "$(printf '%s\n' "$SB" | grep -c -E '^--trigger$')" "no trigger: the masks are the message"
+assert_eq "freq 30
+hid -
+disp 1
+group 1 work
+memb stm.a
+memb stm.b
+memb stm.c
+mask stm.a 1
+mask stm.b 1
+off stm.c
+pill 1 work 1
+pill 1 media 0" "$(cat "$ST")"
+done_it
+
+it "groups: the same scene twice sends nothing (I.grp determinism, #35)"
+groups
+assert_eq 0 "$(sets)"
+assert_eq 0 "$(moves)"
+assert_eq "query --query displays
+query --query stm.compact" "$QUERIES"
+done_it
+
+it "groups: reload reapplies member visibility even when selection is unchanged"
+groups SENDER=forced
+assert_contains "$SB" "$(printf '%s\n' --set stm.a display=1)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b display=1)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)"
+done_it
+
+it "groups: a pill click selects that group on that display, without asking the bar (I.grp, #35)"
+gclick 1 media
+assert_eq "" "$QUERIES"
+assert_contains "$SB" "$(gpill 1 media white)"
+assert_contains "$SB" "$(gpill 1 work grey)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c display=1 drawing=on)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.a drawing=off)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b drawing=off)"
+assert_contains "$(cat "$ST")" "group 1 media"
+assert_contains "$(cat "$ST")" "off stm.a"
+assert_contains "$(cat "$ST")" "mask stm.c 1"
+done_it
+
+it "groups: a display the bar is not on gets no pill and no group (bar display=main, #35)"
+fresh
+displays "1 0 2560 1707" "2 -1728 1728 1117" >"$FIX/displays"
+# SketchyBar lists a bar item's bounding_rects only for the bar's displays,
+# hidden items too (2.24, probed with display=main/all/1/2).
+item stm.compact right off item "1 -9999 1"
+gstate "freq 30" "hid -" "disp 1" "disp 2" "group 1 work" "group 2 media" \
+  "memb stm.a" "memb stm.b" "memb stm.c" "mask stm.a 1" "mask stm.b 1" "mask stm.c 2" \
+  "pill 1 work 1" "pill 1 media 0" "pill 2 work 0" "pill 2 media 1"
+groups
+assert_contains "$(cat "$SB_LOG.queries")" "query --query stm.compact"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)" "media is not chosen on the bar's display"
+assert_not_contains "$SB" "display=2" "nothing is sent to display 2"
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact.work.2 drawing=off)" "the slot-2 pills go off"
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact.media.2 drawing=off)"
+assert_not_contains "$(cat "$ST")" "disp 2"
+assert_not_contains "$(cat "$ST")" "group 2 "
+rm -f "$FIX/item.stm.compact"
+fresh
+done_it
+
+it "groups: the bar on every display keeps a pill and a group per display (#35)"
+fresh
+displays "1 0 2560 1707" "2 -1728 1728 1117" >"$FIX/displays"
+item stm.compact right off item "1 -9999 1" "2 -9999 1"
+groups
+assert_contains "$SB" "$(gpill 1 work white)"
+assert_contains "$SB" "$(gpill 2 work white)"
+assert_contains "$(cat "$ST")" "disp 2"
+rm -f "$FIX/item.stm.compact"
+fresh
+done_it
+
+it "groups, two displays: each keeps its own group; a member is on the displays that chose it (I.grp, #35)"
+displays "1 0 1728 1117" "2 -1728 1728 1117" >"$FIX/displays"
+gstate "freq 30" "hid -" "disp 1" "disp 2" "group 1 work" "group 2 media" \
+  "memb stm.a" "memb stm.b" "memb stm.c" "mask stm.a 1" "mask stm.b 1" "off stm.c" \
+  "pill 1 work 1" "pill 1 media 0" "pill 2 work 0"
+groups
+assert_contains "$SB" "$(printf '%s\n' --set stm.c display=2 drawing=on)"
+assert_contains "$SB" "$(gpill 2 media white)" "display 2 pill must be restricted to display 2"
+assert_contains "$(cat "$ST")" "disp 2"
+assert_contains "$(cat "$ST")" "group 2 media"
+assert_contains "$(cat "$ST")" "pill 2 media 1"
+assert_eq 0 "$(printf '%s\n' "$SB" | grep -c -E '^--set stm\.a$')" "a already on display 1"
+done_it
+
+it "groups: a display with no valid choice gets the first group in file order (I.grp, #35)"
+displays "1 0 1728 1117" >"$FIX/displays"
+gstate "freq 30" "hid -" "disp 1" "group 1 nosuch" "memb stm.a" "memb stm.b" "memb stm.c" \
+  "mask stm.c 1" "off stm.a" "off stm.b" "pill 1 work 0" "pill 1 media 1"
+groups
+assert_contains "$(cat "$ST")" "group 1 work"
+assert_contains "$SB" "$(printf '%s\n' --set stm.a display=1 drawing=on)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.b display=1 drawing=on)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)"
+assert_contains "$(cat "$ST")" "pill 1 work 1"
+assert_contains "$(cat "$ST")" "pill 1 media 0"
+done_it
+
+it "groups: bad group rows are dropped, and none valid means no query at all (I.grp, #35)"
+displays "1 0 1728 1117" >"$FIX/displays"
+for bad in "Work:stm.a" "work:Stm/a" "work:compact" "work:stm.compact.next" "row:stm.a"; do
+  gstate "freq 30" "hid -"
+  groups STM_COMPACT_GROUPS="$bad"
+  assert_eq "" "$QUERIES" "[$bad]"
+  assert_eq "" "$SB" "[$bad]"
+done
+gstate "freq 30" "hid -"
+groups STM_COMPACT_GROUPS="work:stm.a;work:stm.b"
+assert_contains "$(cat "$ST")" "memb stm.a" "the first group of a repeated name stands"
+assert_not_contains "$(cat "$ST")" "memb stm.b" "a repeated group name adds no second group"
+
+gstate "freq 30" "hid -"
+groups STM_COMPACT_GROUPS="work:stm.a,stm.a,bad:;x:stm.b"
+assert_contains "$(cat "$ST")" "mask stm.a 1"
+assert_not_contains "$(cat "$ST")" "memb bad" "a junk member name is dropped"
+assert_contains "$(cat "$ST")" "memb stm.b"
+done_it
+
+it "groups: pill colours that are not 0xAARRGGBB are never sent (I.grp, V14)"
+gstate "freq 30" "hid -"
+groups STM_WHITE="red" STM_GREY="grey" STM_BG1='0xff1e1e2e drawing=off'
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact.work.1 drawing=on label=work)"
+assert_not_contains "$SB" "label.color"
+assert_not_contains "$SB" "background.color"
+done_it
+
+it "groups: the chevron and a faster rate are reset once (I.grp, #35)"
+gstate "freq 2" "hid c"
+groups
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact drawing=off popup.drawing=off update_freq=30)"
+assert_contains "$(cat "$ST")" "freq 30"
+assert_contains "$(cat "$ST")" "hid -"
+done_it
+
+it "groups: leaving the mode puts every claimed item back on all displays (I.grp, #35)"
+gstate "freq 30" "hid -" "disp 1" "group 1 media" "memb stm.a" "memb stm.b" "memb stm.c" "memb --bar" "memb stm.bad;evil" "mask stm.c 1" "off stm.a" "off stm.b" "pill 1 media 1"
+scene 300 200 30 250 100
+displays "1 0 1728 1117" "2 -1728 1728 1117" >"$FIX/displays"
+run_plugin STM_CMP_MODE=shrink
+assert_contains "$SB" "$(printf '%s\n' --set stm.a display=1,2 drawing=on)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c display=1,2)"
+assert_not_contains "$SB" '--bar' "invalid cached member must not reach the bar"
+assert_not_contains "$SB" 'stm.bad;evil' "invalid cached member must not reach the bar"
+assert_not_contains "$(cat "$ST")" "memb"
+assert_not_contains "$(cat "$ST")" "off stm"
+done_it
+
+it "groups: a display that goes away stops being named, and its pills go off (I.grp, #35)"
+gstate "freq 30" "hid -" "disp 1" "disp 2" "group 1 work" "group 2 media" "memb stm.a" "memb stm.c" "mask stm.a 1" "mask stm.c 2" "pill 1 work 1" "pill 2 media 1"
+displays "1 0 1728 1117" >"$FIX/displays"
+groups
+assert_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)"
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact.media.2 drawing=off)"
+assert_not_contains "$(cat "$ST")" "disp 2"
+assert_not_contains "$(cat "$ST")" "group 2"
+done_it
+
 it "page: arrow colours that are not 0xAARRGGBB are never sent (V14)"
 page_seed
 page_scene 100
@@ -995,6 +1398,7 @@ end
 function sbar.exec(cmd) print("exec " .. cmd) end
 dofile(item_lua)(sbar, { name = "stm.compact", position = "left", update_freq = 30, plugin_dir = "/p/plugins/stm",
   events = { "display_change", "system_woke" }, compact_units = { "ai:normal:full short icon", "clock:pin:full short" },
+  groups = { "work:stm.cpu,stm.mem", "media:spotify" },
   options = { mode = mode } }, { white = 1, grey = 5, bg1 = 2, popup_bg = 3, popup_border = 4 })
 handlers["mouse.exited.global"]({})
 handlers["display_change"]({ SENDER = "display_change" })
@@ -1002,7 +1406,7 @@ if handlers["stm_expand"] then
   print("expand")
   handlers["stm_expand"]({ SENDER = "stm_expand", STM_EXPAND = "on" })
 end
-for _, n in ipairs({ "stm.compact.prev", "stm.compact.next" }) do
+for _, n in ipairs({ "stm.compact.prev", "stm.compact.next", "stm.compact.work.3", "stm.compact.media.1" }) do
   if clicks[n] then clicks[n]({ SENDER = "mouse.clicked" }) end
 end
 EOF
@@ -1018,6 +1422,22 @@ EOF
   assert_contains "$out" "exec STM_CMP_MODE='shrink' STM_CMP_ACTION='' STM_COMPACT_UNITS='ai:normal:full short icon,clock:pin:full short' NAME='stm.compact' SENDER='forced' '/p/plugins/stm/compact.sh'"
   assert_contains "$out" "SENDER='display_change'"
   done_it
+
+  it "item.lua groups: one hidden pill per group per display slot 1..8; a click names group and slot (I.grp, #35)"
+gout=$("$LUA_BIN" "$SANDBOX/probe.lua" "$BUNDLE/item.lua" groups 2>&1)
+assert_eq 16 "$(printf '%s\n' "$gout" | grep -c '^add item stm\.compact\.\(work\|media\)\.[1-8] {')" "2 groups x 8 display slots"
+assert_not_contains "$gout" "stm.compact.work.9 " "no slot beyond 8"
+assert_eq 16 "$(printf '%s\n' "$gout" | grep -c '^add item stm\.compact\.\(work\|media\)\.[1-8] {.*drawing=false')" "every pill starts hidden"
+assert_eq 16 "$(printf '%s\n' "$gout" | grep -c '^add item stm\.compact\.\(work\|media\)\.[1-8] {.*position=right')" "pills sit on the right"
+assert_contains "$gout" "label={color=5 string=work}" "the pill's label is the group name, grey"
+assert_contains "$gout" "STM_CMP_MODE='groups'"
+assert_contains "$gout" "STM_COMPACT_GROUPS='work:stm.cpu,stm.mem;media:spotify'"
+assert_contains "$gout" "STM_WHITE='0x00000001' STM_GREY='0x00000005'" "pill colours come from the palette"
+assert_contains "$gout" "STM_BG1='0x00000002'" "active pill background comes from the palette"
+assert_eq "exec STM_CMP_MODE='groups' STM_CMP_ACTION='select:work:3' STM_WHITE='0x00000001' STM_GREY='0x00000005' STM_COMPACT_UNITS='ai:normal:full short icon,clock:pin:full short' STM_COMPACT_GROUPS='work:stm.cpu,stm.mem;media:spotify' STM_BG1='0x00000002' NAME='stm.compact' SENDER='mouse.clicked' '/p/plugins/stm/compact.sh'" "$(printf '%s\n' "$gout" | grep "STM_CMP_ACTION='select:work:3'")"
+assert_contains "$gout" "STM_CMP_ACTION='select:media:1'" "a pill click names its group and its display slot"
+assert_eq 2 "$(printf '%s\n' "$gout" | grep -c "SENDER='mouse.clicked'")" "only the two clicked pills ran"
+done_it
 
   it "item.lua: stm_expand goes unsettled, runs the plugin, no form trigger (V61, V70)"
   assert_contains "$out" "add event stm_expand"

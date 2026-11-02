@@ -256,4 +256,39 @@ assert_status 0
 assert_not_contains "$STM_OUT" "USED BUT MISSING"
 done_it
 
+d9="$SANDBOX/ambiguous"
+make_lua_config "$d9"
+printf 'export BLACK=0xff000000\n' >"$d9/colors.sh"
+
+it "doctor honours format from the config on an ambiguous dir"
+printf 'format = "lua"\n' >"$d9/stm.config.toml"
+run_stm --dir "$d9" --config "$d9/stm.config.toml" doctor tokyo-night
+assert_contains "$STM_OUT" "format           lua (configured)"
+assert_contains "$STM_OUT" "Key coverage"
+assert_not_contains "$STM_OUT" "COULD NOT DETECT"
+done_it
+
+it "doctor lets --format win over detection and the config"
+run_stm --dir "$d9" --config "$d9/stm.config.toml" --format bash doctor tokyo-night
+assert_contains "$STM_OUT" "format           bash (configured)"
+d10="$SANDBOX/plain-lua"
+make_lua_config "$d10"
+run_stm --dir "$d10" --format bash doctor tokyo-night
+assert_contains "$STM_OUT" "format           bash (configured)"
+done_it
+
+it "doctor treats format = auto as no choice"
+printf 'format = "auto"\n' >"$d9/stm.config.toml"
+run_stm --dir "$d9" --config "$d9/stm.config.toml" doctor tokyo-night
+assert_status 2
+assert_contains "$STM_OUT" "COULD NOT DETECT"
+done_it
+
+it "doctor reports an unknown configured format"
+printf 'format = "fish"\n' >"$d9/stm.config.toml"
+run_stm --dir "$d9" --config "$d9/stm.config.toml" doctor tokyo-night
+assert_status 2
+assert_contains "$STM_OUT" "UNKNOWN \"fish\""
+done_it
+
 finish
