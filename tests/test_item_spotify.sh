@@ -605,10 +605,12 @@ event stm_compact" "$(names pill center)" "pill"
   it "item.lua: a form change during a run gets one more run on the new form, after every run ends (V79, B24)"
   assert_eq "STM_FORM='hidden'" "$(after_finish hidden)" "hidden during the load run"
   assert_eq "STM_FORM='icon'" "$(after_finish hidden,icon)" "the latest form wins"
+  done_it
 
   it "item.lua: no extra run without a form change during a run (V79)"
   assert_eq "" "$(after_finish full)" "same form during the load run"
   assert_eq "" "$(PROBE_IDLE=1 after_finish hidden)" "form change while idle: its own run is enough"
+  done_it
 
   it "item.lua compact forms: short = 12 characters, icon drops the label (plain|pill), form to plugin.sh (I.form, I.spot)"
   forms_of() {
