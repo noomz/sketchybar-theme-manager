@@ -344,7 +344,7 @@ When enabled, keep SketchyBar clickable on a notched target display. Set macOS m
 | T5 | x | Add opt-in config validation, offline behavior, status and rollback interface. | Tests assert default off, invalid config, no palette control, and no state changes on dry run. |
 | T6 | x | Implement serialized event-driven reconciliation and atomic recoverable state, plus the `item:menubar` hook bundle. | Tests cover V1–V13 including race and partial-failure cases, stubs only. |
 | T7 | x | Verify behavior in Tart including restart, fullscreen, hotplug, disable and manual preference change; then obtain permission for host test. | Inspect actual macOS preference and real SketchyBar geometry. Done 2026-11-02: `docs/research/smart-menu-bar-t7.md`. Tart 69/69. Host test with user permission: physical notch `Mac16,5` plus an external display, `y_offset` 0 to 2, bar top 33 at clearance 33, user confirmed placement and clicks, restore left all 97 config files byte-identical. |
-| T8 | todo | Update `stm help`, README, and contributor guidance as needed; run project gates on Bash 3.2 and 5. | Tests and lint pass; document unsupported OS and recovery. |
+| T8 | x | Update `stm help`, README, and contributor guidance as needed; run project gates on Bash 3.2 and 5. | Tests and lint pass; document unsupported OS and recovery. Done 2026-11-02: suites 32/32 on Bash 3.2 and 5, ShellCheck silent. |
 
 ## §B Observations and risks
 
