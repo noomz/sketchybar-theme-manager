@@ -4,7 +4,7 @@
 # Installed with `stm install item:ai`; options go in stm.config.toml
 # (or a theme's palette) under [item.ai].
 name = "ai"
-version = "0.5.0"
+version = "0.5.1"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["green", "yellow", "red", "grey", "white", "black", "bg1", "popup_bg", "popup_border"]

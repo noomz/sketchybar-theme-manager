@@ -980,7 +980,7 @@ it "lint and install item:ai (V4, V9, I.fs, I.cfg)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:ai
 assert_status 0
 assert_eq "ok	item:ai" "$STM_OUT"
-assert_file_contains "$BUNDLE/item.toml" 'version = "0.5.0"'
+assert_file_contains "$BUNDLE/item.toml" 'version = "0.5.1"'
 D="$SANDBOX/cfg"
 make_lua_config "$D"
 STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install item:ai
