@@ -75,6 +75,14 @@ The stm under test was a throwaway merge of this branch with `feat/widget-groups
 
 The host preferences did not change, so the write path ran only in Tart. The hook used a temporary `STM_BIN` line in its installed plugin copy, because the host's installed stm predates `menubar`. The plugin's own stm lookup therefore did not run on the host.
 
+### Re-run on merged code
+
+The test ran again on 2026-11-02 at 90d87e8, which has `main` merged in, including #36 and #38. The results for notch detection, clearance, offset and preferences matched the table above. Restore again left all 97 files byte-identical.
+
+Group switches did not disturb the measurement. Each display held a different group, members and their parts took the matching display mask, and `y_offset` and both bar tops stayed the same across switches and refreshes. The user clicked real pills and confirmed the built-in display was placed correctly.
+
+The user saw 2 to 4 extra pixels above the bar on the external display. The cause is the T4 policy of maximum clearance across mixed targets. SketchyBar has one `y_offset`, so the +2 the built-in needs also moves the external bar top to 32, below a 30-point menu window. That is 2 points, or 4 pixels at 2x. The offset appears only when one bar spans a notched and an external display.
+
 ## Not covered here
 
 - Preference writes on physical hardware. The host already had both values set to false.
