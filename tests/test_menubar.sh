@@ -41,8 +41,10 @@ while [ "$#" -gt 0 ]; do
   [ "$1" = "--query" ] || exit 1
   case "$2" in
     bar)
-      printf '{\n\t"position": "%s",\n\t"topmost": "off",\n\t"height": 34,\n\t"y_offset": %s,\n\t"items": [\n\t\t "logo"\n\t]\n}\n' \
-        "$(cat "$MB/pos")" "$yoff"
+      items='"logo"'
+      [ -f "$MB/parked" ] && items='"logo",\n\t\t "row"'
+      printf '{\n\t"position": "%s",\n\t"topmost": "off",\n\t"height": 34,\n\t"y_offset": %s,\n\t"items": [\n\t\t %b\n\t]\n}\n' \
+        "$(cat "$MB/pos")" "$yoff" "$items"
       ;;
     displays)
       awk 'BEGIN { print "[" }
@@ -50,6 +52,9 @@ while [ "$#" -gt 0 ]; do
         END { print "\n]" }' "$MB/disp"
       ;;
     stm.menubar) [ -f "$MB/hook" ] || exit 1; printf '{ "name": "stm.menubar" }\n' ;;
+    # A hidden popup row: SketchyBar parks its window off screen at -9999,
+    # bar height tall (T7, B8).
+    row) printf '{\n\t"name": "row",\n\t"bounding_rects": {\n\t\t"display-1": {\n\t\t\t"origin": [ -9999.000000, -9999.000000 ],\n\t\t\t"size": [ 300.000000, 34.000000 ]\n\t\t}\n\t}\n}\n' ;;
     logo)
       awk -v yo="$yoff" 'BEGIN { printf("{\n\t\"name\": \"logo\",\n\t\"bounding_rects\": {\n") }
         { printf("%s\t\t\"display-%s\": {\n\t\t\t\"origin\": [ %d.000000, %d.000000 ],\n\t\t\t\"size\": [ 45.000000, 34.000000 ]\n\t\t}", (NR > 1 ? ",\n" : ""), $1, $3 + 8, $4 + $7 + yo) }
@@ -134,7 +139,7 @@ mb_fixture() {
   printf '%s\n' "${1:-top}" >"$MB/pos"
   printf '%s\n' "${2:-0}" >"$MB/yoff"
   printf '1 %s 0 0 1728 1117 31\n' "$NOTCH_UUID" >"$MB/disp"
-  printf '0 1728 1117 32 771.5 956.5 34\n' >"$MB/screens"
+  printf '0 1728 1117 32 771.5 956.5 34 34\n' >"$MB/screens"
 }
 
 # pref <key> — the stub's current value, as stm reports it.
@@ -331,7 +336,7 @@ done_it
 it "a confirmed no-notch display needs nothing"
 mb_fixture
 mb_config 'smart_notch = "on"'
-printf '0 1728 1117 0 - - 24\n' >"$MB/screens"
+printf '0 1728 1117 0 - - 24 24\n' >"$MB/screens"
 run_stm --config "$CFG" menubar refresh --dry-run
 assert_status 0
 assert_contains "$STM_OUT" "nothing to do"
@@ -574,6 +579,15 @@ assert_eq absent "$(pref _HIHideMenuBar)"
 assert_eq absent "$(pref AppleMenuBarVisibleInFullscreen)"
 assert_eq 0 "$(cat "$MB/yoff")"
 assert_file_absent "$STATE" "state removed once nothing is owned"
+assert_contains "$STM_ERR" "smart_notch is still on" "T4: restore warns that the next refresh applies again"
+done_it
+
+it "restore with the config off does not warn about the next refresh"
+applied
+mb_config 'smart_notch = "off"'
+run_stm --config "$CFG" menubar restore
+assert_status 0
+assert_not_contains "$STM_ERR" "smart_notch is still on"
 done_it
 
 it "restore keeps a user change and restores the rest (V4)"
@@ -602,7 +616,7 @@ rm -f "$MB/screens"
 run_stm --config "$CFG" menubar refresh
 assert_status 0
 assert_eq bool:false "$(pref _HIHideMenuBar)" "unknown keeps stm's value"
-printf '0 1728 1117 0 - - 24\n' >"$MB/screens"
+printf '0 1728 1117 0 - - 24 24\n' >"$MB/screens"
 run_stm --config "$CFG" menubar refresh
 assert_status 0
 assert_eq absent "$(pref _HIHideMenuBar)" "no notch hands it back"
@@ -722,7 +736,7 @@ cat >"$MB/on-write" <<HOOK
 #!/bin/sh
 [ -f "$MB/once" ] && exit 0
 touch "$MB/once" "$STATE_DIR/menubar.dirty"
-printf '0 1728 1117 0 - - 24\n' >"$MB/screens"
+printf '0 1728 1117 0 - - 24 24\n' >"$MB/screens"
 HOOK
 chmod 755 "$MB/on-write"
 run_stm --config "$CFG" menubar refresh
@@ -749,11 +763,57 @@ it "mixed displays: any notched target keeps fullscreen-only; offset is the maxi
 mb_fixture
 mb_config 'smart_notch = "on"'
 printf '1 %s 0 0 1728 1117 31\n2 0B2C 1728 0 1440 900 0\n' "$NOTCH_UUID" >"$MB/disp"
-printf '0 1728 1117 32 771.5 956.5 34\n1728 1440 900 0 - - 30\n' >"$MB/screens"
+printf '0 1728 1117 32 771.5 956.5 34 34\n1728 1440 900 0 - - 30 30\n' >"$MB/screens"
 run_stm --config "$CFG" menubar refresh
 assert_status 0
 assert_eq bool:false "$(pref AppleMenuBarVisibleInFullscreen)"
 assert_eq 30 "$(cat "$MB/yoff")" "secondary needs 30, more than the notch's 3"
+done_it
+
+# T7 (B7): a secondary display's visibleFrame can equal its full frame while
+# its native menu window is on screen. The window alone must count.
+it "V14: a menu seen only as an on-screen window still sets the clearance"
+mb_fixture
+mb_config 'smart_notch = "on"'
+printf '1 %s 0 0 1728 1117 31\n2 0B2C 1728 0 1440 900 0\n' "$NOTCH_UUID" >"$MB/disp"
+printf '0 1728 1117 32 771.5 956.5 34 34\n1728 1440 900 0 - - 0 30\n' >"$MB/screens"
+run_stm --config "$CFG" --porcelain menubar status
+assert_contains "$STM_OUT" "target.2.clearance	30"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq 30 "$(cat "$MB/yoff")" "the secondary's menu window needs 30"
+done_it
+
+it "V14: the deepest source wins on one display"
+mb_fixture
+mb_config 'smart_notch = "on"'
+printf '0 1728 1117 32 771.5 956.5 33 36\n' >"$MB/screens"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq 5 "$(cat "$MB/yoff")" "menu window 36 - SketchyBar's 31"
+done_it
+
+it "V15: a parked hidden item window never sets the bar top"
+mb_fixture
+mb_config 'smart_notch = "on"'
+: >"$MB/parked"
+run_stm --config "$CFG" --porcelain menubar status
+assert_contains "$STM_OUT" "target.1.bar_top	31"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq 3 "$(cat "$MB/yoff")" "34 - 31, not 34 + 9999"
+rm -f "$MB/parked"
+done_it
+
+it "V14: an unreadable window list leaves the inset and visibleFrame gap in force"
+mb_fixture
+mb_config 'smart_notch = "on"'
+printf '0 1728 1117 32 771.5 956.5 34 -\n' >"$MB/screens"
+run_stm --config "$CFG" --porcelain menubar status
+assert_contains "$STM_OUT" "target.1.clearance	34"
+run_stm --config "$CFG" menubar refresh
+assert_status 0
+assert_eq 3 "$(cat "$MB/yoff")"
 done_it
 
 # ---------------------------------------------------------------------------

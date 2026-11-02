@@ -4038,14 +4038,30 @@ read_state() {
 MENUBAR_PREF_KEYS="_HIHideMenuBar AppleMenuBarVisibleInFullscreen"
 
 # Per screen: frame x, width, height, top safe-area inset, the x where the
-# left auxiliary area ends, the x where the right one begins, and how far the
-# visible frame stops below the top (the native menu). "-" means the API did
-# not answer, which is "unknown", never "no notch".
+# left auxiliary area ends, the x where the right one begins, how far the
+# visible frame stops below the top, and how deep an on-screen native menu
+# window (layer 24) reaches below the top. A secondary display can report a
+# full visible frame under a visible menu, so the window counts on its own
+# (V14). "-" means the API did not answer, which is "unknown", never "no
+# notch" or "no menu". Window bounds need no screen-recording permission.
 # shellcheck disable=SC2016  # JXA source
 MENUBAR_JXA='ObjC.import("AppKit");
-var s = $.NSScreen.screens, out = [];
+ObjC.import("CoreGraphics");
+var s = $.NSScreen.screens, out = [], wins = null;
+try {
+  var list = ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0));
+  wins = [];
+  for (var j = 0; j < list.count; j++) {
+    var w = list.objectAtIndex(j);
+    if (w.objectForKey("kCGWindowLayer").intValue != 24) continue;
+    var wb = w.objectForKey("kCGWindowBounds");
+    wins.push([wb.objectForKey("X").doubleValue, wb.objectForKey("Y").doubleValue,
+      wb.objectForKey("Width").doubleValue, wb.objectForKey("Height").doubleValue]);
+  }
+} catch (e) { wins = null; }
+var h0 = s.count > 0 ? s.objectAtIndex(0).frame.size.height : 0;
 for (var i = 0; i < s.count; i++) {
-  var c = s.objectAtIndex(i), f = c.frame, v = c.visibleFrame, top = "-", l = "-", r = "-";
+  var c = s.objectAtIndex(i), f = c.frame, v = c.visibleFrame, top = "-", l = "-", r = "-", mw = "-";
   var menu = (f.origin.y + f.size.height) - (v.origin.y + v.size.height);
   if (c.safeAreaInsets !== undefined) top = c.safeAreaInsets.top;
   if (c.auxiliaryTopLeftArea !== undefined) {
@@ -4053,7 +4069,16 @@ for (var i = 0; i < s.count; i++) {
     if (a.size.width > 0) l = a.origin.x + a.size.width;
     if (b.size.width > 0) r = b.origin.x;
   }
-  out.push([f.origin.x, f.size.width, f.size.height, top, l, r, menu].join(" "));
+  if (wins !== null) {
+    var ct = h0 - (f.origin.y + f.size.height);
+    mw = 0;
+    for (var k = 0; k < wins.length; k++) {
+      var m = wins[k];
+      if (m[0] < f.origin.x + f.size.width && m[0] + m[2] > f.origin.x && m[1] <= ct + 0.5 && m[1] + m[3] > ct)
+        mw = Math.max(mw, m[1] + m[3] - ct);
+    }
+  }
+  out.push([f.origin.x, f.size.width, f.size.height, top, l, r, menu, mw].join(" "));
 }
 out.join("\n");'
 
@@ -4281,26 +4306,6 @@ EOF
     MB_WHY="the bar has no items to locate its displays"
     return 0
   fi
-  # Per display: the top of the highest item window as tall as the bar. Item
-  # windows span the bar's height, so that is where the bar starts.
-  ids=$(sketchybar "$@" 2>/dev/null | awk -v hgt="$height" '
-    function arr(line, n,   s, a) { s = line; sub(/^[^[]*\[/, "", s); split(s, a, ","); return a[n] + 0 }
-    /"display-[0-9]+"[ \t]*:/ {
-      cur = $0; sub(/^[^"]*"display-/, "", cur); sub(/".*/, "", cur)
-      seen[cur] = 1
-      next
-    }
-    cur != "" && /"origin"[ \t]*:/ { oy = arr($0, 2); next }
-    cur != "" && /"size"[ \t]*:/ {
-      h = arr($0, 2)
-      if (hgt > 0 && h > hgt - 0.5 && h < hgt + 0.5 && (!(cur in top) || oy < top[cur])) top[cur] = oy
-      cur = ""
-    }
-    END { for (d in seen) printf("%s\t%s\n", d, (d in top) ? top[d] : "-") }' | sort -n)
-  if [ -z "$ids" ]; then
-    MB_WHY="no drawn bar item reports a display"
-    return 0
-  fi
   displays=$(sketchybar --query displays 2>/dev/null | awk '
     function num(line,   v) { v = line; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t,]*$/, "", v); return v }
     /"arrangement-id"[ \t]*:/ { id = num($0) }
@@ -4309,6 +4314,34 @@ EOF
     /"y"[ \t]*:/ { y = num($0) }
     /"w"[ \t]*:/ { w = num($0) }
     /"h"[ \t]*:/ { printf("%s\t%s\t%.0f\t%.0f\t%.0f\t%.0f\n", id, uuid, x, w, num($0), y) }')
+  # Per display: the top of the highest item window as tall as the bar. Item
+  # windows span the bar's height, so that is where the bar starts. Only a
+  # window inside its display counts: SketchyBar parks hidden windows, such as
+  # popup rows, at -9999 with the bar's height (V15). A display stm cannot
+  # place gives no top, so its need stays unknown.
+  ids=$(sketchybar "$@" 2>/dev/null | MB_DISPLAYS="$displays" awk -v hgt="$height" '
+    function arr(line, n,   s, a) { s = line; sub(/^[^[]*\[/, "", s); split(s, a, ","); return a[n] + 0 }
+    BEGIN {
+      nd = split(ENVIRON["MB_DISPLAYS"], rows, "\n")
+      for (i = 1; i <= nd; i++) if (split(rows[i], f, "\t") == 6) { lo[f[1]] = f[6] + 0; hi[f[1]] = f[6] + f[5] }
+    }
+    /"display-[0-9]+"[ \t]*:/ {
+      cur = $0; sub(/^[^"]*"display-/, "", cur); sub(/".*/, "", cur)
+      seen[cur] = 1
+      next
+    }
+    cur != "" && /"origin"[ \t]*:/ { oy = arr($0, 2); next }
+    cur != "" && /"size"[ \t]*:/ {
+      h = arr($0, 2)
+      if (hgt > 0 && h > hgt - 0.5 && h < hgt + 0.5 && (cur in lo) && oy > lo[cur] - 0.5 && oy < hi[cur] &&
+        (!(cur in top) || oy < top[cur])) top[cur] = oy
+      cur = ""
+    }
+    END { for (d in seen) printf("%s\t%s\n", d, (d in top) ? top[d] : "-") }' | sort -n)
+  if [ -z "$ids" ]; then
+    MB_WHY="no drawn bar item reports a display"
+    return 0
+  fi
   screens=$("${STM_OSASCRIPT:-/usr/bin/osascript}" -l JavaScript -e "$MENUBAR_JXA" 2>/dev/null) || screens=""
   MB_TARGETS=$(
     {
@@ -4318,16 +4351,21 @@ EOF
     } | awk '
       /^I\t/ { split($0, f, "\t"); if (f[2] != "") { ids[++ni] = f[2]; top[f[2]] = f[3] } next }
       /^D\t/ { split($0, f, "\t"); uuid[f[2]] = f[3]; key[f[2]] = f[4] " " f[5] " " f[6]; dy[f[2]] = f[7]; next }
-      /^S / && NF == 8 {
+      /^S / && NF == 9 {
         k = sprintf("%.0f %.0f %.0f", $2, $3, $4)
         if ($5 == "-") c = "unknown"
         else if ($5 + 0 > 0 && $6 != "-" && $7 != "-" && $6 + 0 < $7 + 0) c = "confirmed-notch"
         else if ($5 + 0 == 0) c = "confirmed-no-notch"
         else c = "unknown"
         class[k] = c
+        # The deepest of inset, visible-frame gap and menu window (V14). The
+        # gap is required; an unknown inset or window list only drops out.
         cl = "-"
-        if ($5 != "-" && $8 != "-") cl = ($5 + 0 > $8 + 0) ? $5 + 0 : $8 + 0
-        else if ($8 != "-") cl = $8 + 0
+        if ($8 != "-") {
+          cl = $8 + 0
+          if ($5 != "-" && $5 + 0 > cl) cl = $5 + 0
+          if ($9 != "-" && $9 + 0 > cl) cl = $9 + 0
+        }
         clear[k] = cl
       }
       END {
@@ -4989,6 +5027,9 @@ cmd_menubar() {
     return 0
   fi
   menubar_run "$sub" "$mode"
+  if [ "$sub" = restore ] && [ "$mode" = on ]; then
+    err "warning: smart_notch is still on in $RESOLVED_CONFIG; the next refresh applies these values again. Set it to \"off\" to keep them."
+  fi
 }
 
 # ---------------------------------------------------------------------------
