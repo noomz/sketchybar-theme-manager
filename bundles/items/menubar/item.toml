@@ -1,0 +1,10 @@
+# stm.menubar — the smart menu-bar hook. Installed with
+# `stm install item:menubar`. It draws nothing: at startup, on display
+# changes and on wake it runs `stm menubar refresh`, which changes nothing
+# unless stm.config.toml sets [menu_bar] smart_notch = "on".
+name = "menubar"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+default_position = "right"
+events = ["display_change", "system_woke"]

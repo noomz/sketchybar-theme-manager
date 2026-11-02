@@ -77,7 +77,7 @@ STM_ROOT="$PWD" bin/stm preview my-theme
   `install`, `search`, `login`, `logout`, `publish`, and `update`, and
   `install item:<name>` never does. Everything
   else (`apply`, `preview`, `list`, `doctor`, `verify`, `adopt`, `backup`,
-  `restore`, `import`, `export`, `add`, `lint`, `uninstall`, `remove`) is
+  `restore`, `import`, `export`, `add`, `lint`, `uninstall`, `remove`, `menubar`) is
   offline. Tests stub `STM_FETCH` and must not talk to the internet. `stm lint`
   is the install/publish gate.
 - **Writes are atomic.** Write to a temp file in the destination directory, then
@@ -200,6 +200,11 @@ tests/run.sh test_apply_bash.sh                     # one file
 The suite is plain bash, no `bats`. Each `tests/test_*.sh` sources
 `tests/helpers.sh`, calls `setup_sandbox`, and ends with `finish`. Assertions
 are grouped between `it "..."` and `done_it`.
+
+`stm menubar` writes system-wide macOS preferences. Its tests use stubs only. To
+check real behaviour, use the probes in `tools/probes/smart-menu-bar/`, which
+run in a Tart VM. Do not write a host preference unless the machine's owner
+agrees to that test.
 
 Every test runs inside a `mktemp -d` with `HOME`, `XDG_CONFIG_HOME` and friends
 redirected into it, and a stub `sketchybar` first on `PATH`. `setup_sandbox`

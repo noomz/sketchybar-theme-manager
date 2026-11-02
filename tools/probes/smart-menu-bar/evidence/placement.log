@@ -1,0 +1,1053 @@
+probe_dir=/Users/admin/stm-placement.xTKMmt
+
+case=initial_off
+{
+	"position": "top",
+	"topmost": "off",
+	"sticky": "on",
+	"hidden": "off",
+	"shadow": "off",
+	"font_smoothing": "off",
+	"show_in_fullscreen": "off",
+	"blur_radius": 0,
+	"margin": 0,
+	"drawing": "off",
+	"color": "0x44000000",
+	"border_color": "0xffff0000",
+	"border_width": 0,
+	"height": 34,
+	"corner_radius": 0,
+	"padding_left": 20,
+	"padding_right": 20,
+	"x_offset": 0,
+	"y_offset": 0,
+	"clip": 0.000000,
+	"image": {
+		"value": "(null)",
+		"drawing": "off",
+		"scale": 1.000000
+	},
+	"items": [
+		 "stm.placement"
+	]
+}
+{
+	"name": "stm.placement",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "(null)",
+		"click_script": "/Users/admin/stm-placement.xTKMmt/click.sh",
+		"update_freq": 0,
+		"update_mask": 0,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 29.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+click_posted x=41.0 y=46.0
+click_deliveries=1
+
+case=on_before_resize
+{
+	"position": "top",
+	"topmost": "on",
+	"sticky": "on",
+	"hidden": "off",
+	"shadow": "off",
+	"font_smoothing": "off",
+	"show_in_fullscreen": "off",
+	"blur_radius": 0,
+	"margin": 0,
+	"drawing": "off",
+	"color": "0x44000000",
+	"border_color": "0xffff0000",
+	"border_width": 0,
+	"height": 34,
+	"corner_radius": 0,
+	"padding_left": 20,
+	"padding_right": 20,
+	"x_offset": 0,
+	"y_offset": 0,
+	"clip": 0.000000,
+	"image": {
+		"value": "(null)",
+		"drawing": "off",
+		"scale": 1.000000
+	},
+	"items": [
+		 "stm.placement"
+	]
+}
+{
+	"name": "stm.placement",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "(null)",
+		"click_script": "/Users/admin/stm-placement.xTKMmt/click.sh",
+		"update_freq": 0,
+		"update_mask": 0,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 29.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":34,"Width":42,"X":20,"Y":29},"layer":25,"onScreen":true,"owner":"sketchybar"},{"bounds":{"Height":34,"Width":1276,"X":0,"Y":29},"layer":25,"onScreen":true,"owner":"sketchybar"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+
+case=on_after_resize
+{
+	"position": "top",
+	"topmost": "on",
+	"sticky": "on",
+	"hidden": "off",
+	"shadow": "off",
+	"font_smoothing": "off",
+	"show_in_fullscreen": "off",
+	"blur_radius": 0,
+	"margin": 0,
+	"drawing": "off",
+	"color": "0x44000000",
+	"border_color": "0xffff0000",
+	"border_width": 0,
+	"height": 34,
+	"corner_radius": 0,
+	"padding_left": 20,
+	"padding_right": 20,
+	"x_offset": 0,
+	"y_offset": 0,
+	"clip": 0.000000,
+	"image": {
+		"value": "(null)",
+		"drawing": "off",
+		"scale": 1.000000
+	},
+	"items": [
+		 "stm.placement"
+	]
+}
+{
+	"name": "stm.placement",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "(null)",
+		"click_script": "/Users/admin/stm-placement.xTKMmt/click.sh",
+		"update_freq": 0,
+		"update_mask": 0,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 0.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":34,"Width":42,"X":20,"Y":0},"layer":25,"onScreen":true,"owner":"sketchybar"},{"bounds":{"Height":34,"Width":1276,"X":0,"Y":0},"layer":25,"onScreen":true,"owner":"sketchybar"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+
+case=on_y_30
+{
+	"position": "top",
+	"topmost": "on",
+	"sticky": "on",
+	"hidden": "off",
+	"shadow": "off",
+	"font_smoothing": "off",
+	"show_in_fullscreen": "off",
+	"blur_radius": 0,
+	"margin": 0,
+	"drawing": "off",
+	"color": "0x44000000",
+	"border_color": "0xffff0000",
+	"border_width": 0,
+	"height": 34,
+	"corner_radius": 0,
+	"padding_left": 20,
+	"padding_right": 20,
+	"x_offset": 0,
+	"y_offset": 30,
+	"clip": 0.000000,
+	"image": {
+		"value": "(null)",
+		"drawing": "off",
+		"scale": 1.000000
+	},
+	"items": [
+		 "stm.placement"
+	]
+}
+{
+	"name": "stm.placement",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "(null)",
+		"click_script": "/Users/admin/stm-placement.xTKMmt/click.sh",
+		"update_freq": 0,
+		"update_mask": 0,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 30.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":34,"Width":42,"X":20,"Y":30},"layer":25,"onScreen":true,"owner":"sketchybar"},{"bounds":{"Height":34,"Width":1276,"X":0,"Y":30},"layer":25,"onScreen":true,"owner":"sketchybar"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+click_posted x=41.0 y=47.0
+click_deliveries=1
+
+case=off_before_resize
+{
+	"position": "top",
+	"topmost": "off",
+	"sticky": "on",
+	"hidden": "off",
+	"shadow": "off",
+	"font_smoothing": "off",
+	"show_in_fullscreen": "off",
+	"blur_radius": 0,
+	"margin": 0,
+	"drawing": "off",
+	"color": "0x44000000",
+	"border_color": "0xffff0000",
+	"border_width": 0,
+	"height": 34,
+	"corner_radius": 0,
+	"padding_left": 20,
+	"padding_right": 20,
+	"x_offset": 0,
+	"y_offset": 0,
+	"clip": 0.000000,
+	"image": {
+		"value": "(null)",
+		"drawing": "off",
+		"scale": 1.000000
+	},
+	"items": [
+		 "stm.placement"
+	]
+}
+{
+	"name": "stm.placement",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "(null)",
+		"click_script": "/Users/admin/stm-placement.xTKMmt/click.sh",
+		"update_freq": 0,
+		"update_mask": 0,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 0.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+
+case=off_after_resize
+{
+	"position": "top",
+	"topmost": "off",
+	"sticky": "on",
+	"hidden": "off",
+	"shadow": "off",
+	"font_smoothing": "off",
+	"show_in_fullscreen": "off",
+	"blur_radius": 0,
+	"margin": 0,
+	"drawing": "off",
+	"color": "0x44000000",
+	"border_color": "0xffff0000",
+	"border_width": 0,
+	"height": 34,
+	"corner_radius": 0,
+	"padding_left": 20,
+	"padding_right": 20,
+	"x_offset": 0,
+	"y_offset": 0,
+	"clip": 0.000000,
+	"image": {
+		"value": "(null)",
+		"drawing": "off",
+		"scale": 1.000000
+	},
+	"items": [
+		 "stm.placement"
+	]
+}
+{
+	"name": "stm.placement",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "(null)",
+		"click_script": "/Users/admin/stm-placement.xTKMmt/click.sh",
+		"update_freq": 0,
+		"update_mask": 0,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 29.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+click_posted x=41.0 y=46.0
+click_deliveries=1
+server_log_begin
+server_log_end

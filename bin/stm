@@ -77,6 +77,7 @@ STM_TMPDIRS=""
 
 cleanup_tmp() {
   local f old_ifs
+  [ -z "${MB_LOCK_FILE:-}" ] || menubar_lock_release
   old_ifs="$IFS"
   IFS=$'\n'
   for f in $STM_TMPFILES; do
@@ -4172,6 +4173,1012 @@ read_state() {
 }
 
 # ---------------------------------------------------------------------------
+# Smart menu bar (opt-in): config, read-only observation, plans
+# ---------------------------------------------------------------------------
+#
+# Contract: docs/research/smart-menu-bar-t4-design.md. Observation and
+# planning only read. Only the executor writes a preference, the bar offset or
+# the state file, and only while it holds the lock.
+
+# Fullscreen-only hiding is both global booleans false (T2 mode table).
+MENUBAR_PREF_KEYS="_HIHideMenuBar AppleMenuBarVisibleInFullscreen"
+
+# Per screen: frame x, width, height, top safe-area inset, the x where the
+# left auxiliary area ends, the x where the right one begins, how far the
+# visible frame stops below the top, and how deep an on-screen native menu
+# window (layer 24) reaches below the top. A secondary display can report a
+# full visible frame under a visible menu, so the window counts on its own
+# (V14). "-" means the API did not answer, which is "unknown", never "no
+# notch" or "no menu". Window bounds need no screen-recording permission.
+# shellcheck disable=SC2016  # JXA source
+MENUBAR_JXA='ObjC.import("AppKit");
+ObjC.import("CoreGraphics");
+var s = $.NSScreen.screens, out = [], wins = null;
+try {
+  var list = ObjC.castRefToObject($.CGWindowListCopyWindowInfo(1, 0));
+  wins = [];
+  for (var j = 0; j < list.count; j++) {
+    var w = list.objectAtIndex(j);
+    if (w.objectForKey("kCGWindowLayer").intValue != 24) continue;
+    var wb = w.objectForKey("kCGWindowBounds");
+    wins.push([wb.objectForKey("X").doubleValue, wb.objectForKey("Y").doubleValue,
+      wb.objectForKey("Width").doubleValue, wb.objectForKey("Height").doubleValue]);
+  }
+} catch (e) { wins = null; }
+var h0 = s.count > 0 ? s.objectAtIndex(0).frame.size.height : 0;
+for (var i = 0; i < s.count; i++) {
+  var c = s.objectAtIndex(i), f = c.frame, v = c.visibleFrame, top = "-", l = "-", r = "-", mw = "-";
+  var menu = (f.origin.y + f.size.height) - (v.origin.y + v.size.height);
+  if (c.safeAreaInsets !== undefined) top = c.safeAreaInsets.top;
+  if (c.auxiliaryTopLeftArea !== undefined) {
+    var a = c.auxiliaryTopLeftArea, b = c.auxiliaryTopRightArea;
+    if (a.size.width > 0) l = a.origin.x + a.size.width;
+    if (b.size.width > 0) r = b.origin.x;
+  }
+  if (wins !== null) {
+    var ct = h0 - (f.origin.y + f.size.height);
+    mw = 0;
+    for (var k = 0; k < wins.length; k++) {
+      var m = wins[k];
+      if (m[0] < f.origin.x + f.size.width && m[0] + m[2] > f.origin.x && m[1] <= ct + 0.5 && m[1] + m[3] > ct)
+        mw = Math.max(mw, m[1] + m[3] - ct);
+    }
+  }
+  out.push([f.origin.x, f.size.width, f.size.height, top, l, r, menu, mw].join(" "));
+}
+out.join("\n");'
+
+# menubar_config_mode — on | off from [menu_bar] in stm.config.toml. No file,
+# table or key means off (C1). Unlike the shared reader, which skips lines it
+# cannot parse, this one rejects them: a typo here must be reported, not read
+# as a silent off.
+menubar_config_mode() {
+  local out
+  if [ -z "$RESOLVED_CONFIG" ] || [ ! -f "$RESOLVED_CONFIG" ]; then
+    printf 'off\n'
+    return 0
+  fi
+  out=$(awk '
+    function fail(msg) { print "E\t" msg; failed = 1; exit }
+    { line = $0; sub(/\r$/, "", line) }
+    line ~ /^[ \t]*\[/ {
+      sec = line
+      sub(/^[ \t]*\[[ \t]*/, "", sec)
+      sub(/[ \t]*\].*$/, "", sec)
+      in_mb = (sec == "menu_bar")
+      if (in_mb && seen_table++) fail("duplicate [menu_bar] table (line " NR ")")
+      next
+    }
+    !in_mb { next }
+    line ~ /^[ \t]*$/ || line ~ /^[ \t]*#/ { next }
+    {
+      if (line !~ /^[ \t]*[a-z_]+[ \t]*=[ \t]*"[^"\\]*"[ \t]*(#.*)?$/)
+        fail("line " NR " is not key = \"value\"")
+      k = line; sub(/^[ \t]*/, "", k); sub(/[ \t]*=.*$/, "", k)
+      v = line; sub(/^[^=]*=[ \t]*"/, "", v); sub(/".*$/, "", v)
+      if (k != "smart_notch") fail("unsupported key \"" k "\" (line " NR ")")
+      if (seen_key[k]++) fail("duplicate key \"" k "\" (line " NR ")")
+      if (v != "on" && v != "off") fail("invalid value for \"" k "\": \"" v "\" (want on or off)")
+      mode = v
+    }
+    END { if (!failed) print "M\t" (mode == "" ? "off" : mode) }
+  ' "$RESOLVED_CONFIG")
+  case "$out" in
+    M$'\t'*) printf '%s\n' "${out#M?}" ;;
+    E$'\t'*) die "$EX_CONFIG" "[menu_bar] ${out#E?} in $RESOLVED_CONFIG" ;;
+    *) die "$EX_CONFIG" "[menu_bar] could not be read from $RESOLVED_CONFIG" ;;
+  esac
+}
+
+menubar_state_dir() {
+  case "${XDG_STATE_HOME:-}" in
+    /*) printf '%s/stm\n' "$XDG_STATE_HOME" ;;
+    *) printf '%s/.local/state/stm\n' "$HOME" ;;
+  esac
+}
+
+# menubar_state_load — validate the state file without ever sourcing it.
+# Sets MB_STATE_STATUS (none | ok | invalid), MB_STATE_ERR and MB_STATE, the
+# validated key=value lines. An invalid file is left in place for recovery.
+menubar_state_load() {
+  local dir file meta out
+  MB_STATE_STATUS=none
+  MB_STATE_ERR=""
+  MB_STATE=""
+  dir=$(menubar_state_dir)
+  file="$dir/menubar.state"
+  if [ -L "$dir" ]; then
+    MB_STATE_STATUS=invalid
+    MB_STATE_ERR="state directory is a symlink: $dir"
+    return 0
+  fi
+  [ -e "$dir" ] || return 0
+  if [ ! -d "$dir" ]; then
+    MB_STATE_STATUS=invalid
+    MB_STATE_ERR="state path is not a directory: $dir"
+    return 0
+  fi
+  if [ -L "$file" ]; then
+    MB_STATE_STATUS=invalid
+    MB_STATE_ERR="menubar.state is a symlink: $file"
+    return 0
+  fi
+  [ -e "$file" ] || return 0
+  MB_STATE_STATUS=invalid
+  if [ ! -f "$file" ]; then
+    MB_STATE_ERR="menubar.state is not a regular file: $file"
+    return 0
+  fi
+  for meta in "$dir" "$file"; do
+    # shellcheck disable=SC2046  # split "uid mode" into $1 $2
+    set -- $(stat -f '%u %Lp' "$meta" 2>/dev/null)
+    if [ "${1:-}" != "$(id -u)" ]; then
+      MB_STATE_ERR="$meta is not owned by the current user"
+      return 0
+    fi
+    case "${2:-}" in
+      ?[2367]? | ??[2367] | '')
+        MB_STATE_ERR="$meta is writable by other users (mode ${2:-unknown})"
+        return 0
+        ;;
+    esac
+  done
+  out=$(awk '
+    function fail(msg) { print "E\t" msg; failed = 1; exit }
+    BEGIN {
+      n = split("version phase generation targets " \
+        "pref._HIHideMenuBar.original pref._HIHideMenuBar.applied pref._HIHideMenuBar.owner " \
+        "pref.AppleMenuBarVisibleInFullscreen.original pref.AppleMenuBarVisibleInFullscreen.applied " \
+        "pref.AppleMenuBarVisibleInFullscreen.owner " \
+        "bar.y_offset.original bar.y_offset.applied bar.y_offset.owner", req, " ")
+      for (i = 1; i <= n; i++) known[req[i]] = 1
+    }
+    {
+      eq = index($0, "=")
+      if (eq < 2) fail("line " NR " is not key=value")
+      k = substr($0, 1, eq - 1); v = substr($0, eq + 1)
+      if (!(k in known)) fail("unknown key on line " NR)
+      if (k in val) fail("duplicate key on line " NR)
+      int_ok = (v ~ /^-?[0-9]+$/ && length(v) <= 4)
+      if (k == "version") ok = (v == "1")
+      else if (k == "phase") ok = (v ~ /^(applying|active|restoring|conflict|recovery-required)$/)
+      else if (k == "generation") ok = (v ~ /^[0-9]+$/ && length(v) <= 9)
+      else if (k == "targets") ok = (v ~ /^([0-9A-F-]+(,[0-9A-F-]+)*)?$/)
+      else if (k ~ /\.owner$/) ok = (v ~ /^(unchanged|applied|conflict|uncertain)$/)
+      else if (k ~ /^pref\..*\.original$/) ok = (v ~ /^(absent|bool:true|bool:false)$/)
+      else if (k ~ /^pref\..*\.applied$/) ok = (v ~ /^(none|bool:true|bool:false)$/)
+      else if (k == "bar.y_offset.original") ok = int_ok
+      else ok = (v == "none" || int_ok)
+      if (!ok) fail("invalid value for " k " on line " NR)
+      val[k] = v
+    }
+    END {
+      if (failed) exit
+      for (i = 1; i <= n; i++) if (!(req[i] in val)) { print "E\tmissing key " req[i]; exit }
+      print "OK"
+      for (i = 1; i <= n; i++) print req[i] "=" val[req[i]]
+    }
+  ' "$file")
+  case "$out" in
+    OK*)
+      MB_STATE_STATUS=ok
+      MB_STATE=${out#OK?}
+      ;;
+    E$'\t'*) MB_STATE_ERR="menubar.state: ${out#E?} ($file)" ;;
+    *) MB_STATE_ERR="menubar.state could not be read ($file)" ;;
+  esac
+}
+
+# menubar_state_get <key> — one validated value from MB_STATE.
+menubar_state_get() {
+  printf '%s\n' "$MB_STATE" | awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }'
+}
+
+# menubar_pref_read <key> — absent | bool:true | bool:false | unsupported |
+# unreadable. Only a missing key reads as absent; any other failure does not.
+menubar_pref_read() {
+  local d="${STM_DEFAULTS:-/usr/bin/defaults}" t v
+  if ! t=$("$d" read-type -g "$1" 2>&1); then
+    case "$t" in
+      *"Could not find key"* | *"does not exist"*) printf 'absent\n' ;;
+      *) printf 'unreadable\n' ;;
+    esac
+    return 0
+  fi
+  case "$t" in
+    "Type is boolean") : ;;
+    *) printf 'unsupported\n'; return 0 ;;
+  esac
+  v=$("$d" read -g "$1" 2>/dev/null) || v=""
+  case "$v" in
+    1) printf 'bool:true\n' ;;
+    0) printf 'bool:false\n' ;;
+    *) printf 'unreadable\n' ;;
+  esac
+}
+
+# menubar_bar_value <bar-json> <key> — a top-level scalar of `--query bar`.
+menubar_bar_value() {
+  printf '%s\n' "$1" | awk -v k="$2" '
+    index($0, "\t\"" k "\"") == 1 {
+      v = $0; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t]*,?[ \t]*$/, "", v)
+      gsub(/"/, "", v); print v; exit
+    }'
+}
+
+# menubar_observe — read the bar, the displays hosting it, each one's notch
+# and how far its native menu reaches. Sets MB_POS, MB_YOFF, MB_TOPMOST and
+# MB_HOOK (each "unknown" when it cannot be read), MB_TARGETS_OK (1 when every
+# hosting display was located) with MB_TARGETS rows
+#   arrangement-id <TAB> uuid <TAB> class <TAB> clearance <TAB> bar top
+# where clearance and bar top are points below the display's top edge, or
+# "-" when unknown; otherwise MB_WHY says what failed.
+menubar_observe() {
+  local bar height ids displays screens
+  MB_POS=unknown
+  MB_YOFF=unknown
+  MB_TOPMOST=unknown
+  MB_HOOK=unknown
+  MB_TARGETS=""
+  MB_TARGETS_OK=0
+  MB_WHY=""
+  if ! bar=$(sketchybar --query bar 2>/dev/null) || [ -z "$bar" ]; then
+    MB_WHY="sketchybar did not answer --query bar"
+    return 0
+  fi
+  MB_POS=$(menubar_bar_value "$bar" position)
+  case "$MB_POS" in top | bottom) : ;; *) MB_POS=unknown ;; esac
+  MB_YOFF=$(menubar_bar_value "$bar" y_offset)
+  stm_int_in "$MB_YOFF" -9999 9999 || MB_YOFF=unknown
+  MB_TOPMOST=$(menubar_bar_value "$bar" topmost)
+  case "$MB_TOPMOST" in on | off) : ;; *) MB_TOPMOST=unknown ;; esac
+  height=$(menubar_bar_value "$bar" height)
+  stm_int_in "$height" 1 9999 || height=0
+  if sketchybar --query stm.menubar >/dev/null 2>&1; then MB_HOOK=loaded; else MB_HOOK=missing; fi
+
+  # The bar query names no display, so locate it through its drawn items. A
+  # name is only ever an argv word here.
+  set --
+  while IFS= read -r n; do
+    case "$n" in "" | stm.menubar) continue ;; esac
+    set -- "$@" --query "$n"
+  done <<EOF
+$(printf '%s\n' "$bar" | awk -F'"' '
+  /"items"[ \t]*:/ { on = 1; next }
+  on && /^[ \t]*\]/ { exit }
+  on && NF == 3 && $2 != "" && $2 !~ /\\/ { print $2 }')
+EOF
+  if [ "$#" -eq 0 ]; then
+    MB_WHY="the bar has no items to locate its displays"
+    return 0
+  fi
+  displays=$(sketchybar --query displays 2>/dev/null | awk '
+    function num(line,   v) { v = line; sub(/^[^:]*:[ \t]*/, "", v); sub(/[ \t,]*$/, "", v); return v }
+    /"arrangement-id"[ \t]*:/ { id = num($0) }
+    /"UUID"[ \t]*:/ { split($0, q, "\""); uuid = (q[4] ~ /^[0-9A-F-]+$/) ? q[4] : "?" }
+    /"x"[ \t]*:/ { x = num($0) }
+    /"y"[ \t]*:/ { y = num($0) }
+    /"w"[ \t]*:/ { w = num($0) }
+    /"h"[ \t]*:/ { printf("%s\t%s\t%.0f\t%.0f\t%.0f\t%.0f\n", id, uuid, x, w, num($0), y) }')
+  # Per display: the top of the highest item window as tall as the bar. Item
+  # windows span the bar's height, so that is where the bar starts. Only a
+  # window inside its display counts: SketchyBar parks hidden windows, such as
+  # popup rows, at -9999 with the bar's height (V15). A display stm cannot
+  # place gives no top, so its need stays unknown.
+  ids=$(sketchybar "$@" 2>/dev/null | MB_DISPLAYS="$displays" awk -v hgt="$height" '
+    function arr(line, n,   s, a) { s = line; sub(/^[^[]*\[/, "", s); split(s, a, ","); return a[n] + 0 }
+    BEGIN {
+      nd = split(ENVIRON["MB_DISPLAYS"], rows, "\n")
+      for (i = 1; i <= nd; i++) if (split(rows[i], f, "\t") == 6) { lo[f[1]] = f[6] + 0; hi[f[1]] = f[6] + f[5] }
+    }
+    /"display-[0-9]+"[ \t]*:/ {
+      cur = $0; sub(/^[^"]*"display-/, "", cur); sub(/".*/, "", cur)
+      seen[cur] = 1
+      next
+    }
+    cur != "" && /"origin"[ \t]*:/ { oy = arr($0, 2); next }
+    cur != "" && /"size"[ \t]*:/ {
+      h = arr($0, 2)
+      if (hgt > 0 && h > hgt - 0.5 && h < hgt + 0.5 && (cur in lo) && oy > lo[cur] - 0.5 && oy < hi[cur] &&
+        (!(cur in top) || oy < top[cur])) top[cur] = oy
+      cur = ""
+    }
+    END { for (d in seen) printf("%s\t%s\n", d, (d in top) ? top[d] : "-") }' | sort -n)
+  if [ -z "$ids" ]; then
+    MB_WHY="no drawn bar item reports a display"
+    return 0
+  fi
+  screens=$("${STM_OSASCRIPT:-/usr/bin/osascript}" -l JavaScript -e "$MENUBAR_JXA" 2>/dev/null) || screens=""
+  MB_TARGETS=$(
+    {
+      printf '%s\n' "$ids" | sed 's/^/I	/'
+      printf '%s\n' "$displays" | sed 's/^/D	/'
+      printf '%s\n' "$screens" | sed 's/^/S /'
+    } | awk '
+      /^I\t/ { split($0, f, "\t"); if (f[2] != "") { ids[++ni] = f[2]; top[f[2]] = f[3] } next }
+      /^D\t/ { split($0, f, "\t"); uuid[f[2]] = f[3]; key[f[2]] = f[4] " " f[5] " " f[6]; dy[f[2]] = f[7]; next }
+      /^S / && NF == 9 {
+        k = sprintf("%.0f %.0f %.0f", $2, $3, $4)
+        if ($5 == "-") c = "unknown"
+        else if ($5 + 0 > 0 && $6 != "-" && $7 != "-" && $6 + 0 < $7 + 0) c = "confirmed-notch"
+        else if ($5 + 0 == 0) c = "confirmed-no-notch"
+        else c = "unknown"
+        class[k] = c
+        # The deepest of inset, visible-frame gap and menu window (V14). The
+        # gap is required; an unknown inset or window list only drops out.
+        cl = "-"
+        if ($8 != "-") {
+          cl = $8 + 0
+          if ($5 != "-" && $5 + 0 > cl) cl = $5 + 0
+          if ($9 != "-" && $9 + 0 > cl) cl = $9 + 0
+        }
+        clear[k] = cl
+      }
+      END {
+        for (i = 1; i <= ni; i++) {
+          id = ids[i]
+          known = (id in key && key[id] in class)
+          c = known ? class[key[id]] : "unknown"
+          cl = known ? clear[key[id]] : "-"
+          t = (top[id] != "-" && id in dy) ? top[id] - dy[id] : "-"
+          printf("%s\t%s\t%s\t%s\t%s\n", id, (id in uuid) ? uuid[id] : "?", c, cl, t)
+        }
+      }')
+  MB_TARGETS_OK=1
+}
+
+# menubar_unknown_reason — why the observation cannot support a decision, or
+# nothing when it can. Unknown is never treated as "no notch" (V3, V10).
+menubar_unknown_reason() {
+  if [ "$MB_TARGETS_OK" -ne 1 ]; then
+    printf 'bar displays unknown (%s)\n' "$MB_WHY"
+  elif [ "$MB_POS" = unknown ]; then
+    printf 'bar position unknown\n'
+  elif printf '%s\n' "$MB_TARGETS" | awk -F'\t' '$3 == "unknown" { found = 1 } END { exit !found }'; then
+    printf 'notch state unknown for display %s\n' \
+      "$(printf '%s\n' "$MB_TARGETS" | awk -F'\t' '$3 == "unknown" { printf("%s%s", sep, $1); sep = "," }')"
+  fi
+}
+
+# menubar_needed <owned delta> — the extra offset the bar needs so that, with
+# stm's own share removed, it starts below the native menu on every hosting
+# display (one global offset, so the maximum; T4 policy). "unknown" when a
+# display's clearance or bar top could not be measured.
+menubar_needed() {
+  printf '%s\n' "$MB_TARGETS" | awk -F'\t' -v owned="$1" '
+    NF < 5 { next }
+    $4 == "-" || $5 == "-" { bad = 1; next }
+    {
+      d = $4 - ($5 - owned)
+      n = int(d); if (n < d) n++
+      if (n > need) need = n
+    }
+    END { print bad ? "unknown" : need + 0 }'
+}
+
+# menubar_clear — true when the bar starts at or below the native menu on
+# every hosting display (the effective result V2 asks to verify).
+menubar_clear() {
+  [ "$MB_TARGETS_OK" -eq 1 ] || return 1
+  printf '%s\n' "$MB_TARGETS" | awk -F'\t' '
+    NF < 5 || $4 == "-" || $5 == "-" { bad = 1; next }
+    $5 + 0 < $4 + 0 { bad = 1 }
+    END { exit bad }'
+}
+
+# ---------------------------------------------------------------------------
+# State and lock (written only by the executor)
+# ---------------------------------------------------------------------------
+
+# menubar_state_set <key> <value> — replace one key in MB_STATE (in memory).
+menubar_state_set() {
+  MB_STATE=$(printf '%s\n' "$MB_STATE" | awk -v k="$1" -v v="$2" '
+    index($0, k "=") == 1 { print k "=" v; next } { print }')
+}
+
+# menubar_state_new — fresh in-memory state: originals are the current values
+# and stm owns nothing yet.
+menubar_state_new() {
+  local key
+  MB_STATE="version=1
+phase=applying
+generation=0
+targets=$(printf '%s\n' "$MB_TARGETS" | awk -F'\t' '$2 ~ /^[0-9A-F-]+$/ { printf("%s%s", s, $2); s = "," }')"
+  for key in $MENUBAR_PREF_KEYS; do
+    MB_STATE="$MB_STATE
+pref.$key.original=$(menubar_pref_read "$key")
+pref.$key.applied=none
+pref.$key.owner=unchanged"
+  done
+  MB_STATE="$MB_STATE
+bar.y_offset.original=$MB_YOFF
+bar.y_offset.applied=none
+bar.y_offset.owner=unchanged"
+  MB_STATE_STATUS=ok
+}
+
+# menubar_state_mkdir — the state directory, created 0700 on first use.
+menubar_state_mkdir() {
+  local dir
+  dir=$(menubar_state_dir)
+  [ ! -L "$dir" ] || die "$EX_CONFIG" "state directory is a symlink: $dir"
+  if [ ! -d "$dir" ]; then
+    if ! mkdir -p "$(dirname "$dir")" 2>/dev/null || ! mkdir -m 700 "$dir" 2>/dev/null; then
+      die "$EX_CONFIG" "could not create the menu-bar state directory $dir"
+    fi
+  fi
+  printf '%s\n' "$dir"
+}
+
+# menubar_state_save — persist MB_STATE atomically (0700 dir, 0600 file) and
+# bump its generation. Dies before returning on any failure: a run must not
+# go on to mutate what it could not journal (V5, V6).
+menubar_state_save() {
+  local dir gen
+  dir=$(menubar_state_mkdir) || exit "$EX_CONFIG"
+  gen=$(menubar_state_get generation)
+  menubar_state_set generation "$((gen + 1))"
+  mktemp_in "$dir"
+  printf '%s\n' "$MB_STATE" >"$STM_TMP" || die "$EX_CONFIG" "could not write menu-bar state in $dir"
+  commit_tmp "$STM_TMP" "$dir/menubar.state" 600
+}
+
+menubar_state_forget() {
+  rm -f "$(menubar_state_dir)/menubar.state"
+  MB_STATE=""
+  MB_STATE_STATUS=none
+}
+
+# menubar_proc_start <pid> — the process start time, or nothing if it is gone.
+menubar_proc_start() {
+  ps -o lstart= -p "$1" 2>/dev/null | awk '{ $1 = $1; print }'
+}
+
+# menubar_lock_status — none | held | stale. A lock names its owner's PID and
+# start time; a missing process or a reused PID makes it stale.
+menubar_lock_status() {
+  local lock pid start
+  lock="$(menubar_state_dir)/menubar.lock"
+  [ -e "$lock" ] || [ -L "$lock" ] || { printf 'none\n'; return 0; }
+  IFS=$'\t' read -r pid start <"$lock" 2>/dev/null || pid=""
+  case "$pid" in
+    "" | *[!0-9]*) printf 'stale\n' ;;
+    *) if [ -n "$start" ] && [ "$(menubar_proc_start "$pid")" = "$start" ]; then printf 'held\n'; else printf 'stale\n'; fi ;;
+  esac
+}
+
+# menubar_lock_try — take the lock atomically: `ln` publishes a file that
+# already holds the owner, so a lock never exists without one.
+menubar_lock_try() {
+  local dir rc
+  dir=$(menubar_state_dir)
+  mktemp_in "$dir"
+  printf '%s\t%s\n' "$$" "$(menubar_proc_start "$$")" >"$STM_TMP"
+  ln "$STM_TMP" "$dir/menubar.lock" 2>/dev/null
+  rc=$?
+  rm -f "$STM_TMP"
+  [ "$rc" -eq 0 ] && MB_LOCK_FILE="$dir/menubar.lock"
+  return "$rc"
+}
+
+# menubar_lock_release — remove the lock only while it is still ours.
+menubar_lock_release() {
+  local pid
+  [ -n "${MB_LOCK_FILE:-}" ] || return 0
+  IFS=$'\t' read -r pid _ <"$MB_LOCK_FILE" 2>/dev/null || pid=""
+  [ "$pid" = "$$" ] && rm -f "$MB_LOCK_FILE"
+  MB_LOCK_FILE=""
+}
+
+# ---------------------------------------------------------------------------
+# Plan: one action per line, shared by --dry-run and the executor
+# ---------------------------------------------------------------------------
+#
+#   say     <message>                          information only
+#   warn    <message>                          a reason not to change anything
+#   restore <resource> <original> <applied>    put back a value stm owns
+#   release <resource>                         drop ownership, no write
+#   set     <pref key> <current>               set a preference to bool:false
+#   offset                                     measure, then raise y_offset
+#
+# A resource is a preference key or y_offset.
+
+# menubar_res_current <resource> — its current value.
+menubar_res_current() {
+  if [ "$1" = y_offset ]; then printf '%s\n' "$MB_YOFF"; else menubar_pref_read "$1"; fi
+}
+
+menubar_res_sk() {
+  if [ "$1" = y_offset ]; then printf 'bar.y_offset\n'; else printf 'pref.%s\n' "$1"; fi
+}
+
+# menubar_plan_restore — actions that hand back what stm owns. A value still
+# equal to what stm applied (or, for an uncertain write, to either side) is
+# restored; anything else was changed since and is left alone (V3, V4).
+menubar_plan_restore() {
+  local res sk owner applied original cur
+  for res in $MENUBAR_PREF_KEYS y_offset; do
+    sk=$(menubar_res_sk "$res")
+    owner=$(menubar_state_get "$sk.owner")
+    applied=$(menubar_state_get "$sk.applied")
+    original=$(menubar_state_get "$sk.original")
+    cur=$(menubar_res_current "$res")
+    case "$owner" in
+      unchanged) continue ;;
+    esac
+    case "$cur" in
+      unknown | unreadable | unsupported)
+        printf 'warn\tcannot read %s (%s); left unchanged\n' "$res" "$cur"
+        continue
+        ;;
+    esac
+    if [ "$cur" = "$original" ]; then
+      printf 'say\t%s is already back at %s\n' "$res" "$original"
+      printf 'release\t%s\n' "$res"
+    elif [ "$owner" != conflict ] && [ "$cur" = "$applied" ]; then
+      printf 'restore\t%s\t%s\t%s\n' "$res" "$original" "$applied"
+    else
+      printf 'say\tconflict: %s is now %s, stm applied %s; left unchanged\n' "$res" "$cur" "$applied"
+      printf 'release\t%s\n' "$res"
+    fi
+  done
+}
+
+# menubar_plan_refresh <mode> — the actions for one reconciliation over the
+# last menubar_observe and menubar_state_load.
+menubar_plan_refresh() {
+  local mode="$1" why key cur owner applied blocked=""
+  if [ "$mode" = off ]; then
+    if [ "$MB_STATE_STATUS" = none ]; then
+      printf 'say\tnothing to do: smart_notch is off and stm owns no menu-bar values\n'
+    else
+      menubar_plan_restore
+    fi
+    return 0
+  fi
+
+  why=$(menubar_unknown_reason)
+  if [ -n "$why" ]; then
+    printf 'warn\t%s; no change\n' "$why"
+    return 0
+  fi
+  if [ "$MB_POS" != top ] || ! printf '%s\n' "$MB_TARGETS" | awk -F'\t' '$3 == "confirmed-notch" { f = 1 } END { exit !f }'; then
+    if [ "$MB_STATE_STATUS" = none ]; then
+      printf 'say\tnothing to do: no top bar on a notched display\n'
+    else
+      menubar_plan_restore
+    fi
+    return 0
+  fi
+
+  for key in $MENUBAR_PREF_KEYS; do
+    cur=$(menubar_pref_read "$key")
+    case "$cur" in
+      unsupported | unreadable) blocked="$blocked $key=$cur" ;;
+    esac
+  done
+  if [ -n "$blocked" ]; then
+    printf 'warn\tmenu preference%s is unsupported or unreadable; no change\n' "$blocked"
+    return 0
+  fi
+  if [ "$MB_STATE_STATUS" = ok ]; then
+    for key in $MENUBAR_PREF_KEYS; do
+      owner=$(menubar_state_get "pref.$key.owner")
+      applied=$(menubar_state_get "pref.$key.applied")
+      cur=$(menubar_pref_read "$key")
+      if [ "$owner" = conflict ] || { [ "$owner" = applied ] && [ "$cur" != "$applied" ]; }; then
+        printf 'warn\t%s was changed after stm set it; not reacquiring it until you run stm menubar restore\n' "$key"
+        printf 'conflict\t%s\n' "$key"
+        return 0
+      fi
+    done
+  fi
+  for key in $MENUBAR_PREF_KEYS; do
+    cur=$(menubar_pref_read "$key")
+    [ "$cur" = bool:false ] || printf 'set\t%s\t%s\n' "$key" "$cur"
+  done
+  printf 'offset\n'
+}
+
+# menubar_plan_print <actions> — the plan as a reader sees it. Returns the
+# number of writes in MB_PLAN_WRITES.
+menubar_plan_print() {
+  local kind a b c
+  MB_PLAN_WRITES=0
+  while IFS=$'\t' read -r kind a b c; do
+    case "$kind" in
+      say) info "$a" ;;
+      warn) err "warning: $a" ;;
+      restore)
+        info "would restore $a to $b (stm applied $c)"
+        MB_PLAN_WRITES=$((MB_PLAN_WRITES + 1))
+        ;;
+      release) [ "$a" = y_offset ] || [ "$OPT_VERBOSE" -eq 0 ] || note "would stop tracking $a" ;;
+      set)
+        info "would set $a to bool:false (now $b)"
+        MB_PLAN_WRITES=$((MB_PLAN_WRITES + 1))
+        ;;
+      offset)
+        info "would then measure the native menu clearance and raise y_offset (now $MB_YOFF) only if the bar still overlaps it"
+        MB_PLAN_WRITES=$((MB_PLAN_WRITES + 1))
+        ;;
+    esac
+  done <<EOF
+$1
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Executor (holds the lock; journals before every write)
+# ---------------------------------------------------------------------------
+
+# menubar_write <resource> <value> — one external write. Values: absent,
+# bool:true, bool:false, or an integer offset.
+menubar_write() {
+  local d="${STM_DEFAULTS:-/usr/bin/defaults}"
+  if [ "$1" = y_offset ]; then
+    sketchybar --bar "y_offset=$2" >/dev/null 2>&1
+    return
+  fi
+  case "$2" in
+    absent) "$d" delete -g "$1" >/dev/null 2>&1 ;;
+    bool:true) "$d" write -g "$1" -bool true >/dev/null 2>&1 ;;
+    bool:false) "$d" write -g "$1" -bool false >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# menubar_reread <resource> — read it again, from the system, not a cache.
+menubar_reread() {
+  if [ "$1" = y_offset ]; then
+    MB_YOFF=$(menubar_bar_value "$(sketchybar --query bar 2>/dev/null)" y_offset)
+    stm_int_in "$MB_YOFF" -9999 9999 || MB_YOFF=unknown
+    printf '%s\n' "$MB_YOFF"
+  else
+    menubar_pref_read "$1"
+  fi
+}
+
+# menubar_change <resource> <value> <owner-after> — journal, write, verify.
+# The journal marks the resource uncertain with the value about to be written,
+# so a crash between write and verification is recoverable (V5, V9).
+menubar_change() {
+  local res="$1" val="$2" after="$3" sk got
+  sk=$(menubar_res_sk "$res")
+  menubar_state_set "$sk.owner" uncertain
+  menubar_state_set "$sk.applied" "$val"
+  menubar_state_save
+  if ! menubar_write "$res" "$val"; then
+    MB_FAIL="could not write $res"
+    return 1
+  fi
+  got=$(menubar_reread "$res")
+  if [ "$got" != "$val" ]; then
+    MB_FAIL="$res reads $got after writing $val"
+    return 1
+  fi
+  if [ "$after" = applied ]; then
+    menubar_state_set "$sk.owner" applied
+  else
+    menubar_state_set "$sk.owner" unchanged
+    menubar_state_set "$sk.applied" none
+  fi
+  menubar_state_save
+}
+
+# menubar_release <resource> — stop tracking it; take a fresh original.
+menubar_release() {
+  local sk
+  sk=$(menubar_res_sk "$1")
+  menubar_state_set "$sk.owner" unchanged
+  menubar_state_set "$sk.applied" none
+  menubar_state_set "$sk.original" "$(menubar_res_current "$1")"
+}
+
+# menubar_compensate — undo the writes this run made, newest first, while each
+# still holds stm's value. What cannot be verified stays recorded (V6).
+menubar_compensate() {
+  local res sk original
+  for res in $MB_RUN_APPLIED; do
+    sk=$(menubar_res_sk "$res")
+    original=$(menubar_state_get "$sk.original")
+    [ "$(menubar_reread "$res")" = "$(menubar_state_get "$sk.applied")" ] || continue
+    if menubar_change "$res" "$original" unchanged; then
+      info "rolled back $res to $original"
+    else
+      err "warning: could not roll back $res: $MB_FAIL"
+    fi
+  done
+}
+
+# menubar_offset_step — after the preferences, measure and set y_offset.
+menubar_offset_step() {
+  local owner applied original owned base need target tries
+  owner=$(menubar_state_get bar.y_offset.owner)
+  applied=$(menubar_state_get bar.y_offset.applied)
+  original=$(menubar_state_get bar.y_offset.original)
+  if [ "$MB_YOFF" = unknown ]; then
+    err "warning: cannot read y_offset; offset left unchanged"
+    return 0
+  fi
+  # A reload resets the runtime offset to the configured base, and a user may
+  # set a new base: either way the current value is the new baseline, so stm's
+  # share never compounds (V5, V8).
+  if [ "$owner" != unchanged ] && [ "$MB_YOFF" = "$applied" ]; then
+    owned=$((applied - original))
+    base=$original
+  else
+    menubar_release y_offset
+    owned=0
+    base=$MB_YOFF
+  fi
+  need=$(menubar_needed "$owned")
+  if [ "$need" = unknown ]; then
+    err "warning: cannot measure the native menu clearance on every display; y_offset left at $MB_YOFF"
+    return 0
+  fi
+  target=$((base + need))
+  [ "$target" != "$MB_YOFF" ] || return 0
+  if [ "$target" = "$base" ]; then
+    menubar_change y_offset "$target" unchanged || return 1
+    info "restored y_offset to $target"
+    return 0
+  fi
+  menubar_change y_offset "$target" applied || return 1
+  MB_RUN_APPLIED="y_offset $MB_RUN_APPLIED"
+  info "set y_offset to $target (base $base + $need)"
+  # Verify the effect, not only the property: the bar must now start below the
+  # native menu on every hosting display (V2).
+  tries=0
+  while :; do
+    menubar_observe
+    menubar_clear && return 0
+    tries=$((tries + 1))
+    [ "$tries" -lt 5 ] || break
+    sleep 0.2
+  done
+  MB_FAIL="the bar still overlaps the native menu after y_offset=$target"
+  return 1
+}
+
+# menubar_settle — resolve writes a crashed run left uncertain, by what the
+# system holds now: stm's value means stm wrote it, the original means it did
+# not, anything else is someone else's (V5, V9). Only refresh needs this;
+# the restore plan resolves uncertain values itself.
+menubar_settle() {
+  local res sk cur changed=0
+  for res in $MENUBAR_PREF_KEYS y_offset; do
+    sk=$(menubar_res_sk "$res")
+    [ "$(menubar_state_get "$sk.owner")" = uncertain ] || continue
+    cur=$(menubar_res_current "$res")
+    if [ "$cur" = "$(menubar_state_get "$sk.applied")" ]; then
+      menubar_state_set "$sk.owner" applied
+    elif [ "$cur" = "$(menubar_state_get "$sk.original")" ] || [ "$res" = y_offset ]; then
+      menubar_release "$res"
+    else
+      menubar_state_set "$sk.owner" conflict
+    fi
+    changed=1
+  done
+  [ "$changed" -eq 0 ] || menubar_state_save
+}
+
+# menubar_finish — persist the outcome, or drop the state once stm owns
+# nothing and records no conflict.
+menubar_finish() {
+  if ! printf '%s\n' "$MB_STATE" | grep -q '\.owner=\(applied\|uncertain\|conflict\)$'; then
+    menubar_state_forget
+    return 0
+  fi
+  if printf '%s\n' "$MB_STATE" | grep -q '\.owner=uncertain$'; then
+    menubar_state_set phase recovery-required
+  elif printf '%s\n' "$MB_STATE" | grep -q '\.owner=conflict$'; then
+    menubar_state_set phase conflict
+  else
+    menubar_state_set phase active
+  fi
+  menubar_state_save
+}
+
+# menubar_execute <sub> <mode> — one locked cycle: re-read state, observe,
+# plan, then journal and apply each action.
+menubar_execute() {
+  local sub="$1" mode="$2" actions kind a b c
+  menubar_state_load
+  [ "$MB_STATE_STATUS" != invalid ] || die "$EX_CONFIG" "$MB_STATE_ERR; left in place for recovery"
+  menubar_observe
+  if [ "$sub" = restore ]; then
+    [ "$MB_STATE_STATUS" = ok ] || { info "nothing to restore: stm owns no menu-bar values"; return 0; }
+    actions=$(menubar_plan_restore)
+  elif [ "$MB_STATE_STATUS" = ok ]; then
+    menubar_settle
+    actions=$(menubar_plan_refresh "$mode")
+  else
+    actions=$(menubar_plan_refresh "$mode")
+  fi
+  MB_RUN_APPLIED=""
+  MB_FAIL=""
+  while IFS=$'\t' read -r kind a b c; do
+    [ -n "$kind" ] || continue
+    case "$kind" in
+      say) info "$a" ;;
+      warn) err "warning: $a" ;;
+      conflict)
+        menubar_state_set "pref.$a.owner" conflict
+        menubar_state_set phase conflict
+        menubar_state_save
+        ;;
+      release)
+        menubar_release "$a"
+        menubar_state_save
+        ;;
+      restore)
+        menubar_state_set phase restoring
+        if menubar_change "$a" "$b" unchanged; then
+          info "restored $a to $b"
+        else
+          break
+        fi
+        ;;
+      set)
+        [ "$MB_STATE_STATUS" = ok ] || menubar_state_new
+        # Re-read just before writing: a value that moved since planning
+        # belongs to someone else now (V4).
+        if [ "$(menubar_pref_read "$a")" != "$b" ]; then
+          err "warning: $a changed while planning; left unchanged"
+          menubar_state_set "pref.$a.owner" conflict
+          menubar_state_set phase conflict
+          menubar_state_save
+          continue
+        fi
+        [ "$(menubar_state_get "pref.$a.owner")" != unchanged ] || menubar_state_set "pref.$a.original" "$b"
+        menubar_state_set phase applying
+        if menubar_change "$a" bool:false applied; then
+          MB_RUN_APPLIED="$a $MB_RUN_APPLIED"
+          info "set $a to bool:false"
+        else
+          break
+        fi
+        ;;
+      offset)
+        [ "$MB_STATE_STATUS" = ok ] || menubar_state_new
+        menubar_state_set phase applying
+        menubar_observe
+        menubar_offset_step || break
+        ;;
+    esac
+  done <<EOF
+$actions
+EOF
+
+  [ "$MB_STATE_STATUS" = ok ] || return 0
+  if [ -n "$MB_FAIL" ]; then
+    local failed="$MB_FAIL"
+    menubar_compensate
+    menubar_finish
+    die "$EX_INVALID" "menu-bar change failed: $failed; see \`stm menubar status\`, then run \`stm menubar restore\`"
+  fi
+  menubar_finish
+}
+
+# menubar_run <sub> <mode> — serialize writers. A run that finds a live holder
+# leaves a dirty mark and exits; the holder repeats its cycle while the mark
+# exists, so the newest observation always gets a cycle (V7). A stale lock is
+# never removed automatically.
+menubar_run() {
+  local dir dirty rounds=0
+  dir=$(menubar_state_mkdir) || exit "$EX_CONFIG"
+  dirty="$dir/menubar.dirty"
+  if ! menubar_lock_try; then
+    case "$(menubar_lock_status)" in
+      held)
+        : >"$dirty"
+        if ! menubar_lock_try; then
+          info "another stm menubar run is in progress; it will pick this up"
+          return 0
+        fi
+        ;;
+      *) die "$EX_CONFIG" "stale lock $dir/menubar.lock (its process is gone); check that no stm menubar is running, then remove it" ;;
+    esac
+  fi
+  while :; do
+    rm -f "$dirty"
+    menubar_execute "$1" "$2"
+    menubar_lock_release
+    [ -e "$dirty" ] || break
+    rounds=$((rounds + 1))
+    [ "$rounds" -lt 10 ] || break
+    menubar_lock_try || break
+  done
+}
+
+# menubar_status_records — `key<TAB>value` lines for `menubar status`.
+menubar_status_records() {
+  local key
+  printf 'smart_notch\t%s\n' "$1"
+  printf 'config\t%s\n' "${RESOLVED_CONFIG:-none}"
+  for key in $MENUBAR_PREF_KEYS; do
+    printf 'pref.%s\t%s\n' "$key" "$(menubar_pref_read "$key")"
+  done
+  menubar_observe
+  printf 'bar.position\t%s\n' "$MB_POS"
+  printf 'bar.y_offset\t%s\n' "$MB_YOFF"
+  printf 'bar.topmost\t%s\n' "$MB_TOPMOST"
+  if [ "$MB_TARGETS_OK" -eq 1 ]; then
+    printf 'targets\tok\n'
+    printf '%s\n' "$MB_TARGETS" | awk -F'\t' 'NF == 5 {
+      printf("target.%s\t%s\ntarget.%s.uuid\t%s\n", $1, $3, $1, $2)
+      printf("target.%s.clearance\t%s\ntarget.%s.bar_top\t%s\n", $1, $4, $1, $5)
+    }'
+  else
+    printf 'targets\tunknown\ntargets.reason\t%s\n' "$MB_WHY"
+  fi
+  printf 'hook\t%s\n' "$MB_HOOK"
+  case "$MB_STATE_STATUS" in
+    ok)
+      printf 'state\t%s\n' "$(menubar_state_get phase)"
+      for key in pref._HIHideMenuBar pref.AppleMenuBarVisibleInFullscreen bar.y_offset; do
+        printf 'owner.%s\t%s\n' "${key#*.}" "$(menubar_state_get "$key.owner")"
+      done
+      ;;
+    *) printf 'state\t%s\n' "$MB_STATE_STATUS" ;;
+  esac
+  key=$(menubar_lock_status)
+  printf 'lock\t%s\n' "$key"
+  [ "$key" = none ] || printf 'lock.path\t%s\n' "$(menubar_state_dir)/menubar.lock"
+}
+
+# cmd_menubar <status|refresh|restore> — see docs/research/smart-menu-bar-t4-design.md.
+cmd_menubar() {
+  local sub="$1" mode actions
+  case "$sub" in
+    status | refresh | restore) : ;;
+    "") die "$EX_USAGE" "menubar needs a subcommand: status, refresh or restore" ;;
+    *) die "$EX_USAGE" "unknown menubar subcommand: $sub (want status, refresh or restore)" ;;
+  esac
+  mode=$(menubar_config_mode) || exit "$EX_CONFIG"
+  menubar_state_load
+
+  if [ "$sub" = status ]; then
+    if [ "$OPT_PORCELAIN" -eq 1 ]; then
+      menubar_status_records "$mode"
+    else
+      menubar_status_records "$mode" | awk -F'\t' '{ printf("%-38s %s\n", $1, $2) }'
+    fi
+    if [ "$MB_STATE_STATUS" = invalid ]; then
+      die "$EX_CONFIG" "$MB_STATE_ERR; left in place for recovery"
+    fi
+    return 0
+  fi
+
+  [ "$MB_STATE_STATUS" != invalid ] || die "$EX_CONFIG" "$MB_STATE_ERR; left in place for recovery"
+  # Plan without the lock first: a run with nothing to write creates no state,
+  # takes no lock and touches nothing (V1, V11).
+  menubar_observe
+  if [ "$sub" = restore ]; then
+    if [ "$MB_STATE_STATUS" = none ]; then
+      info "nothing to restore: stm owns no menu-bar values"
+      return 0
+    fi
+    actions=$(menubar_plan_restore)
+  else
+    actions=$(menubar_plan_refresh "$mode")
+  fi
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    menubar_plan_print "$actions"
+    return 0
+  fi
+  if ! printf '%s\n' "$actions" | grep -q '^\(restore\|release\|set\|offset\|conflict\)'; then
+    menubar_plan_print "$actions"
+    return 0
+  fi
+  menubar_run "$sub" "$mode"
+  if [ "$sub" = restore ] && [ "$mode" = on ]; then
+    err "warning: smart_notch is still on in $RESOLVED_CONFIG; the next refresh applies these values again. Set it to \"off\" to keep them."
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
@@ -6878,6 +7885,9 @@ COMMANDS
   backup [name]                 Snapshot stm-owned files (or --all for the whole dir)
   restore [name]                Restore a snapshot (latest auto if name omitted)
   backups                       List snapshots
+  menubar status                Show smart menu-bar config, displays and ownership (writes nothing)
+  menubar refresh [--dry-run]   Reconcile the menu bar with [menu_bar] smart_notch
+  menubar restore [--dry-run]   Put back the menu-bar values stm still owns
   help                          Show this help
   version                       Print the version
 
@@ -7156,6 +8166,10 @@ main() {
       ;;
     backups)
       cmd_backups
+      ;;
+    menubar)
+      [ "$args_left" -le 1 ] || die "$EX_USAGE" "menubar takes one subcommand: status, refresh or restore"
+      cmd_menubar "${positional[1]:-}"
       ;;
     doctor)
       if [ "$args_left" -ge 1 ]; then

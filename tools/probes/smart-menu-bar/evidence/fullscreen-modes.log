@@ -1,0 +1,53 @@
+In Full Screen Only
+
+case=always
+Always
+_HIHideMenuBar=1
+AppleMenuBarVisibleInFullscreen=absent
+{"fullScreen":false,"menuVisible":false,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":false,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{0, 0}, {1024, 768}}"}
+{"fullScreen":false,"menuVisible":false,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+case_pass=always
+Always
+
+case=desktop-only
+On Desktop Only
+_HIHideMenuBar=1
+AppleMenuBarVisibleInFullscreen=1
+{"fullScreen":false,"menuVisible":false,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":true,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{0, 0}, {1024, 738}}"}
+{"fullScreen":false,"menuVisible":false,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 768}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2100}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+case_pass=desktop-only
+On Desktop Only
+
+case=never
+Never
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=1
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":true,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{0, 0}, {1024, 738}}"}
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+case_pass=never
+Never
+
+case=fullscreen-only
+In Full Screen Only
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=0
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":false,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{0, 0}, {1024, 768}}"}
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+case_pass=fullscreen-only
+In Full Screen Only
+
+case=direct-fullscreen-only
+Never
+_HIHideMenuBar=0
+AppleMenuBarVisibleInFullscreen=0
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":false,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{0, 0}, {1024, 768}}"}
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1024, 768}}","visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","visibleFrame":"{{1024, -1332}, {3360, 2070}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+case_pass=direct-fullscreen-only
+Never
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":3360,"X":1024,"Y":0},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":1024,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1024, 768}}","safeTop":0,"visibleFrame":"{{0, 0}, {1024, 738}}"},{"frame":"{{1024, -1332}, {3360, 2100}}","safeTop":0,"visibleFrame":"{{1024, -1332}, {3360, 2100}}"}]}
+restore_result=0

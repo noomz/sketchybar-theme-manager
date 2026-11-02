@@ -1,0 +1,2284 @@
+probe_dir=/Users/admin/stm-display-events.HRsQe1
+
+case=before_add
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":1276.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+events_end
+
+case=after_add
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		},
+		"display-2": {
+			"origin": [ 980.000000, -124.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+events_end
+
+case=all_zero
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 29.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		},
+		"display-2": {
+			"origin": [ 980.000000, -154.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+events_end
+
+case=all_thirty
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		},
+		"display-2": {
+			"origin": [ 980.000000, -124.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+events_end
+focus_begin
+focus_phase=secondary window={{1520, 291}, {320, 212}}
+focus_phase=primary window={{320, 248}, {320, 212}}
+focus_restore_requested=true
+focus_restore_verified=true
+focus_end
+
+case=after_focus
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		},
+		"display-2": {
+			"origin": [ 980.000000, -124.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+events_end
+
+case=target_main
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+events_end
+
+case=target_secondary
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-2": {
+			"origin": [ 980.000000, -124.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+events_end
+
+case=secondary_zero
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-2": {
+			"origin": [ 980.000000, -154.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+events_end
+
+case=secondary_thirty
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-2": {
+			"origin": [ 980.000000, -124.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+events_end
+
+case=target_all
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":10,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		},
+		"display-2": {
+			"origin": [ 980.000000, -124.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":10,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+events_end
+
+case=after_remove
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":1276.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+events_end
+
+case=after_reconnect
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":960.0000,
+		"h":677.0000
+		}
+	},
+	{
+		"arrangement-id":2,
+		"DirectDisplayID":11,
+		"UUID":"D17209BB-783E-474E-A808-AA87234AE9E1",
+		"frame":{
+		"x":960.0000,
+		"y":-154.0000,
+		"w":1440.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		},
+		"display-2": {
+			"origin": [ 980.000000, -124.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {960, 677}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {960, 647}}"},{"displayID":11,"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{960, -69}, {1440, 900}}"}],"windows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"onScreen":true,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+events_end
+
+case=after_final_remove
+[
+	{
+		"arrangement-id":1,
+		"DirectDisplayID":1,
+		"UUID":"C97580C4-D18A-4FAF-8A85-355E967021E9",
+		"frame":{
+		"x":0.0000,
+		"y":0.0000,
+		"w":1276.0000,
+		"h":900.0000
+		}
+	}
+]
+{
+	"name": "stm.events",
+	"type": "item",
+	"geometry": {
+		"drawing": "on",
+		"position": "left",
+		"associated_space_mask": 0,
+		"associated_display_mask": 0,
+		"ignore_association": "off",
+		"y_offset": 0,
+		"padding_left": 0,
+		"padding_right": 0,
+		"scroll_texts": "off",
+		"width": -1,
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		}
+	},
+	"icon": {
+		"value": "",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"label": {
+		"value": "probe",
+		"drawing": "on",
+		"highlight": "off",
+		"color": "0xffffffff",
+		"highlight_color": "0xff000000",
+		"padding_left": 0,
+		"padding_right": 0,
+		"y_offset": 0,
+		"font": "Hack Nerd Font:Bold:14.00",
+		"width": 0,
+		"scroll_duration": 100,
+		"align": "left",
+		"background": {
+			"drawing": "off",
+			"color": "0x0",
+			"border_color": "0x0",
+			"border_width": 0,
+			"height": 0,
+			"corner_radius": 0,
+			"padding_left": 0,
+			"padding_right": 0,
+			"x_offset": 0,
+			"y_offset": 0,
+			"clip": 0.000000,
+			"image": {
+				"value": "(null)",
+				"drawing": "off",
+				"scale": 1.000000
+			},
+			"shadow": {
+				"drawing": "off",
+				"color": "0xff000000",
+				"angle": 30,
+				"distance": 5
+			}
+		},
+		"shadow": {
+			"drawing": "off",
+			"color": "0xff000000",
+			"angle": 30,
+			"distance": 5
+		}
+	},
+	"scripting": {
+		"script": "/Users/admin/stm-display-events.HRsQe1/events.sh",
+		"click_script": "(null)",
+		"update_freq": 0,
+		"update_mask": 12,
+		"updates": "on"
+	},
+	"bounding_rects": {
+		"display-1": {
+			"origin": [ 20.000000, 59.000000 ],
+			"size": [ 42.000000, 34.000000 ]
+		}
+	}
+}
+{"menuVisible":true,"screens":[{"displayID":1,"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"scale":2,"visibleFrame":"{{0, 0}, {1276, 870}}"}],"windows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":false,"owner":"MenuBarAgent"},{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"onScreen":true,"owner":"Window Server"}]}
+events_begin
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=2
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+sender=display_change info=1
+events_end
+server_log_begin
+server_log_end
+deskpad_log_begin
+deskpad_log_end

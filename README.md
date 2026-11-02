@@ -96,6 +96,9 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `stm backup [name]` | Snapshot stm-owned files (pass `--all` for the whole config dir) |
 | `stm restore [name]` | Restore a snapshot (latest auto snapshot if the name is omitted) |
 | `stm backups` | List snapshots |
+| `stm menubar status` | Show smart menu-bar config, displays and ownership — writes nothing (see [Smart menu bar](#smart-menu-bar)) |
+| `stm menubar refresh [--dry-run]` | Reconcile the menu bar with `[menu_bar] smart_notch` |
+| `stm menubar restore [--dry-run]` | Put back the menu-bar values stm still owns |
 | `stm help` | Show usage |
 | `stm version` | Print the version |
 
@@ -591,6 +594,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 | `disk` | how full the startup disk is, coloured by use | `right` |
 | `expand` | experimental: a click asks your left items to hide, so compact can use that room on a display with no notch | `left` |
 | `mem` | memory in use: a graph and a percentage, coloured by memory pressure | `right` |
+| `menubar` | nothing: a hidden hook for [Smart menu bar](#smart-menu-bar) | `right` |
 | `net` | the network link: Wi-Fi, Ethernet, VPN or offline | `right` |
 | `netspeed` | download and upload rates: graphs and numbers | `right` |
 | `spotify` | what Spotify is playing; a popup with the cover and playback controls | `center` |
@@ -1098,6 +1102,67 @@ end)
 | `stm lint item:<name>` | Check a bundled item — writes nothing |
 | `stm install --force item:<name>` | Reinstall, e.g. after `doctor` says an update is available |
 | `stm uninstall item:<name>` | Remove its files and ledger row, regenerate the loader |
+
+### Smart menu bar
+
+On a notched Mac, a bar at the top has to share the screen with the notch and
+the native menu. Smart menu bar is opt-in. When a top bar is on a display with a
+confirmed notch, stm sets the macOS menu bar to hide only in full screen, and
+moves the bar below the native menu.
+
+```toml
+# stm.config.toml
+[menu_bar]
+smart_notch = "on"
+```
+
+```console
+$ stm install item:menubar
+$ sketchybar --reload
+$ stm menubar status
+```
+
+`item:menubar` is a hidden item that runs `stm menubar refresh` at every config
+load, on `display_change` and on `system_woke`. It works in Lua configs only. In
+a bash config, run `stm menubar refresh` yourself after a display change. Run it
+as well after you change `--bar display=` by hand, because that sends no event.
+
+**What to expect:**
+
+- The macOS menu bar setting is system-wide, so it changes for every display.
+- One offset applies to the whole bar. With mixed displays, stm uses the largest
+  clearance, so a display without a notch can get a few extra points of space.
+- When no top bar is on a notched display, stm restores the values it still
+  owns. A bar at the bottom is never touched.
+- If a display cannot be read, stm warns and writes nothing. It does not treat
+  an unknown display as one with no notch.
+- If you change a value after stm set it, stm reports a conflict and keeps your
+  value.
+- With `topmost` off, app windows sit above the bar and take its clicks. stm
+  does not change window gaps, so leave room in your window manager.
+
+`stm.config.toml`, your bar files and your window manager config are never
+rewritten. Originals are kept in
+`${XDG_STATE_HOME:-$HOME/.local/state}/stm/menubar.state`.
+
+**Supported systems.** This was tested on macOS 27 only, on one physical notched
+Mac and in a VM. stm does not check the macOS version, and the preference keys
+are undocumented. On other releases, start with `stm menubar refresh --dry-run`
+and check the result with `stm menubar status`.
+
+**To turn it off**, set `smart_notch = "off"`, then run `stm menubar refresh`.
+This restores the values stm still owns. Then remove the hook:
+
+```console
+$ stm uninstall item:menubar
+```
+
+**To recover**, run `stm menubar restore`. It restores every value stm still
+owns, whatever the config says, and deletes the state only after it verifies the
+result. If `smart_notch` is still `on`, the next refresh applies the values
+again, and stm warns you about this. If stm is gone, read the originals from the
+state file, then choose **System Settings > Menu Bar > Automatically hide and
+show the menu bar**. To reset the bar, reload SketchyBar.
 
 ### Config formats
 

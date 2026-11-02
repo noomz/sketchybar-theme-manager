@@ -281,3 +281,87 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
 | B21 | 2026-10-10 | compact grow stepped only to next wider form; `date` / `spotify` went full → icon (short skipped, never measured) → icon → short needed cached short → none → stuck at icon on 2560 external forever. found in T70 real-bar smoke (lid closed + open) | V59 |
 | B22 | 2026-10-10 | page arrows sat left of leftmost shown unit → x shift every step; fast 2nd click hit bare bar → SketchyBar 2.24 / macOS 27 raise bar window over item windows (CGWindowList bar 48 of 49 → 0): whole bar smeared behind own blur, `--query` normal, stay until bar reset. scripted clicks re-read arrow x each click → never miss; VM + stub tests green. same likely #30 `»` report. found in T75 live smoke, laptop only | V71,V72 |
 | B23 | 2026-10-14 | compact took any `bounding_rects` key as display showing bar; after runtime `--bar display=all` → `main` SketchyBar left `display-2` rect at −9999 size 1 in every item → built-in notch room (741) used on Studio 2560 alone → page arrows on, 8 of 11 units hidden; width 1 vs real → unit look mid-redraw → never settle (freq 2). test fixture "two displays" had local x for display at −1728 (B19 rule broken in test only). found after T75 live smoke | V73 |
+
+
+---
+
+# Draft spec: smart menu-bar avoidance
+
+Status: draft for new session. No implementation approved by this document. This section is separate from the item-bundles spec above. Repository `FORMAT.md` was not present when this draft was written.
+
+## §G Goal
+
+When enabled, keep SketchyBar clickable on a notched target display. Set macOS menu-bar auto-hide to “In Full Screen Only” and position SketchyBar below the native menu bar. Reevaluate when the monitor setup changes.
+
+## §C Constraints
+
+- C1 Opt-in. Default off. No system preference or bar-position change unless explicitly enabled.
+- C2 Do not modify AeroSpace configuration, window gaps, or window layout. Those are a separate feature.
+- C3 macOS menu-bar preference is system-wide. SketchyBar display targeting may be per display; do not pretend the preference is per display.
+- C4 No new mandatory dependency. Keep `bin/stm` Bash 3.2, stock macOS userland, offline, atomic file writes and existing trust boundaries.
+- C5 Do not change system preferences or real bar in tests. Use sandboxed stubs. Test real preference changes in Tart first, with explicit recovery.
+- C6 Respect system-owned settings and user changes. Do not overwrite a setting the user changed after stm last set it.
+- C7 Existing `layout.y_offset`, display targeting, bottom-position bars, fullscreen behavior, and bar reload must not silently regress.
+- C8 Do not ship by guessing undocumented macOS preference keys, persistence, authorization, propagation, or event semantics. Prove them in VM for supported macOS versions first.
+- C9 This feature is separate from widget groups PR #36. Do not assume that PR has merged or that its unresolved visibility defects are fixed.
+
+## §I Interfaces
+
+- I.config: explicit opt-in in trusted `stm.config.toml`. `[menu_bar] smart_notch = "on" | "off"` (approved 2026-11-01). Commands: `stm menubar status|refresh|restore`, see `docs/research/smart-menu-bar-t4-design.md`. Default off. Palette cannot change macOS preferences.
+- I.display: identify display or displays actually hosting SketchyBar; determine notch and native menu-bar clearance using real display geometry. Distinguish unknown/unavailable from confirmed no notch.
+- I.events: evaluate once at start and on monitor connect, disconnect, rearrangement, and change of SketchyBar target display. Choose actual event source after probing; no polling or background daemon assumed without evidence and an explicit design decision.
+- I.system: read current macOS auto-hide mode; set “In Full Screen Only”; verify effective result. Preserve exact prior state, including unset/default if distinguishable. System-wide behavior across displays requires verification.
+- I.bar: temporarily adjust SketchyBar vertical offset when needed. Preserve user-configured base offset and avoid cumulative offsets. Measure coordinate semantics and interaction with native menu-bar height, notch, bar position, scale and fullscreen in VM.
+- I.state: persist original setting, last value applied by stm, original/base bar offset, target display identity and any necessary ownership state. Write atomically, scoped to current user. Schema: closed `key=value` lines in `${XDG_STATE_HOME:-$HOME/.local/state}/stm/menubar.state`, never sourced; see the T4 design.
+- I.user: status and clear rollback path must be discoverable. Warnings must identify unsupported settings and recovery without exposing private data. Do not add CLI commands or options without updating help and README.
+
+## §V Invariants
+
+- V1 Opt-out or absent config means zero macOS preference writes and no smart offset adjustment.
+- V2 For a confirmed notched target, enabled behavior attempts fullscreen-only hiding and positions the bar below the native menu area. It verifies effective outcomes before declaring success.
+- V3 For confirmed non-notched targets, restore previous preference and base offset only while stm still owns the values. Display enumeration failure is not evidence of no notch and must not trigger restoration.
+- V4 If user changes a value after stm applied it, do not overwrite that user change during restoration or future reevaluations without renewed explicit consent. Detect and report ownership conflict.
+- V5 First transition saves prior state before mutating system settings. Repeated events and process restarts do not replace the original snapshot or compound offsets.
+- V6 If state cannot be persisted or preference read/verification fails, fail safely: do not report success; preserve recoverability and avoid a half-applied state. Specify and test compensation for partial failures after probing platform behavior.
+- V7 Display events converge to latest confirmed arrangement; stale concurrent events must not overwrite newer decisions. Define ordering/coalescing and recovery before implementation.
+- V8 User `stm.config.toml`, user bar files, and AeroSpace files are not rewritten by automatic event handling. Existing base `y_offset` remains authoritative for rollback.
+- V9 Disable and uninstall have documented, testable recovery even after an interrupted operation. If restoring the system preference fails, retain recovery state and warn.
+- V10 Unsupported macOS behavior, missing permissions, unavailable `NSScreen` data, or ambiguous target displays produces a warning and no speculative preference write.
+- V11 `--dry-run`, if offered for an operation, reports intended changes without touching system settings, bar, or state.
+- V12 Native menu-bar choice is global. Multi-display policies must be explicit and must not silently disable the setting while any managed target still requires it.
+- V13 Generated layout overlays (`layout_generated.lua`, `layout.sh`) stay data-only. Executable menu-bar hooks ship only as an item bundle, through the existing `stm install item:<name>` consent path.
+- V14 Each hosting display's native-menu clearance is the largest of its top safe-area inset, its `visibleFrame` gap and the depth of any on-screen native menu window (CGWindowList layer 24) that starts at that display's top edge. A `visibleFrame` gap of 0 alone is never evidence that a display has no visible menu. When the window list cannot be read, that source is unknown and the other two still apply.
+- V15 A display's bar top comes only from bar-height item windows whose origin lies inside that display's frame. Off-screen windows, such as hidden popup rows that SketchyBar parks at (-9999, -9999) with the bar's height, never count. A display stm cannot place in `--query displays` gives no bar top, so its need stays unknown and nothing is written.
+
+## §T Tasks
+
+| ID | Status | Task | Evidence / acceptance |
+| --- | --- | --- | --- |
+| T1 | x | Inspect current compact notch detection, bar reload and layout ownership, display-change subscription, and macOS preference surfaces. | Cite concrete code paths and supported API documentation. |
+| T2 | x | Probe preference read/write, exact “In Full Screen Only” behavior, effective change latency, permissions, fullscreen and restore in Tart. Save and restore VM preference. | Record commands, version, observed outcomes, failure cases; never probe host settings by writing. |
+| T3 | x | Probe target-display geometry, menu-bar clearance, disconnect/reconnect and event delivery in Tart with DeskPad and physical-notch Mac where needed. | Document gaps between virtual and physical notch; no claim based solely on synthetic geometry. Done 2026-11-01: `docs/research/smart-menu-bar-t3.md`. Guest geometry, event and fullscreen probes passed. Physical-notch `Mac16,5` delivered 7/7 clicks at offset 0 and at a temporary offset of 3. |
+| T4 | x | Design ownership, state, arbitration for global setting vs multiple target displays, user intervention, crash recovery, and interaction with existing `y_offset`. | User approves any unresolved product or system-wide policy choices before implementation. Approved 2026-11-01 (`docs/research/smart-menu-bar-t4-design.md`): fullscreen-only only while a confirmed notched target has a top bar, restoring only while stm still owns the value; never touch bottom bars; maximum clearance across mixed targets; no daemon or polling, reconcile at startup/reload, `display_change` and `system_woke`, with an explicit refresh command for retargeting. Interfaces approved the same day: `stm menubar status|refresh|restore`, and per-user `${XDG_STATE_HOME:-$HOME/.local/state}/stm/menubar.state` with a closed `key=value` schema and an atomic lock. The hook moved to `item:menubar` (B6, V13). |
+| T5 | x | Add opt-in config validation, offline behavior, status and rollback interface. | Tests assert default off, invalid config, no palette control, and no state changes on dry run. |
+| T6 | x | Implement serialized event-driven reconciliation and atomic recoverable state, plus the `item:menubar` hook bundle. | Tests cover V1–V13 including race and partial-failure cases, stubs only. |
+| T7 | x | Verify behavior in Tart including restart, fullscreen, hotplug, disable and manual preference change; then obtain permission for host test. | Inspect actual macOS preference and real SketchyBar geometry. Done 2026-11-02: `docs/research/smart-menu-bar-t7.md`. Tart 69/69. Host test with user permission: physical notch `Mac16,5` plus an external display, `y_offset` 0 to 2, bar top 33 at clearance 33, user confirmed placement and clicks, restore left all 97 config files byte-identical. |
+| T8 | x | Update `stm help`, README, and contributor guidance as needed; run project gates on Bash 3.2 and 5. | Tests and lint pass; document unsupported OS and recovery. Done 2026-11-02: suites 32/32 on Bash 3.2 and 5, ShellCheck silent. |
+
+## §B Observations and risks
+
+| ID | Observation | Evidence / follow-up |
+| --- | --- | --- |
+| B1 | Clicking group selectors at screen top revealed the hidden native macOS menu bar instead of invoking the selectors. | On host, selector bounds began at y=0; temporary `sketchybar --bar y_offset=28` moved them to y=28. Resolved 2026-11-01: the user removed the 28 workaround. At runtime `y_offset=0`, SketchyBar's automatic clearance puts selectors at y=31, and T3 clicks were delivered there. |
+| B2 | Host currently has beta widget groups applied for a live test. | Config and original item ledger backed up under `~/.config/sketchybar/.stm-backups/pre-widget-groups-beta-20261030`. Host's configured and runtime offsets are both 0 (since 2026-11-01); the earlier temporary 28 is obsolete. |
+| B3 | Widget groups PR #36 had review findings for self-showing members and multi-part widgets. | Fixed on `feat/widget-groups` at 6e01d60 on 2026-11-02, and the zero-units fix is committed there too. Separate from this feature. |
+| B4 | Advisor suggested using `display=0` as a hide in earlier discussion. | Reject that premise: existing design and VM evidence show empty/zero display association can mean all displays. Verify actual SketchyBar semantics before choosing any mechanism. |
+| B5 | With `topmost=off`, the bar window is at layer -20, below app windows. An app window that overlaps the bar takes its clicks. | Host 2026-11-01: an Open Design window at y=45 covered the bar at y 31–65, and the click delivered 0. Clearance below the native menu is necessary but not sufficient. Window gaps stay out of scope (C2); status may warn about overlap but must not change gaps. |
+| B6 | The T4-approved hook location, a hidden `stm.menubar` item inside the layout overlay, cannot work. | Found in T6 on 2026-11-01. `write_layout_lua` emits only a returned table and `write_layout_sh` only `export` lines; `lint_check_layout_lua` and `lint_check_shell_assigns` enforce that, and the overlay exists only when `[layout]` does. The user re-decided the same day: the hook ships as hidden bundled `item:menubar` (Lua configs, like every item), whose plugin runs `stm menubar refresh --quiet` on `display_change`, `system_woke` and `forced`. Bash-format configs refresh by hand. `status` reports a missing hook. Guarded by V13. |
+| B7 | T7 in Tart (2026-11-02): with DeskPad as a second display hosting the bar, stm measured that display's native-menu clearance as 0. y_offset stayed 3 and the bar overlapped the secondary's native menu, against V2 and the T4 maximum-clearance policy. | Cause: clearance came only from the safe inset and the `visibleFrame` gap. The secondary's `visibleFrame` equals its full frame while a 30-point Window Server menu window (layer 24) is on screen at its top, as T3 "Multi-display clearance" already recorded. Fix: JXA also reads on-screen layer-24 window bounds with `CGWindowListCopyWindowInfo` (bounds only, no permission prompt) and takes the depth at each display's top. Guarded by V14. Read-only host check: external gap 31 / window 30; notched built-in inset 32 / gap 32 / window 33. |
+| B8 | T7 read-only `stm menubar status` on the host (2026-11-02): `target.1.bar_top = -9999`. Applied to a notched target, refresh would have set `y_offset` near 10030. | Cause: `menubar_observe` took the highest bar-height item window per display, and hidden `stm.ai.*.row.*` popup rows are parked at (-9999, -9999) at 34 points, the same as the bar height. The sandbox stub had only one drawn item, so tests could not see it. Fix: displays are queried first, and a window counts only inside its display's frame. Guarded by V15. Host status now reads bar top 30. |
+
+## New-session handoff
+
+1. Read `AGENTS.md`, `CONTRIBUTING.md`, this draft and current git/worktree state. This section is appended to the existing spec; preserve both scopes.
+2. This is a spec/planning request, not authorization to change live macOS settings or implement code. Resolve uncertain platform facts in Tart first.
+3. Keep current live beta and unfinished PR #36 distinct from this feature. Do not overwrite or discard either.
+4. Present validated spec and outstanding decisions before implementation. Explicitly preserve user changes and provide rollback.
