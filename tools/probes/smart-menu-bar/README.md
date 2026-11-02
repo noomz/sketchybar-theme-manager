@@ -24,6 +24,8 @@ Every shell probe checks `hw.model` for `VirtualMac` before touching preferences
 | `defaults-modes.sh` | Compares direct writes with effective behavior and stale Settings text. |
 | `fullscreen-modes.sh` | Asserts all four mode behaviors and direct fullscreen-only writes using the native window. |
 | `restore-absent.sh` | Asserts direct deletion-based restoration without GUI reset. |
+| `t7.sh` | T7 end-to-end check of `stm menubar` and `item:menubar` against real preferences, a real SketchyBar, DeskPad hotplug and native fullscreen. Restores the absent baseline on exit. See [the T7 notes](../../../docs/research/smart-menu-bar-t7.md). |
+| `t7-osascript.sh` | `STM_OSASCRIPT` stand-in for `t7.sh`: the real screen query plus a synthetic camera housing on the first screen while `$T7_DIR/notch` reads `on`. |
 | `evidence/` | Raw output from the final successful replay on macOS 27.0 build 26A428. |
 
 ## Prepare a fresh guest directory

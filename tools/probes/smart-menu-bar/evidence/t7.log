@@ -1,0 +1,757 @@
+probe_dir=/Users/admin/stm-t7.V8Faai
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A428
+sketchybar-v2.24.0
+
+case=install
+installed item:menubar -> /Users/admin/stm-t7.V8Faai/sb/items/stm/menubar.lua
+assert_install_hook=pass
+
+case=s1-off
+_HIHideMenuBar=absent
+AppleMenuBarVisibleInFullscreen=absent
+y_offset=0 probe_top=29 hooks=2
+state_begin
+none
+state_end
+status_begin
+smart_notch                            off
+config                                 none
+pref._HIHideMenuBar                    absent
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-no-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     30
+target.1.bar_top                       29
+hook                                   loaded
+state                                  none
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s1_prefs_absent=pass
+assert_s1_no_state=pass
+assert_s1_yoff=pass
+assert_s1_hook_ran=pass
+/Users/admin/stm-t7.V8Faai/stm/bin/stm: line 4981: printf: write error: Broken pipe
+assert_s1_status_hook_loaded=pass
+base_probe_top=29
+
+case=s2-on-no-notch
+_HIHideMenuBar=absent
+AppleMenuBarVisibleInFullscreen=absent
+y_offset=0 probe_top=29 hooks=4
+state_begin
+none
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    absent
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-no-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     30
+target.1.bar_top                       29
+hook                                   loaded
+state                                  none
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s2_prefs_absent=pass
+assert_s2_no_state=pass
+assert_s2_yoff=pass
+assert_s2_says_no_notch=pass
+
+case=s3-apply
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=3 probe_top=32 hooks=6
+state_begin
+version=1
+phase=active
+generation=7
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=absent
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=3
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           3
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       32
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s3_prefs_false=pass
+assert_s3_phase_active=pass
+assert_s3_originals_absent=pass
+assert_s3_bar_below_notch=pass
+assert_s3_clear=pass
+assert_s3_offset_owned=pass
+assert_s3_menu_visible=pass
+y1=3
+
+case=s4-repeat
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=3 probe_top=32 hooks=13
+state_begin
+version=1
+phase=active
+generation=13
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=absent
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=3
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           3
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       32
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s4_yoff_same=pass
+assert_s4_originals_kept=pass
+assert_s4_no_lock_left=pass
+assert_s4_no_dirty_left=pass
+would restore _HIHideMenuBar to absent (stm applied bool:false)
+would restore AppleMenuBarVisibleInFullscreen to absent (stm applied bool:false)
+would restore y_offset to 0 (stm applied 3)
+would restore _HIHideMenuBar to absent (stm applied bool:false)
+would restore AppleMenuBarVisibleInFullscreen to absent (stm applied bool:false)
+would restore y_offset to 0 (stm applied 3)
+assert_s5_state_same=pass
+assert_s5_prefs_same=pass
+assert_s5_yoff_same=pass
+assert_s6_prefs_survive=pass
+
+case=s6-restart
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=3 probe_top=32 hooks=15
+state_begin
+version=1
+phase=active
+generation=17
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=absent
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=3
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           3
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       32
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s6_yoff_same=pass
+assert_s6_originals_kept=pass
+assert_s6_bar_below_notch=pass
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-before","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1276, 900}}","visibleFrame":"{{0, 0}, {1276, 870}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+{"fullScreen":true,"menuVisible":false,"phase":"fullscreen","presentationOptions":1024,"screens":[{"frame":"{{0, 0}, {1276, 900}}","visibleFrame":"{{0, 0}, {1276, 870}}"}],"windowFrame":"{{0, 0}, {1276, 900}}"}
+{"fullScreen":false,"menuVisible":true,"phase":"desktop-after","presentationOptions":0,"screens":[{"frame":"{{0, 0}, {1276, 900}}","visibleFrame":"{{0, 0}, {1276, 870}}"}],"windowFrame":"{{160, 140}, {640, 432}}"}
+fullscreen_hook_runs=0
+
+case=s7-fullscreen
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=3 probe_top=32 hooks=15
+state_begin
+version=1
+phase=active
+generation=17
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=absent
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=3
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           3
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       32
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s7_desktop_menu=pass
+assert_s7_fullscreen_menu_hidden=pass
+assert_s7_yoff_same=pass
+assert_s7_phase_active=pass
+
+case=s8-plugged
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=30 probe_top=59 hooks=18
+state_begin
+version=1
+phase=active
+generation=21
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=absent
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=30
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           30
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       59
+target.2                               confirmed-no-notch
+target.2.uuid                          D17209BB-783E-474E-A808-AA87234AE9E1
+target.2.clearance                     30
+target.2.bar_top                       30
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1440,"X":960,"Y":-154},"layer":24,"owner":"Window Server"},{"bounds":{"Height":30,"Width":960,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {960, 677}}","safeTop":0,"visibleFrame":"{{0, 0}, {960, 647}}"},{"frame":"{{960, -69}, {1440, 900}}","safeTop":0,"visibleFrame":"{{960, -69}, {1440, 900}}"}]}
+plug_hook_runs=3
+assert_s8_two_targets=pass
+assert_s8_yoff_not_lower=pass
+assert_s8_clear_every_display=pass
+assert_s8_phase_active=pass
+y2=30
+
+case=s8-unplugged
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=3 probe_top=32 hooks=21
+state_begin
+version=1
+phase=active
+generation=25
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=absent
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=3
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           3
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       32
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+unplug_hook_runs=3
+assert_s8_yoff_back=pass
+assert_s8_originals_kept=pass
+s9_rc=0
+stm: warning: _HIHideMenuBar was changed after stm set it; not reacquiring it until you run stm menubar restore
+
+case=s9-conflict
+_HIHideMenuBar=bool:true
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=0 probe_top=29 hooks=23
+state_begin
+version=1
+phase=conflict
+generation=31
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=absent
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=conflict
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=3
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:true
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       29
+hook                                   loaded
+state                                  conflict
+owner._HIHideMenuBar                   conflict
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":false,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 900}}"}]}
+assert_s9_user_value_kept=pass
+assert_s9_conflict_reported=pass
+assert_s9_phase_conflict=pass
+conflict: _HIHideMenuBar is now bool:true, stm applied bool:false; left unchanged
+restored AppleMenuBarVisibleInFullscreen to absent
+y_offset is already back at 0
+
+case=s9-disabled
+_HIHideMenuBar=bool:true
+AppleMenuBarVisibleInFullscreen=absent
+y_offset=0 probe_top=29 hooks=23
+state_begin
+none
+state_end
+status_begin
+smart_notch                            off
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:true
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       29
+hook                                   loaded
+state                                  none
+lock                                   none
+status_end
+{"menuVisible":false,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 900}}"}]}
+assert_s9_user_value_still=pass
+assert_s9_owned_restored=pass
+assert_s9_yoff_restored=pass
+assert_s9_no_state=pass
+assert_s10_applied=pass
+
+case=s10-disabled
+_HIHideMenuBar=absent
+AppleMenuBarVisibleInFullscreen=absent
+y_offset=0 probe_top=29 hooks=27
+state_begin
+none
+state_end
+status_begin
+smart_notch                            off
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    absent
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       29
+hook                                   loaded
+state                                  none
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s10_prefs_absent=pass
+assert_s10_yoff=pass
+assert_s10_no_state=pass
+assert_s11_applied=pass
+s11_rc=0
+restored _HIHideMenuBar to absent
+restored AppleMenuBarVisibleInFullscreen to absent
+restored y_offset to 0
+stm: warning: smart_notch is still on in /Users/admin/stm-t7.V8Faai/sb/stm.config.toml; the next refresh applies these values again. Set it to "off" to keep them.
+
+case=s11-restored
+_HIHideMenuBar=absent
+AppleMenuBarVisibleInFullscreen=absent
+y_offset=0 probe_top=29 hooks=29
+state_begin
+none
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    absent
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       29
+hook                                   loaded
+state                                  none
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s11_prefs_absent=pass
+assert_s11_yoff=pass
+assert_s11_no_state=pass
+assert_s11_warns_on=pass
+stm: stale lock /Users/admin/.local/state/stm/menubar.lock (its process is gone); check that no stm menubar is running, then remove it
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    absent
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       29
+hook                                   loaded
+state                                  none
+lock                                   stale
+lock.path                              /Users/admin/.local/state/stm/menubar.lock
+assert_s12_refused=pass
+assert_s12_names_lock=pass
+assert_s12_lock_kept=pass
+assert_s12_status_names_lock=pass
+assert_s12_no_write=pass
+
+case=s13-apply
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=32 probe_top=32 hooks=31
+state_begin
+version=1
+phase=active
+generation=8
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=bool:true
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=32
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           32
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       32
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s13_original_true=pass
+assert_s13_prefs_false=pass
+assert_s13_menu_visible=pass
+assert_s13_bar_below_notch=pass
+
+case=s13-reload
+_HIHideMenuBar=bool:false
+AppleMenuBarVisibleInFullscreen=bool:false
+y_offset=32 probe_top=32 hooks=33
+state_begin
+version=1
+phase=active
+generation=12
+targets=C97580C4-D18A-4FAF-8A85-355E967021E9
+pref._HIHideMenuBar.original=bool:true
+pref._HIHideMenuBar.applied=bool:false
+pref._HIHideMenuBar.owner=applied
+pref.AppleMenuBarVisibleInFullscreen.original=absent
+pref.AppleMenuBarVisibleInFullscreen.applied=bool:false
+pref.AppleMenuBarVisibleInFullscreen.owner=applied
+bar.y_offset.original=0
+bar.y_offset.applied=32
+bar.y_offset.owner=applied
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:false
+pref.AppleMenuBarVisibleInFullscreen   bool:false
+bar.position                           top
+bar.y_offset                           32
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       32
+hook                                   loaded
+state                                  active
+owner._HIHideMenuBar                   applied
+owner.AppleMenuBarVisibleInFullscreen  applied
+owner.y_offset                         applied
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s13_reload_below_notch=pass
+
+case=s13-restored
+_HIHideMenuBar=bool:true
+AppleMenuBarVisibleInFullscreen=absent
+y_offset=0 probe_top=0 hooks=35
+state_begin
+none
+state_end
+status_begin
+smart_notch                            off
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    bool:true
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           top
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       0
+hook                                   loaded
+state                                  none
+lock                                   none
+status_end
+{"menuVisible":false,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 900}}"}]}
+assert_s13_restored=pass
+assert_s13_menu_hidden=pass
+assert_s13_no_state=pass
+nothing to do: no top bar on a notched display
+
+case=s14-bottom
+_HIHideMenuBar=absent
+AppleMenuBarVisibleInFullscreen=absent
+y_offset=0 probe_top=866 hooks=35
+state_begin
+none
+state_end
+status_begin
+smart_notch                            on
+config                                 /Users/admin/stm-t7.V8Faai/sb/stm.config.toml
+pref._HIHideMenuBar                    absent
+pref.AppleMenuBarVisibleInFullscreen   absent
+bar.position                           bottom
+bar.y_offset                           0
+bar.topmost                            off
+targets                                ok
+target.1                               confirmed-notch
+target.1.uuid                          C97580C4-D18A-4FAF-8A85-355E967021E9
+target.1.clearance                     32
+target.1.bar_top                       866
+hook                                   loaded
+state                                  none
+lock                                   none
+status_end
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+assert_s14_prefs_absent=pass
+assert_s14_no_state=pass
+
+hook_log_begin
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+stm: could not create the menu-bar state directory /Users/admin/.local/state/stm
+end rc=2
+end rc=0
+begin sender=system_woke argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=display_change argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=burst argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=burst argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=burst argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=burst argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=burst argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+end rc=0
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=display_change argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=display_change argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=display_change argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+end rc=0
+begin sender=display_change argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=display_change argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=display_change argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+stm: warning: _HIHideMenuBar was changed after stm set it; not reacquiring it until you run stm menubar restore
+stm: warning: _HIHideMenuBar was changed after stm set it; not reacquiring it until you run stm menubar restore
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+begin sender=forced argv=--dir /Users/admin/stm-t7.V8Faai/sb menubar refresh --quiet
+end rc=0
+end rc=0
+hook_log_end
+
+case=cleanup
+{"menuVisible":true,"menuWindows":[{"bounds":{"Height":30,"Width":1276,"X":0,"Y":0},"layer":24,"owner":"Window Server"}],"screens":[{"frame":"{{0, 0}, {1276, 900}}","safeTop":0,"visibleFrame":"{{0, 0}, {1276, 870}}"}]}
+restore_result=0
+fails=0
