@@ -1091,8 +1091,9 @@ assert_contains "$SB" "$(gpill 1 media grey)"
 assert_contains "$SB" "$(printf '%s\n' --move stm.compact.work.1 after stm.compact --move stm.compact.media.1 after stm.compact.work.1)"
 done_it
 
-it "groups: one query (displays), no osascript, no item queries (I.grp, #35)"
-assert_eq "query --query displays" "$QUERIES"
+it "groups: two queries (displays, its own item for the bar's displays), no osascript (I.grp, #35)"
+assert_eq "query --query displays
+query --query stm.compact" "$QUERIES"
 assert_eq 0 "$(printf '%s\n' "$SB" | grep -c -E '^--trigger$')" "no trigger: the masks are the message"
 assert_eq "freq 30
 hid -
@@ -1112,7 +1113,8 @@ it "groups: the same scene twice sends nothing (I.grp determinism, #35)"
 groups
 assert_eq 0 "$(sets)"
 assert_eq 0 "$(moves)"
-assert_eq "query --query displays" "$QUERIES"
+assert_eq "query --query displays
+query --query stm.compact" "$QUERIES"
 done_it
 
 it "groups: reload reapplies member visibility even when selection is unchanged"
@@ -1133,6 +1135,39 @@ assert_contains "$SB" "$(printf '%s\n' --set stm.b drawing=off)"
 assert_contains "$(cat "$ST")" "group 1 media"
 assert_contains "$(cat "$ST")" "off stm.a"
 assert_contains "$(cat "$ST")" "mask stm.c 1"
+done_it
+
+it "groups: a display the bar is not on gets no pill and no group (bar display=main, #35)"
+fresh
+displays "1 0 2560 1707" "2 -1728 1728 1117" >"$FIX/displays"
+# SketchyBar lists a bar item's bounding_rects only for the bar's displays,
+# hidden items too (2.24, probed with display=main/all/1/2).
+item stm.compact right off item "1 -9999 1"
+gstate "freq 30" "hid -" "disp 1" "disp 2" "group 1 work" "group 2 media" \
+  "memb stm.a" "memb stm.b" "memb stm.c" "mask stm.a 1" "mask stm.b 1" "mask stm.c 2" \
+  "pill 1 work 1" "pill 1 media 0" "pill 2 work 0" "pill 2 media 1"
+groups
+assert_contains "$(cat "$SB_LOG.queries")" "query --query stm.compact"
+assert_contains "$SB" "$(printf '%s\n' --set stm.c drawing=off)" "media is not chosen on the bar's display"
+assert_not_contains "$SB" "display=2" "nothing is sent to display 2"
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact.work.2 drawing=off)" "the slot-2 pills go off"
+assert_contains "$SB" "$(printf '%s\n' --set stm.compact.media.2 drawing=off)"
+assert_not_contains "$(cat "$ST")" "disp 2"
+assert_not_contains "$(cat "$ST")" "group 2 "
+rm -f "$FIX/item.stm.compact"
+fresh
+done_it
+
+it "groups: the bar on every display keeps a pill and a group per display (#35)"
+fresh
+displays "1 0 2560 1707" "2 -1728 1728 1117" >"$FIX/displays"
+item stm.compact right off item "1 -9999 1" "2 -9999 1"
+groups
+assert_contains "$SB" "$(gpill 1 work white)"
+assert_contains "$SB" "$(gpill 2 work white)"
+assert_contains "$(cat "$ST")" "disp 2"
+rm -f "$FIX/item.stm.compact"
+fresh
 done_it
 
 it "groups, two displays: each keeps its own group; a member is on the displays that chose it (I.grp, #35)"

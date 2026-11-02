@@ -1008,12 +1008,14 @@ group's pill is white with a box; the others are grey without one. A pill click
 puts that display on that group: the group's members are put on the display and
 every other member is taken off the bar. The choice is remembered per display,
 so a reload keeps it, and a display that has no choice yet — or whose group was
-renamed away — gets the first group in the order you wrote them.
+renamed away — gets the first group in the order you wrote them. Only the
+displays your bar is on take part: with `display = "main"` the other displays
+get no pill and claim no group, so no member is moved to a display with no bar.
 
 Nothing is measured in this mode: a group that is wider than the bar is clipped
 by SketchyBar, so keep each group inside one display's width. `pin`/`high`,
 `normal` and `low` mean nothing here, the `»` and the `‹` `›` arrows are not
-used, and a display change costs one `sketchybar --query displays` — a pill
+used, and a display change costs `sketchybar --query displays` plus one query of `stm.compact` — a pill
 click asks the bar nothing.
 
 ```toml

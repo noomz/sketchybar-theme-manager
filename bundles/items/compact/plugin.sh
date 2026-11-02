@@ -39,7 +39,10 @@
 # drawing=off when no display chose its group (an empty display list would
 # mean every display, not none). The pills select: stm.compact.<group>.<slot>,
 # one per group per display slot, because a click event carries no display id.
-# The pass asks the bar only which displays it has; a pill click asks nothing.
+# The pass asks the bar which displays exist and which of them the bar is on
+# (its own item's bounding_rects, which SketchyBar lists only for the bar's
+# displays, hidden items too); a display without the bar gets no group and no
+# pill. A pill click asks nothing.
 # Leaving the mode puts every claimed item back on every live display.
 #
 # page mode (#31): units are only full or hidden. The bar shows a window of
@@ -227,6 +230,10 @@ fit_groups() {
     else if ($1 == "freq" && NF == 2 && ($2 == "2" || $2 == "30")) sfreq = $2
     next
   }
+  kind == "self" {                    # the displays the bar is drawn on
+    if (match($0, /"display-[0-9]+"/)) { bar_on[substr($0, RSTART + 9, RLENGTH - 10)] = 1; nb++ }
+    next
+  }
   kind == "displays" {
     if (match($0, /"arrangement-id"[ \t]*:[ \t]*[0-9]+/)) {
       v = substr($0, RSTART, RLENGTH); sub(/.*:[ \t]*/, "", v)
@@ -236,6 +243,13 @@ fit_groups() {
   }
   END {
     forced = (sender == "forced")
+    # Keep only displays the bar is on. No answer keeps every live display.
+    if (nb > 0) {
+      k = 0
+      for (i = 1; i <= nd; i++) if (dlive[i] in bar_on) keep[++k] = dlive[i]
+      nd = k
+      for (i = 1; i <= k; i++) dlive[i] = keep[i]
+    }
     if (nd == 0) for (d in cdisp) dadd(d)      # a click run: the cached rows
     if (nd == 0) exit
     for (i = 1; i <= nd; i++) dlivearr[dlive[i]] = 1
@@ -318,7 +332,7 @@ fit_groups() {
     for (k = 1; k <= nm; k++) if (newoff[mem[k]]) print "X off " mem[k]
     for (i = 1; i <= nd; i++)
       for (j = 1; j <= ng; j++) print "X pill " dlive[i] " " g[j] " " newpill[dlive[i] SUBSEP g[j]]
-  }' "$WORK/groups" "$WORK/state" "$WORK/displays" >"$WORK/out"
+  }' "$WORK/groups" "$WORK/state" "$WORK/displays" "$WORK/self" >"$WORK/out"
 }
 
 if [ "$mode" = groups ]; then
@@ -328,9 +342,11 @@ if [ "$mode" = groups ]; then
   if [ -n "$gsel" ] && [ -n "$gslot" ] &&
      /usr/bin/grep -q "^disp $gslot\$" "$WORK/state" 2>/dev/null; then
     : >"$WORK/displays"
+    : >"$WORK/self"
   else
     sketchybar --query displays >"$WORK/displays" 2>/dev/null
     [ -s "$WORK/displays" ] || exit 0
+    sketchybar --query "$NAME" >"$WORK/self" 2>/dev/null || : >"$WORK/self"
     gsel=""; gslot=""
   fi
   fit_groups
