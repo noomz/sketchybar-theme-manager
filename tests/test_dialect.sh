@@ -191,6 +191,133 @@ assert_contains "$STM_OUT" "chartreuse"
 assert_contains "$STM_OUT" "PROBLEMS FOUND"
 done_it
 
+it "doctor: a key the colors.lua defaults define is not missing (V80, B26, #25)"
+d="$SANDBOX/defaults-key"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+local defaults = {
+  black = 0xff000000,
+  rose = 0xffE0A3AD, shadow = 0xff000000,
+  -- ghost = 0xff111111,
+}
+return defaults
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.rose, b = colors.shadow, c = colors.black }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 0
+assert_not_contains "$STM_OUT" "USED BUT MISSING"
+assert_contains "$STM_OUT" "used but missing         (none)"
+assert_contains "$STM_OUT" "from colors.lua          rose shadow"
+assert_not_contains "$STM_OUT" "from colors.lua          black"
+done_it
+
+it "doctor: an adopted config's colors_user.lua defaults count too (V80, #25)"
+d="$SANDBOX/defaults-user"
+mkdir -p "$d"
+printf 'return {\n  rose = 0xffE0A3AD,\n}\n' >"$d/colors_user.lua"
+printf 'local colors = require("colors")\nreturn { a = colors.rose }\n' >"$d/colors.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 0
+assert_contains "$STM_OUT" "from colors.lua          rose"
+done_it
+
+it "doctor: a key nothing defines still fails, and names the file using it (V80, #25)"
+d="$SANDBOX/defaults-gap"
+mkdir -p "$d/items"
+printf 'return {\n  -- ghost = 0xff111111,\n  rose = "pink",\n}\n' >"$d/colors.lua"
+printf 'local colors = require("colors")\nreturn { a = colors.ghost, b = colors.rose }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost rose"
+assert_contains "$STM_OUT" "ghost in ./items/net.lua"
+assert_contains "$STM_OUT" "any file the bar loads"
+done_it
+
+it "doctor: text in a string and an identifier suffix define nothing (V80, #25)"
+d="$SANDBOX/defaults-false"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+local defaults = {
+  note = "rose = 0xffE0A3AD",
+  other = 'teal2 = 0xffE0A3AD',
+  MYghost = 0xff111111,
+}
+return defaults
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.rose, b = colors.teal2, c = colors.ghost }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost rose teal2"
+done_it
+
+it "doctor: a local, a nested entry and an escaped quote define nothing (V80, #25)"
+d="$SANDBOX/defaults-depth"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+local ghost = 0xff111111
+return {
+  bar = { nested = 0xff111111 },
+  note = "hello \" rose = 0xff112233",
+  black = 0xff000000,
+  real = 0xff222222, also = 0xff333333,
+}
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.ghost, b = colors.nested, c = colors.rose, d = colors.real, e = colors.also }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost nested rose"
+assert_contains "$STM_OUT" "from colors.lua          also real"
+done_it
+
+it "doctor: mixed quotes and comment markers in strings do not confuse the scan (V80, #25)"
+d="$SANDBOX/defaults-quotes"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+return {
+  note = 'a " quote', label = "  ghost = 0xff112233",
+  dash = "a -- b", kept = 0xff222222, -- gone = 0xff333333
+}
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.ghost, b = colors.kept, c = colors.gone }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost gone"
+assert_contains "$STM_OUT" "from colors.lua          kept"
+done_it
+
+it "doctor: a block comment hides the keys on its lines, at any level (V80, #25)"
+d="$SANDBOX/defaults-block"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+return {
+  --[[ retired
+  rose = 0xffe0a3ad,
+  ]] kept = 0xff222222,
+  --[==[ older
+  lilac = 0xffe0a3ad, ]]
+  plum = 0xffe0a3ad,
+  ]==]
+  also = 0xff333333,
+}
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.rose, b = colors.kept, c = colors.lilac, d = colors.plum, e = colors.also }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         lilac plum rose"
+assert_contains "$STM_OUT" "from colors.lua          also kept"
+done_it
+
+it "doctor: a missing nested key names its file (V80, #25)"
+d="$SANDBOX/defaults-nested"
+mkdir -p "$d/items"
+printf 'return {}\n' >"$d/colors.lua"
+printf 'local colors = require("colors")\nreturn { a = colors.bar.missing, b = colors.popup.gone }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "bar_missing in ./items/net.lua"
+assert_contains "$STM_OUT" "popup_gone in ./items/net.lua"
+done_it
+
 it "doctor works on a bash config"
 b="$SANDBOX/doc-bash"
 make_bash_config "$b"

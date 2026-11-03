@@ -5654,8 +5654,77 @@ config_used_keys() {
   fi
 }
 
+# config_default_keys <dir> — keys a Lua config's own colour module gives a
+# literal value, so they resolve whatever the palette holds. An adopted config
+# keeps them in colors_user.lua. Only entries directly inside a table count: a
+# text scan, not a parser, so a second flat table there would count as well.
+config_default_keys() {
+  local f
+  for f in colors.lua colors_user.lua; do
+    if [ -f "$1/$f" ]; then
+      awk '{
+        out = ""
+        quote = ""
+        for (i = 1; i <= length($0); i++) {
+          c = substr($0, i, 1)
+          if (closer != "") {
+            if (substr($0, i, length(closer)) == closer) {
+              i += length(closer) - 1
+              closer = ""
+            }
+            c = " "
+          } else if (quote != "") {
+            if (c == "\\") i++
+            else if (c == quote) quote = ""
+            c = " "
+          } else if (c == "\"" || c == "\047") {
+            quote = c
+            c = " "
+          } else if (c == "-" && substr($0, i + 1, 1) == "-") {
+            if (!match(substr($0, i + 2), /^\[=*\[/)) break
+            closer = substr($0, i + 2, RLENGTH)
+            gsub(/\[/, "]", closer)
+            i += RLENGTH + 1
+            c = " "
+          } else if (c == "{") {
+            depth++
+            c = " "
+          } else if (c == "}") {
+            depth--
+            c = " "
+          }
+          out = out (depth == 1 ? c : " ")
+        }
+        print out
+      }' "$1/$f"
+    fi
+  done | {
+    grep -oE '(^|[{,[:space:]])[a-z][a-z0-9_]*[[:space:]]*=[[:space:]]*0[xX][0-9a-fA-F]+' || true
+  } |
+    sed -E 's/^[{,[:space:]]*//; s/[[:space:]]*=.*$//' |
+    sort -u
+}
+
+# doctor_missing_files <dir> <key> — the Lua files that use <key>.
+doctor_missing_files() {
+  local f key
+  # config_used_keys folds colors.bar.x to bar_x, so match either spelling.
+  case "$2" in
+    bar_*) key="bar[._]${2#bar_}" ;;
+    popup_*) key="popup[._]${2#popup_}" ;;
+    *) key=$2 ;;
+  esac
+  config_lua_files "$1" | while IFS= read -r f; do
+    if awk '{ sub(/--.*$/, ""); print }' "$1/$f" 2>/dev/null |
+      grep -E "colors\.$key([^a-zA-Z0-9_]|\$)" >/dev/null; then
+      printf '%s ' "$f"
+    fi
+  done
+}
+
 cmd_doctor() {
   local slug file records provided used tmpdir rc=0 n_missing=0 n_unused=0 fmt
+  local defaults covered from_defaults k
   local mk mv
 
   tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/.stm-list.XXXXXX") ||
@@ -5745,6 +5814,13 @@ $tmpdir"
   STM_MAPPING_STRICT=1
   stm_records_colors "$records" | cut -f1 | sort -u >"$provided"
   config_used_keys "$RESOLVED_DIR" "$fmt" >"$used"
+  defaults="$tmpdir/defaults"
+  covered="$tmpdir/covered"
+  : >"$defaults"
+  if [ "$fmt" = "lua" ]; then
+    config_default_keys "$RESOLVED_DIR" >"$defaults"
+  fi
+  sort -u "$provided" "$defaults" >"$covered"
 
   # [mapping] entries: every right-hand side must resolve, or apply will fail.
   if [ -n "$RESOLVED_CONFIG" ] && stm_config_pairs "$RESOLVED_CONFIG" mapping | grep -q .; then
@@ -5789,7 +5865,7 @@ EOF
   if [ ! -s "$used" ]; then
     printf '  %s\n' "could not find any colour references in $RESOLVED_DIR"
   else
-    n_missing=$(comm -23 "$used" "$provided" | wc -l | tr -d ' ')
+    n_missing=$(comm -23 "$used" "$covered" | wc -l | tr -d ' ')
     n_unused=$(comm -13 "$used" "$provided" | wc -l | tr -d ' ')
 
     printf '  %-24s %s\n' "used and provided" \
@@ -5801,8 +5877,11 @@ EOF
     # had — stm just does not manage it — so it is informational.
     if [ "$n_missing" -gt 0 ]; then
       if [ "$fmt" = "lua" ]; then
-        printf '  %-24s %s\n' "USED BUT MISSING" "$(comm -23 "$used" "$provided" | tr '\n' ' ')"
-        printf '  %-24s %s\n' "" "these resolve to nil in Lua and will break the bar"
+        printf '  %-24s %s\n' "USED BUT MISSING" "$(comm -23 "$used" "$covered" | tr '\n' ' ')"
+        printf '  %-24s %s\n' "" "not in the palette or colors.lua: nil, and they break the bar, in any file the bar loads"
+        comm -23 "$used" "$covered" | while IFS= read -r k; do
+          printf '  %-24s %s in %s\n' "" "$k" "$(doctor_missing_files "$RESOLVED_DIR" "$k")"
+        done
         rc=1
       else
         printf '  %-24s %s\n' "not managed by stm" "$(comm -23 "$used" "$provided" | tr '\n' ' ')"
@@ -5810,6 +5889,12 @@ EOF
       fi
     else
       printf '  %-24s %s\n' "used but missing" "(none)"
+    fi
+
+    from_defaults=$(comm -12 "$used" "$defaults" | comm -23 - "$provided" | tr '\n' ' ')
+    if [ -n "$from_defaults" ]; then
+      printf '  %-24s %s\n' "from colors.lua" "$from_defaults"
+      printf '  %-24s %s\n' "" "not in the palette: these keep your own value on every theme"
     fi
 
     if [ "$n_unused" -gt 0 ]; then
