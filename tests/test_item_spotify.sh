@@ -475,7 +475,18 @@ function sbar.add(kind, name, a, b)
     set = function(_, props) print("set " .. name .. " " .. dump(props)) end,
   }
 end
-function sbar.exec(cmd) print("exec " .. cmd) end
+local pending = {}
+function sbar.exec(cmd, done)
+  print("exec " .. cmd)
+  pending[#pending + 1] = done or false
+end
+local function finish_runs()
+  while #pending > 0 do
+    local done = table.remove(pending, 1)
+    print("run ended")
+    if done then done("", 0) end
+  end
+end
 local opts = { name = "stm.spotify", position = position, update_freq = 10,
   plugin_dir = "/p", events = { "system_woke", "display_change" },
   options = { shape = shape, cover = "on", narrow = "right" } }
@@ -496,10 +507,17 @@ if click then
     handlers["stm.spotify.icon mouse.clicked"]({ SENDER = "mouse.clicked" })
   end
 end
+-- PROBE_IDLE=1: the load run ends before the forms arrive.
+if os.getenv("PROBE_IDLE") then finish_runs() end
 -- PROBE_FORMS=a,b,...: the compact event, once per form (`-` = no key).
 for f in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
   print("form " .. f)
   handlers["stm.spotify stm_compact"]({ SENDER = "stm_compact", STM_FORM_SPOTIFY = f ~= "-" and f or nil })
+end
+-- PROBE_FINISH=1: every plugin run ends, including any they start.
+if os.getenv("PROBE_FINISH") then
+  print("finish")
+  finish_runs()
 end
 EOF
   probe() {
@@ -578,6 +596,33 @@ event stm_compact" "$(names pill center)" "pill"
     assert_contains "$(line_of "stm.spotify.row.${c%%:*}" split center)" "color=5 highlight_color=4"
     assert_contains "$(line_of "stm.spotify.row.${c%%:*}" split center)" "string=${c#*:}}"
   done
+  done_it
+
+  after_finish() {
+    PROBE_FINISH=1 PROBE_FORMS="$1" probe split right | sed -n '/^finish$/,$p' | grep '^exec ' |
+      sed -E "s/^exec .*(STM_FORM='[a-z]*').*/\\1/"
+  }
+
+  it "item.lua: a form change during a run gets one more run on the new form, after every run ends (V79, B24)"
+  assert_eq "STM_FORM='hidden'" "$(after_finish hidden)" "hidden during the load run"
+  assert_eq "STM_FORM='icon'" "$(after_finish hidden,icon)" "the latest form wins"
+  done_it
+
+  it "item.lua: the extra run starts only after the last run ends, as stm_compact with no action (V79, B24)"
+  out=$(PROBE_FINISH=1 PROBE_FORMS=hidden probe split right flat click)
+  assert_contains "$out" "STM_SP_ACTION='play'" "a click run was in flight"
+  tail=$(printf '%s\n' "$out" | sed -n '/^finish$/,$p')
+  ended=$(($(printf '%s\n' "$out" | grep -c "^exec ") - 1))
+  assert_eq "$ended" "$(printf '%s\n' "$tail" | awk '/^exec /{exit} /^run ended$/{n++} END{print n}')" "every earlier run has ended"
+  rerun=$(printf '%s\n' "$tail" | grep "^exec ")
+  assert_contains "$rerun" "STM_FORM='hidden'"
+  assert_contains "$rerun" "STM_SP_ACTION=''"
+  assert_contains "$rerun" "SENDER='stm_compact'"
+  done_it
+
+  it "item.lua: no extra run without a form change during a run (V79)"
+  assert_eq "" "$(after_finish full)" "same form during the load run"
+  assert_eq "" "$(PROBE_IDLE=1 after_finish hidden)" "form change while idle: its own run is enough"
   done_it
 
   it "item.lua compact forms: short = 12 characters, icon drops the label (plain|pill), form to plugin.sh (I.form, I.spot)"

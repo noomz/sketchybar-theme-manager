@@ -31,10 +31,25 @@ return function(sbar, opts, colors)
   local form = "full"
   local key = "STM_FORM_" .. name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
 
+  -- Spotify answers slowly, so a run can end after a newer form's run and put
+  -- its own `drawing` back. A form change during a run therefore gets one more
+  -- run once they have all ended.
+  local running, stale = 0, false
+  local ended
+
   local function run(e, action)
     local sender = (e and e.SENDER) or "forced"
+    running = running + 1
     sbar.exec(string.format("%s STM_FORM=%s STM_SP_ACTION=%s NAME=%s SENDER=%s %s",
-      env, quote(form), quote(action or ""), quote(name), quote(sender), plugin))
+      env, quote(form), quote(action or ""), quote(name), quote(sender), plugin), ended)
+  end
+
+  ended = function()
+    running = running - 1
+    if running == 0 and stale then
+      stale = false
+      run({ SENDER = "stm_compact" })
+    end
   end
 
   -- Spotify posts this distributed notification on every play, pause and
@@ -194,6 +209,7 @@ return function(sbar, opts, colors)
         label.drawing = f ~= "icon"
       end
       item:set({ label = label })
+      stale = running > 0
       run(e)
     end
   end)

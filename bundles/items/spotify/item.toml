@@ -3,7 +3,7 @@
 # Installed with `stm install item:spotify`; options go in stm.config.toml
 # (or a theme's palette) under [item.spotify].
 name = "spotify"
-version = "0.3.0"
+version = "0.3.1"
 dialects = ["lua"]
 files = ["item.lua", "plugin.sh"]
 colors = ["magenta", "green", "red", "white", "black", "bg1", "popup_bg", "popup_border"]

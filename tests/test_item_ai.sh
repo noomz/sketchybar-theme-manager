@@ -980,7 +980,7 @@ it "lint and install item:ai (V4, V9, I.fs, I.cfg)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:ai
 assert_status 0
 assert_eq "ok	item:ai" "$STM_OUT"
-assert_file_contains "$BUNDLE/item.toml" 'version = "0.5.0"'
+assert_file_contains "$BUNDLE/item.toml" 'version = "0.5.1"'
 D="$SANDBOX/cfg"
 make_lua_config "$D"
 STM_ROOT="$REPO_ROOT" run_stm --dir "$D" --no-reload install item:ai
@@ -1066,7 +1066,18 @@ function sbar.query(name)
   return { label = { font = "Hack Nerd Font:Bold:13.00", padding_left = 6, padding_right = 6 },
     icon = { font = "Hack Nerd Font:Bold:17.00", padding_left = 4, padding_right = 4 } }
 end
-function sbar.exec(cmd) print("exec " .. cmd) end
+local pending = {}
+function sbar.exec(cmd, done)
+  print("exec " .. cmd)
+  pending[#pending + 1] = done or false
+end
+local function finish_runs()
+  while #pending > 0 do
+    local done = table.remove(pending, 1)
+    print("run ended")
+    if done then done("", 0) end
+  end
+end
 local options = { shape = shape, icon = "tag", claude = "auto", codex = "auto", gemini = "auto", grok = "auto", openrouter = "auto" }
 for k, v in metrics:gmatch("([%w_]+)=(%w+)") do
   options[k] = v
@@ -1081,6 +1092,8 @@ local function fire(key, sender)
   end
 end
 fire("stm.ai routine", "routine")
+-- PROBE_IDLE=1: the first runs end before the clicks arrive.
+if os.getenv("PROBE_IDLE") then finish_runs() end
 if clicks and clicks ~= "" then
   for key in clicks:gmatch("[^,]+") do
     print("fire " .. key)
@@ -1090,6 +1103,11 @@ if clicks and clicks ~= "" then
     else
       fire(key, key:match("%S+$"))
     end
+  end
+  -- PROBE_FINISH=1: every plugin run ends, including any they start.
+  if os.getenv("PROBE_FINISH") then
+    print("finish")
+    finish_runs()
   end
   return
 end
@@ -1211,6 +1229,33 @@ STM_FORM='hidden' SENDER='stm_compact'" \
     "$(printf '%s\n' "$out" | sed -n '/^fire /,$p' | sed -E "s/^exec .*(STM_FORM='[a-z]*').*(SENDER='[a-z_]*').*/\\1 \\2/")"
   assert_contains "$out" "event stm_compact"
   assert_contains "$out" "subscribe stm.ai stm_compact"
+  done_it
+
+  after_finish() {
+    PROBE_FINISH=1 probe plain right "" ok "$1" | sed -n '/^finish$/,$p' | grep '^exec ' |
+      sed -E "s/^exec .*(STM_FORM='[a-z]*').*/\\1/"
+  }
+
+  it "item.lua: a form change during a run gets one more run on the new form, after every run ends (V79, B25)"
+  assert_eq "STM_FORM='hidden'" "$(after_finish stm_compact=hidden)" "hidden during the first runs"
+  assert_eq "STM_FORM='icon'" "$(after_finish stm_compact=hidden,stm_compact=icon)" "the latest form wins"
+  done_it
+
+  it "item.lua: the extra run starts only after the last run ends, as stm_compact with no action (V79, B25)"
+  out=$(PROBE_FINISH=1 probe plain right "" ok "stm.ai.claude.row.foot mouse.clicked,stm_compact=hidden")
+  assert_contains "$out" "STM_AI_ACTION='open'" "a click run was in flight"
+  tail=$(printf '%s\n' "$out" | sed -n '/^finish$/,$p')
+  ended=$(($(printf '%s\n' "$out" | grep -c "^exec ") - 1))
+  assert_eq "$ended" "$(printf '%s\n' "$tail" | awk '/^exec /{exit} /^run ended$/{n++} END{print n}')" "every earlier run has ended"
+  rerun=$(printf '%s\n' "$tail" | grep "^exec ")
+  assert_contains "$rerun" "STM_FORM='hidden'"
+  assert_contains "$rerun" "STM_AI_ACTION=''"
+  assert_contains "$rerun" "SENDER='stm_compact'"
+  done_it
+
+  it "item.lua: no extra run without a form change during a run (V79)"
+  assert_eq "" "$(after_finish stm_compact=full)" "same form during the first runs"
+  assert_eq "" "$(PROBE_IDLE=1 after_finish stm_compact=hidden)" "form change while idle: its own run is enough"
   done_it
 
   it "item.lua runs plugin.sh with options, colours and per-segment metrics (V14, V46, V56)"

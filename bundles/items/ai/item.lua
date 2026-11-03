@@ -236,6 +236,12 @@ return function(sbar, opts, colors)
   local form = "full"
   local key = "STM_FORM_" .. name:gsub("^stm%.", ""):gsub("[.-]", "_"):upper()
 
+  -- A run can end after a newer form's run and put its own `drawing` back, and
+  -- the next tick is a minute away. A form change during a run therefore gets
+  -- one more run once they have all ended.
+  local running, stale = 0, false
+  local ended
+
   local function run(e, action)
     local sender = (e and e.SENDER) or "forced"
     local metrics = {}
@@ -247,8 +253,17 @@ return function(sbar, opts, colors)
       end
     end
     metrics[#metrics + 1] = "STM_AI_ACTION=" .. quote(action or "")
+    running = running + 1
     sbar.exec(string.format("%s STM_FORM=%s %s NAME=%s SENDER=%s %s",
-      env, quote(form), table.concat(metrics, " "), quote(name), quote(sender), plugin))
+      env, quote(form), table.concat(metrics, " "), quote(name), quote(sender), plugin), ended)
+  end
+
+  ended = function()
+    running = running - 1
+    if running == 0 and stale then
+      stale = false
+      run({ SENDER = "stm_compact" })
+    end
   end
 
   -- Each segment's popup: a totals line, up to ROWS account and window rows
@@ -310,6 +325,7 @@ return function(sbar, opts, colors)
           s.item:set({ label = { drawing = form == "full" } })
         end
       end
+      stale = running > 0
       run(e)
     end
   end)
