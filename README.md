@@ -1065,7 +1065,8 @@ is no plugin. Compact counts `stm.expand` as a foreign item and never hides it.
 
 In your own `spaces.lua` (stm does not edit this file), subscribe and hide your
 spaces again on each refresh while expanded. Returning early is not enough: a
-script already running at the click can still turn a space back on. Declare
+script already running at the click can still turn a space back on, and only the
+next refresh hides it again, so keep that refresh on a regular tick. Declare
 `refresh` first. Do not subscribe on a `space.*` you hide: SketchyBar skips
 events on hidden items unless `updates` is true, so use an item that stays
 subscribed, such as one you already run `refresh` from:
