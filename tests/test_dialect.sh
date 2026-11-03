@@ -250,6 +250,25 @@ assert_status 1
 assert_contains "$STM_OUT" "USED BUT MISSING         ghost rose teal2"
 done_it
 
+it "doctor: a local, a nested entry and an escaped quote define nothing (V80, #25)"
+d="$SANDBOX/defaults-depth"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+local ghost = 0xff111111
+return {
+  bar = { nested = 0xff111111 },
+  note = "hello \" rose = 0xff112233",
+  black = 0xff000000,
+  real = 0xff222222, also = 0xff333333,
+}
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.ghost, b = colors.nested, c = colors.rose, d = colors.real, e = colors.also }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost nested rose"
+assert_contains "$STM_OUT" "from colors.lua          also real"
+done_it
+
 it "doctor: a missing nested key names its file (V80, #25)"
 d="$SANDBOX/defaults-nested"
 mkdir -p "$d/items"
