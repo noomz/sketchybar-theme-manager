@@ -201,7 +201,6 @@ fit_groups() {
     if (a4 != "") print "S " a4
     if (a5 != "") print "S " a5
     if (a6 != "") print "S " a6
-    sets++
   }
   function mv(a, how, b) { print "S --move"; print "S " a; print "S " how; print "S " b }
   function dadd(v,   i) {            # dlive stays sorted ascending
@@ -361,14 +360,14 @@ fit_groups() {
     if (shid != "" && shid != "-") setto(name, "drawing=off", "popup.drawing=off")
     if (sfreq != "" && sfreq != "30") setto(name, "update_freq=30")
 
-    # Restack: the pill chain runs after this item, group order per display.
-    if (sets || forced || changed) {
-      for (i = 1; i <= nd; i++) {
-        prev = name
-        for (j = 1; j <= ng; j++) {
-          mv(pilln(dlive[i], g[j]), "after", prev)
-          prev = pilln(dlive[i], g[j])
-        }
+    # The pill chain runs after this item, group order per display. Sent also
+    # when it is in place already: a click on bare bar makes SketchyBar raise
+    # the bar over its own items, and any --move makes it stack them again.
+    for (i = 1; i <= nd; i++) {
+      prev = name
+      for (j = 1; j <= ng; j++) {
+        mv(pilln(dlive[i], g[j]), "after", prev)
+        prev = pilln(dlive[i], g[j])
       }
     }
 

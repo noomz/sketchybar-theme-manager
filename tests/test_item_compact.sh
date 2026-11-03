@@ -138,7 +138,7 @@ sets() { printf '%s\n' "$SB" | grep -c -E '^--(set|trigger)$'; }
 it "lint, manifest: position right, display + wake events, mode shrink|page|groups, grey (I.cmp, I.pg, I.grp, V4)"
 STM_ROOT="$REPO_ROOT" run_stm --porcelain lint item:compact
 assert_status 0
-assert_eq 'version = "0.4.0"' "$(grep '^version' "$BUNDLE/item.toml")"
+assert_eq 'version = "0.4.1"' "$(grep '^version' "$BUNDLE/item.toml")"
 assert_eq 'default_position = "right"' "$(grep '^default_position' "$BUNDLE/item.toml")"
 assert_eq 'events = ["display_change", "system_woke"]' "$(grep '^events' "$BUNDLE/item.toml")"
 assert_eq 'update_freq = 30' "$(grep '^update_freq' "$BUNDLE/item.toml")"
@@ -1043,6 +1043,7 @@ done_it
 
 GRP="work:stm.a,stm.b;media:stm.c"
 BG1=0xff1e1e2e
+MOVE_GROUPS=$(printf '%s\n' --move stm.compact.work.1 after stm.compact --move stm.compact.media.1 after stm.compact.work.1 --)
 
 # groups [VAR=value...] — one plugin run in groups mode.
 groups() {
@@ -1098,10 +1099,10 @@ assert_not_contains "$SB" "stm.bx"
 assert_contains "$QUERIES" "query --query bar"
 done_it
 
-it "groups: the same scene twice sends no trigger, so a member's own updates decide nothing"
+it "groups: the same scene twice sends no trigger and no set, so a member's own updates decide nothing"
 ugroups
 assert_eq "" "$(triggers)"
-assert_eq "" "$SB"
+assert_eq 0 "$(sets)"
 done_it
 
 it "groups: a reload sends the forms again, because reloaded items start full"
@@ -1212,12 +1213,17 @@ pill 1 work 1
 pill 1 media 0" "$(cat "$ST")"
 done_it
 
-it "groups: the same scene twice sends nothing (I.grp determinism, #35)"
+it "groups: the same scene twice sends the pill moves and nothing else, which stacks the bar again (V72, B27)"
 groups
-assert_eq 0 "$(sets)"
-assert_eq 0 "$(moves)"
+assert_eq "$MOVE_GROUPS" "$SB"
 assert_eq "query --query displays
 query --query stm.compact" "$QUERIES"
+done_it
+
+it "groups: a click on the pill already selected stacks the bar again, without asking it (V72, V68, B27)"
+gclick 1 work
+assert_eq "$MOVE_GROUPS" "$SB"
+assert_eq "" "$QUERIES"
 done_it
 
 it "groups: reload reapplies member visibility even when selection is unchanged"
