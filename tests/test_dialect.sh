@@ -285,6 +285,28 @@ assert_contains "$STM_OUT" "USED BUT MISSING         ghost gone"
 assert_contains "$STM_OUT" "from colors.lua          kept"
 done_it
 
+it "doctor: a block comment hides the keys on its lines, at any level (V80, #25)"
+d="$SANDBOX/defaults-block"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+return {
+  --[[ retired
+  rose = 0xffe0a3ad,
+  ]] kept = 0xff222222,
+  --[==[ older
+  lilac = 0xffe0a3ad, ]]
+  plum = 0xffe0a3ad,
+  ]==]
+  also = 0xff333333,
+}
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.rose, b = colors.kept, c = colors.lilac, d = colors.plum, e = colors.also }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         lilac plum rose"
+assert_contains "$STM_OUT" "from colors.lua          also kept"
+done_it
+
 it "doctor: a missing nested key names its file (V80, #25)"
 d="$SANDBOX/defaults-nested"
 mkdir -p "$d/items"

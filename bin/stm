@@ -5667,7 +5667,13 @@ config_default_keys() {
         quote = ""
         for (i = 1; i <= length($0); i++) {
           c = substr($0, i, 1)
-          if (quote != "") {
+          if (closer != "") {
+            if (substr($0, i, length(closer)) == closer) {
+              i += length(closer) - 1
+              closer = ""
+            }
+            c = " "
+          } else if (quote != "") {
             if (c == "\\") i++
             else if (c == quote) quote = ""
             c = " "
@@ -5675,7 +5681,11 @@ config_default_keys() {
             quote = c
             c = " "
           } else if (c == "-" && substr($0, i + 1, 1) == "-") {
-            break
+            if (!match(substr($0, i + 2), /^\[=*\[/)) break
+            closer = substr($0, i + 2, RLENGTH)
+            gsub(/\[/, "]", closer)
+            i += RLENGTH + 1
+            c = " "
           } else if (c == "{") {
             depth++
             c = " "
