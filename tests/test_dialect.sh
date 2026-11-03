@@ -191,6 +191,48 @@ assert_contains "$STM_OUT" "chartreuse"
 assert_contains "$STM_OUT" "PROBLEMS FOUND"
 done_it
 
+it "doctor: a key the colors.lua defaults define is not missing (V80, B26, #25)"
+d="$SANDBOX/defaults-key"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+local defaults = {
+  black = 0xff000000,
+  rose = 0xffE0A3AD, shadow = 0xff000000,
+  -- ghost = 0xff111111,
+}
+return defaults
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.rose, b = colors.shadow, c = colors.black }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 0
+assert_not_contains "$STM_OUT" "USED BUT MISSING"
+assert_contains "$STM_OUT" "used but missing         (none)"
+assert_contains "$STM_OUT" "from colors.lua          rose shadow"
+assert_not_contains "$STM_OUT" "from colors.lua          black"
+done_it
+
+it "doctor: an adopted config's colors_user.lua defaults count too (V80, #25)"
+d="$SANDBOX/defaults-user"
+mkdir -p "$d"
+printf 'return {\n  rose = 0xffE0A3AD,\n}\n' >"$d/colors_user.lua"
+printf 'local colors = require("colors")\nreturn { a = colors.rose }\n' >"$d/colors.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 0
+assert_contains "$STM_OUT" "from colors.lua          rose"
+done_it
+
+it "doctor: a key nothing defines still fails, and names the file using it (V80, #25)"
+d="$SANDBOX/defaults-gap"
+mkdir -p "$d/items"
+printf 'return {\n  -- ghost = 0xff111111,\n  rose = "pink",\n}\n' >"$d/colors.lua"
+printf 'local colors = require("colors")\nreturn { a = colors.ghost, b = colors.rose }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost rose"
+assert_contains "$STM_OUT" "ghost in ./items/net.lua"
+assert_contains "$STM_OUT" "any file the bar loads"
+done_it
+
 it "doctor works on a bash config"
 b="$SANDBOX/doc-bash"
 make_bash_config "$b"
