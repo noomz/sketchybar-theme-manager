@@ -5656,12 +5656,26 @@ config_used_keys() {
 
 # config_default_keys <dir> — keys a Lua config's own colour module gives a
 # literal value, so they resolve whatever the palette holds. An adopted config
-# keeps them in colors_user.lua.
+# keeps them in colors_user.lua. Only entries directly inside a table count: a
+# text scan, not a parser, so a second flat table there would count as well.
 config_default_keys() {
   local f
   for f in colors.lua colors_user.lua; do
     if [ -f "$1/$f" ]; then
-      awk '{ gsub(/"[^"]*"/, "\"\""); gsub(/\047[^\047]*\047/, "\"\""); sub(/--.*$/, ""); print }' "$1/$f"
+      awk '{
+        gsub(/\\./, "")
+        gsub(/"[^"]*"/, "\"\"")
+        gsub(/\047[^\047]*\047/, "\"\"")
+        sub(/--.*$/, "")
+        out = ""
+        for (i = 1; i <= length($0); i++) {
+          c = substr($0, i, 1)
+          if (c == "{") depth++
+          else if (c == "}") depth--
+          out = out ((depth == 1 && c != "{") ? c : " ")
+        }
+        print out
+      }' "$1/$f"
     fi
   done | {
     grep -oE '(^|[{,[:space:]])[a-z][a-z0-9_]*[[:space:]]*=[[:space:]]*0[xX][0-9a-fA-F]+' || true
