@@ -5661,21 +5661,27 @@ config_default_keys() {
   local f
   for f in colors.lua colors_user.lua; do
     if [ -f "$1/$f" ]; then
-      awk '{ sub(/--.*$/, ""); print }' "$1/$f"
+      awk '{ gsub(/"[^"]*"/, "\"\""); gsub(/\047[^\047]*\047/, "\"\""); sub(/--.*$/, ""); print }' "$1/$f"
     fi
   done | {
-    grep -oE '[a-z][a-z0-9_]*[[:space:]]*=[[:space:]]*0[xX][0-9a-fA-F]+' || true
+    grep -oE '(^|[{,[:space:]])[a-z][a-z0-9_]*[[:space:]]*=[[:space:]]*0[xX][0-9a-fA-F]+' || true
   } |
-    sed -E 's/[[:space:]]*=.*$//' |
+    sed -E 's/^[{,[:space:]]*//; s/[[:space:]]*=.*$//' |
     sort -u
 }
 
 # doctor_missing_files <dir> <key> — the Lua files that use <key>.
 doctor_missing_files() {
-  local f
+  local f key
+  # config_used_keys folds colors.bar.x to bar_x, so match either spelling.
+  case "$2" in
+    bar_*) key="bar[._]${2#bar_}" ;;
+    popup_*) key="popup[._]${2#popup_}" ;;
+    *) key=$2 ;;
+  esac
   config_lua_files "$1" | while IFS= read -r f; do
     if awk '{ sub(/--.*$/, ""); print }' "$1/$f" 2>/dev/null |
-      grep -E "colors\.$2([^a-zA-Z0-9_]|\$)" >/dev/null; then
+      grep -E "colors\.$key([^a-zA-Z0-9_]|\$)" >/dev/null; then
       printf '%s ' "$f"
     fi
   done
