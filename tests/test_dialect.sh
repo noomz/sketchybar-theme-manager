@@ -233,6 +233,34 @@ assert_contains "$STM_OUT" "ghost in ./items/net.lua"
 assert_contains "$STM_OUT" "any file the bar loads"
 done_it
 
+it "doctor: text in a string and an identifier suffix define nothing (V80, #25)"
+d="$SANDBOX/defaults-false"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+local defaults = {
+  note = "rose = 0xffE0A3AD",
+  other = 'teal2 = 0xffE0A3AD',
+  MYghost = 0xff111111,
+}
+return defaults
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.rose, b = colors.teal2, c = colors.ghost }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost rose teal2"
+done_it
+
+it "doctor: a missing nested key names its file (V80, #25)"
+d="$SANDBOX/defaults-nested"
+mkdir -p "$d/items"
+printf 'return {}\n' >"$d/colors.lua"
+printf 'local colors = require("colors")\nreturn { a = colors.bar.missing, b = colors.popup.gone }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "bar_missing in ./items/net.lua"
+assert_contains "$STM_OUT" "popup_gone in ./items/net.lua"
+done_it
+
 it "doctor works on a bash config"
 b="$SANDBOX/doc-bash"
 make_bash_config "$b"
