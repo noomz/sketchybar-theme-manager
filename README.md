@@ -1311,7 +1311,11 @@ Key coverage (config vs palette "tokyo-night")
 
 `doctor` reports the detected format and Lua dialect, then compares the colour
 keys your config actually consumes against the ones the palette provides. In a
-Lua config a missing key is an error — it resolves to `nil` and breaks the bar.
+Lua config a key that neither the palette nor your own `colors.lua` (or
+`colors_user.lua`) defines is an error: it resolves to `nil` and breaks the bar
+in any file the bar loads, so `doctor` names the files using it. A key only your
+defaults define is listed as `from colors.lua`, since it keeps that value on
+every theme.
 In a shell config it is only informational, since the variable keeps whatever
 value it already had.
 
