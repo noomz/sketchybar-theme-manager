@@ -269,6 +269,22 @@ assert_contains "$STM_OUT" "USED BUT MISSING         ghost nested rose"
 assert_contains "$STM_OUT" "from colors.lua          also real"
 done_it
 
+it "doctor: mixed quotes and comment markers in strings do not confuse the scan (V80, #25)"
+d="$SANDBOX/defaults-quotes"
+mkdir -p "$d/items"
+cat >"$d/colors.lua" <<'LUA'
+return {
+  note = 'a " quote', label = "ghost = 0xff112233",
+  dash = "a -- b", kept = 0xff222222, -- gone = 0xff333333
+}
+LUA
+printf 'local colors = require("colors")\nreturn { a = colors.ghost, b = colors.kept, c = colors.gone }\n' >"$d/items/net.lua"
+run_stm --dir "$d" doctor tokyo-night
+assert_status 1
+assert_contains "$STM_OUT" "USED BUT MISSING         ghost gone"
+assert_contains "$STM_OUT" "from colors.lua          kept"
+done_it
+
 it "doctor: a missing nested key names its file (V80, #25)"
 d="$SANDBOX/defaults-nested"
 mkdir -p "$d/items"
