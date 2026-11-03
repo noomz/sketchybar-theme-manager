@@ -5663,16 +5663,27 @@ config_default_keys() {
   for f in colors.lua colors_user.lua; do
     if [ -f "$1/$f" ]; then
       awk '{
-        gsub(/\\./, "")
-        gsub(/"[^"]*"/, "\"\"")
-        gsub(/\047[^\047]*\047/, "\"\"")
-        sub(/--.*$/, "")
         out = ""
+        quote = ""
         for (i = 1; i <= length($0); i++) {
           c = substr($0, i, 1)
-          if (c == "{") depth++
-          else if (c == "}") depth--
-          out = out ((depth == 1 && c != "{") ? c : " ")
+          if (quote != "") {
+            if (c == "\\") i++
+            else if (c == quote) quote = ""
+            c = " "
+          } else if (c == "\"" || c == "\047") {
+            quote = c
+            c = " "
+          } else if (c == "-" && substr($0, i + 1, 1) == "-") {
+            break
+          } else if (c == "{") {
+            depth++
+            c = " "
+          } else if (c == "}") {
+            depth--
+            c = " "
+          }
+          out = out (depth == 1 ? c : " ")
         }
         print out
       }' "$1/$f"
