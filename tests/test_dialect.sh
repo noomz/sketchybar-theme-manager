@@ -274,7 +274,7 @@ d="$SANDBOX/defaults-quotes"
 mkdir -p "$d/items"
 cat >"$d/colors.lua" <<'LUA'
 return {
-  note = 'a " quote', label = "ghost = 0xff112233",
+  note = 'a " quote', label = "  ghost = 0xff112233",
   dash = "a -- b", kept = 0xff222222, -- gone = 0xff333333
 }
 LUA
