@@ -1063,18 +1063,28 @@ The toggle starts `off` and does not fire on load, so items start shown. There
 is no plugin. Compact counts `stm.expand` as a foreign item and never hides it.
 `shape` is `plain` or `pill` (default `plain`).
 
-In your own `spaces.lua` (stm does not edit this file), subscribe and skip your
-refresh while expanded. Declare `refresh` first. Do not subscribe on a `space.*`
-you hide: SketchyBar skips events on hidden items unless `updates` is true, so
-use a dedicated item that stays subscribed:
+In your own `spaces.lua` (stm does not edit this file), subscribe and hide your
+spaces again on each refresh while expanded. Returning early is not enough: a
+script already running at the click can still turn a space back on, and only the
+next refresh hides it again, so keep that refresh on a regular tick. Declare
+`refresh` first. Do not subscribe on a `space.*` you hide: SketchyBar skips
+events on hidden items unless `updates` is true, so use an item that stays
+subscribed, such as one you already run `refresh` from:
 
 ```lua
 sbar.add("event", "stm_expand")
 
 local expand_on = false
 
+local function hide_spaces()
+  sbar.set("space.1", { drawing = false })
+  sbar.set("space.2", { drawing = false })
+  -- every space.* you own
+end
+
 local function refresh()
   if expand_on then
+    hide_spaces()
     return
   end
   -- set drawing as you already do
@@ -1085,15 +1095,8 @@ local hold = sbar.add("item", "spaces_expand_hold", {
   updates = true,
 })
 hold:subscribe("stm_expand", function(env)
-  if env.STM_EXPAND == "on" then
-    expand_on = true
-    sbar.set("space.1", { drawing = false })
-    sbar.set("space.2", { drawing = false })
-    -- every space.* you own
-  else
-    expand_on = false
-    refresh()
-  end
+  expand_on = env.STM_EXPAND == "on"
+  refresh()
 end)
 ```
 
