@@ -35,12 +35,6 @@ if you need one.
 brew install noomz/tap/sketchybar-theme-manager
 ```
 
-Or straight from a checkout, no tap required:
-
-```sh
-brew install --formula ./Formula/sketchybar-theme-manager.rb
-```
-
 **Manual**
 
 ```sh

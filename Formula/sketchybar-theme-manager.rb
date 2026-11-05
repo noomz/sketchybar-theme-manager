@@ -1,7 +1,6 @@
 # Homebrew formula for stm.
 #
-# Local install:  brew install --formula ./Formula/sketchybar-theme-manager.rb
-# From a tap:     brew install noomz/tap/sketchybar-theme-manager
+# Install: brew install noomz/tap/sketchybar-theme-manager
 class SketchybarThemeManager < Formula
   desc "Theme manager for SketchyBar"
   homepage "https://github.com/noomz/sketchybar-theme-manager"
