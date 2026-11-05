@@ -291,9 +291,9 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
 
 ---
 
-# Draft spec: smart menu-bar avoidance
+# Spec: smart menu-bar avoidance
 
-Status: draft for new session. No implementation approved by this document. This section is separate from the item-bundles spec above. Repository `FORMAT.md` was not present when this draft was written.
+Status: shipped in #39. The handoff and backlog notes below are the design record, not open work. This section is separate from the item-bundles spec above. Repository `FORMAT.md` was not present when this draft was written.
 
 ## §G Goal
 
