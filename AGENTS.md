@@ -13,7 +13,7 @@ bundles/items/<name>/            # bundled item bundles (code): item.toml, item.
 tests/                           # plain-bash suite (no bats); run via tests/run.sh
 tests/test_*.sh                  # one file per area, sources tests/helpers.sh
 tests/fixtures/                  # good + hostile fixtures (tests/fixtures/bad/ = malicious palettes)
-Formula/sketchybar-theme-manager.rb   # Homebrew formula
+Formula/sketchybar-theme-manager.rb   # Homebrew formula; copy to noomz/homebrew-tap on each release
 install.sh                       # POSIX sh installer (linted with `sh -n`)
 README.md                        # user docs — authoritative for commands/flags/behaviour
 CONTRIBUTING.md                  # contributor rules — read before touching bin/stm
