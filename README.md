@@ -76,6 +76,8 @@ stm restore pre-adopt         # undo back to the frozen tree
 | `stm lint item:<name>` | Validate a bundled item — writes nothing |
 | `stm install <spec>` | Fetch one HTTPS `.toml`, lint it, and store it — does not apply |
 | `stm install item:<name>` | Install a bar item bundled with stm — offline (see [Items](#items)) |
+| `stm install item:[host/]owner/repo@<sha>/<dir> [--trust]` | Fetch a remote item pinned to a commit and print every file; written only with `--trust` (see [Remote items](#remote-items)) |
+| `stm update [item:<name>]` | Refresh installed palettes you have not edited, and re-check remote items at their recorded commit — never applies |
 | `stm search [query]` | Search the theme catalog (metadata only; does not fetch palettes) |
 | `stm login` | Store a catalog token (`0600`; never printed) |
 | `stm logout` | Remove stored catalog credentials |
@@ -469,10 +471,12 @@ like. A palette is not trusted, and the only thing it contributes to a render
 is a value already validated as eight hex digits. `stm` never installs a
 template from a palette or fetches one from the network.
 
-The one other kind of code `stm` writes is an [item](#items). Items come only
-from the bundles shipped inside `stm` itself, and only through an explicit
-`stm install item:<name>`. A palette, the catalog and `stm install <url>` can
-never carry item code.
+The one other kind of code `stm` writes is an [item](#items). Items come from
+the bundles shipped inside `stm` itself (`stm install item:<name>`), or from a
+remote repository pinned to one commit, printed in full and installed only
+with `--trust` (`stm install item:owner/repo@<sha>/<dir> --trust`, see
+[Remote items](#remote-items)). A palette, the catalog and
+`stm install <url>` can never carry item code.
 
 ### Proving it didn't touch anything else
 
@@ -617,6 +621,9 @@ never touches the network. It writes only stm-owned files:
 | `plugins/stm/<name>.sh` | its plugin script (`0755`), if it has one |
 | `items_generated.lua` | loader for every installed item — do not edit |
 | `~/.config/stm/items` | item ledger (`$XDG_CONFIG_HOME/stm/items`) |
+
+A remote item (below) also keeps its reviewed manifest as
+`items/stm/<name>.toml`.
 
 Your own items, plugins, `init.lua` and `sketchybarrc` are left alone. Items
 need a Lua config; a shell bar is refused. The SketchyBar item is always
@@ -1100,6 +1107,64 @@ end)
 | `stm install --force item:<name>` | Reinstall, e.g. after `doctor` says an update is available |
 | `stm uninstall item:<name>` | Remove its files and ledger row, regenerate the loader |
 
+### Remote items
+
+An item can also come from someone else's repository. It is code from the
+internet, so every remote install is pinned, reviewed and explicit:
+
+```console
+$ stm install item:alice/bar-items@0123456789abcdef0123456789abcdef01234567/widgets/weather
+remote item:weather
+  source  github.com/alice/bar-items/widgets/weather
+  commit  0123456789abcdef0123456789abcdef01234567
+  tree    sha256:…
+
+==> item.toml (https://raw.githubusercontent.com/alice/bar-items/0123…/widgets/weather/item.toml) <==
+…every file, in full…
+stm: item:weather not installed: review the source above, then rerun with --trust to install exactly these bytes
+$ stm install item:alice/bar-items@0123456789abcdef0123456789abcdef01234567/widgets/weather --trust
+```
+
+- **Spec.** `item:[<host>/]<owner>/<repo>@<sha>/<bundle-dir>`. The host is
+  `github.com` (the default), `gitlab.com` or `codeberg.org`; `--allow-host`
+  does not apply. The ref is a full 40-hex commit SHA — branches, tags and
+  short SHAs are refused, as are a `.git` suffix and GitLab subgroups. The last
+  part of `<bundle-dir>` is the item name and must equal the manifest `name`.
+  A bare `item:<name>` stays bundled-only, and a remote item may not take the
+  name of a bundled one.
+- **Fetch.** `item.toml` first, from the raw URL at that commit, then exactly
+  the files it lists (`item.lua`, optionally `plugin.sh`). Every redirect is
+  refused. Each file is at most 64 KiB (192 KiB per bundle); NUL, control and
+  bidi-override bytes are refused before anything is printed. Nothing fetched
+  runs.
+- **Review.** Every file is printed to stdout with the canonical source, the
+  commit and the tree hash — no pager, no prompt, the same on a terminal or a
+  pipe, and `--quiet` does not hide it. Without `--trust` nothing is written
+  and `stm` exits `4`. `--dry-run` prints the same review and exits `0`.
+  With `--trust`, `stm` writes exactly the bytes it printed. `--trust` counts
+  for that one install only; there is no allowlist.
+- **Files.** As for a bundled item, plus the reviewed manifest at
+  `items/stm/<name>.toml`, which `apply` and `doctor` read (offline) instead of
+  a bundle. The ledger row records the source (`host/owner/repo/dir`), the
+  tree hash and the commit.
+- **Replacing.** Same source, new commit: `--force --trust`, which also prints
+  a `diff -u` against the installed files. A different source with the same
+  name is refused even with `--force`; uninstall the old one first.
+
+`stm update` refreshes what the ledgers recorded and never applies or reloads:
+
+- Each installed palette is fetched again from its recorded URL, linted, and
+  replaced only if your copy still matches the recorded hash; a file you
+  edited is left alone and reported. A palette whose URL names a commit is
+  pinned: different bytes there are an integrity error (exit `1`). Rows on a
+  custom `--allow-host` host are skipped with a note.
+- Each remote item is fetched again at its recorded commit. The same tree is
+  `unchanged`; a different tree is printed and refused (exit `1`), and nothing
+  is written. `update` never moves an item to a new commit — install that
+  commit with `--force --trust`. A bundled item is skipped with
+  `stm install item:<name> --force`.
+- `stm update item:<name>` checks only that item.
+
 ### Smart menu bar
 
 On a notched Mac, a bar at the top has to share the screen with the notch and
@@ -1556,7 +1621,7 @@ Fetch failures exit `5`. `stm add` stays the local-file command.
 | `1` | Invalid palette |
 | `2` | Config directory or format could not be resolved |
 | `3` | Theme not found |
-| `4` | Refusing to overwrite (pass `--force`) |
+| `4` | Refusing to overwrite (pass `--force`), or a remote item printed without `--trust` |
 | `5` | Network / host / fetch failure |
 | `64` | Usage error |
 

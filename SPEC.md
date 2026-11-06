@@ -1,4 +1,4 @@
-# SPEC — item bundles (epic #15): step 1 (#16), step 1b theme-driven items (#19), step 1c system stats items (#21), step 1d AI usage item (#26), step 1e AI segment per provider (#27), step 1f compact mode (#30), step 1g pager + expander (#31)
+# SPEC — item bundles (epic #15): step 1 (#16), step 1b theme-driven items (#19), step 1c system stats items (#21), step 1d AI usage item (#26), step 1e AI segment per provider (#27), step 1f compact mode (#30), step 1g pager + expander (#31), step 2 remote items (#17)
 
 ## §G goal
 
@@ -15,6 +15,8 @@ step 1e (#27): `ai` split into one bar segment per provider (Claude, Codex, Gemi
 step 1f (#30): compact mode. notched built-in (1728 pt, notch 771.5-956.5) → stm right items run under notch + into user items (measured: ~600 pt free right of notch, stm items 1455 pt full, 463 pt label off). bundle `compact` fit stm items into space each bar display have: step items down `full` > `short` > `icon` > `hidden` by priority; hidden → `»` chevron popup. each bundle draw own form. design: https://claude.ai/artifact/6AE6pmJ7jShc7r3fp29pBg
 
 step 1g (#31): pager. `»` popup = name list only, user want reach items that not fit. `compact` option `mode = page`: units stay `full`, bar show window of units that fit, `‹` `›` slide window one unit / click, units out of window `hidden` (I.form: bundles unchanged). `mode = shrink` (default) = step 1f, no change for current installs. then expander (experimental): bundle `expand` = toggle fire event `stm_expand` on | off; left items that subscribe hide self (user workspace items `space.*` via own code, README snippet). stm set no item it not own. gain only on display w/o notch (notch display: right items bounded by notch, not left items).
+
+step 2 (#17): remote item bundles. `stm install item:[host/]owner/repo@<sha>/<bundle-dir> --trust`: item code from other repo, pinned to full commit SHA, every file printed, written only w/ `--trust`. `stm update [item:<name>]`: refresh palettes from ledger URL (unedited file only), re-check remote item tree at recorded SHA; never new SHA, never apply.
 
 ## §C constraints
 
@@ -36,6 +38,7 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
 - C16 step 1d commits + PR mention `#26` + epic #15. one optional external CLI `aub` (C7 hold: absent → placeholder, never hard dep, never auto-install). aub cache only: never `aub --live`, never network, never read token / keychain / provider file. no aub repo change. JSON parsed by one stock `/usr/bin/osascript -l JavaScript` run (`JSON.parse`); no jq / plutil path (two parsers diverged, B11).
 - C17 step 1e commits + PR mention `#27` + epic #15. C16 hold. one bundle `ai` (no per-provider bundle: V4 files set → no shared parser). no brand glyph / image shipped (trademark, V25): provider = text tag; opt-in `icon = image` → user file | installed app icon (V57). `ai` unreleased (v0.8.0 lack it) → v1 `view` `provider` dropped, no migration.
 - C18 step 1f commits + PR mention `#30` + epic #15. C15 hold: no compiled helper, no background process; notch from one stock `/usr/bin/osascript -l JavaScript` (`NSScreen`). compact = ordinary item bundle (C2: code only via `item:`); no global section (C11 hold): settings = `[item.compact]` + per-bundle `priority` option. user items measured, never set (C4, V10).
+- C20 step 2 commits + PR mention `#17` + epic #15. C3 = step 1 only: step 2 add remote path, bundled path unchanged (bare `item:<name>` still bundled only, offline). remote item = untrusted code: SHA-pinned, reviewed (full print), explicit `--trust` per install, no allowlist. hosts fixed `github.com` `gitlab.com` `codeberg.org`, no `--allow-host`. palette fetch redirect handling unchanged (item-only no-redirect mode). no `git`, no new dep (curl only). stm never run fetched Lua / shell. C2 hold: never via palette, catalog, `install <url>`.
 - C19 step 1g commits + PR mention `#31` + epic #15. C18 hold (no compiled helper, no background process, user items measured never set). page = option of `compact`, not new bundle (one fitter own unit forms). bundles w/ `compact` field unchanged: page use only `full` + `hidden`. expander: event only; never `--set` | edit user item (C4, V10, V60). user item join only by own subscribe in own file (measured live: user `plugins/aerospace_spaces.sh` re-set `space.*` `drawing` every workspace change + 10 s → stm `--set` would lose anyway).
 
 ## §I interfaces
@@ -47,6 +50,9 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
   - `stm doctor` → item checks
   - `stm lint item:<name>` → validate bundled bundle only (manifest + files). offline. write nothing
   - `stm help` → lists `item:` forms
+  - `stm install item:[host/]owner/repo@<sha>/<bundle-dir> [--trust] [--force] [--dry-run]` → I.remote
+  - `stm update [item:<name>]` → V93 V94
+  - `--trust` → only `install` of remote item; any other command | palette | bundled item → `EX_USAGE`
 - I.bundle `bundles/items/<name>/`
   - `item.toml` closed fields: `name` `version` `dialects` `files` `colors` `default_position` `update_freq` `events` `[options.<key>]` (`values`, `default`)
   - `item.lua` → `return function(sbar, opts, colors)`
@@ -81,24 +87,26 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
   - `$RESOLVED_DIR/items/stm/<name>.lua`
   - `$RESOLVED_DIR/plugins/stm/<name>.sh` (0755)
   - `$RESOLVED_DIR/items_generated.lua` ("DO NOT EDIT" header)
-  - ledger `${XDG_CONFIG_HOME:-~/.config}/stm/items` TSV `name  source  tree-sha256  ref  iso8601`; bundled → `source=bundled`, `ref=<STM_VERSION>`
+  - `$RESOLVED_DIR/items/stm/<name>.toml` (remote only: reviewed manifest, 0644)
+  - ledger `${XDG_CONFIG_HOME:-~/.config}/stm/items` TSV `name  source  tree-sha256  ref  iso8601`; bundled → `source=bundled`, `ref=<STM_VERSION>`; remote → `source=<host>/<o>/<r>/<dir>`, `ref=<sha>`
+- I.remote `item:[<host>/]<owner>/<repo>@<sha>/<bundle-dir>` (step 2). `/` after `item:` → remote, else bundled. host default `github.com`, else `github.com|gitlab.com|codeberg.org` (lower-cased). owner, repo `[A-Za-z0-9._-]` 1-100, not `-`|`.` first; repo ! `.git` end; > 3 parts before `@` (GitLab subgroup) refused. sha exactly 40 hex → lower case. bundle-dir parts non-empty, ≠ `.` `..`; spec charset `[A-Za-z0-9._/@-]` (no `%`, space, control); last part = item name (V3 rule) = manifest `name`. URLs at sha: GitHub `https://raw.githubusercontent.com/<o>/<r>/<sha>/<dir>/<file>`; GitLab `https://gitlab.com/<o>/<r>/-/raw/<sha>/<dir>/<file>`; Codeberg `https://codeberg.org/<o>/<r>/raw/commit/<sha>/<dir>/<file>`. fetch `item.toml` first, then exactly manifest `files`. no filename guess / fallback. canonical source = `<host>/<o>/<r>/<dir>`. review on stdout: `remote item:<n>`, source, commit, `tree sha256:<t>`, then per file `==> <file> (<url>) <==` … `<== end <file> ==>`; replace → + `diff -u` installed → fetched.
 - I.wire user add once: `require("items_generated")`
 - I.ts CLI lookup: `$STM_TAILSCALE` if set (override, no fallback) → `/usr/local/bin/tailscale` → `/Applications/Tailscale.app/Contents/MacOS/Tailscale` → `/opt/homebrew/bin/tailscale` → `tailscale` on PATH. `status --json` fields: `BackendState`, `Self.TailscaleIPs/.DNSName/.HostName`, `Peer{}.DNSName/.HostName/.Online/.TailscaleIPs`, `ExitNodeStatus` (optional)
 - I.tsopt tailscale options: `exit_node` `peers` `ip` ∈ `on|off` (default all `on`); `click` ∈ `popup|app` (default `popup`); `icon` ∈ `text|nerd|app` (default `text`); `shape` ∈ `plain|pill|split` (default `plain`)
 
 ## §V invariants
 
-- V1 every `item:` command → zero `STM_FETCH` calls.
+- V1 every `item:` command → zero `STM_FETCH` calls. step 2: except remote `install item:…@<sha>/…` (V82) + `update` (V93, V94); bundled `item:<name>`, `uninstall`, `lint`, `apply`, `doctor` stay zero.
 - V2 `item:` spec routed in `cmd_install`/`cmd_uninstall` before `stm_parse_install_spec`. palette spec never yield item files.
-- V3 `item:<name>` name ! match `[a-z][a-z0-9_-]*` + exist under bundled `bundles/items/`. contain `/` `@` `..` `:` or scheme → hard error, nothing written.
+- V3 `item:<name>` name ! match `[a-z][a-z0-9_-]*` + exist under bundled `bundles/items/`. contain `/` `@` `..` `:` or scheme → hard error, nothing written. step 2: `/` → remote grammar I.remote instead (V82); `..` `:` scheme `%` control still hard error, zero fetch.
 - V4 manifest closed set. unknown field | manifest `name` ≠ bundle dir name | `dialects` value ∉ `lua|bash|config-sh` | colour ∉ `STM_REQUIRED_KEYS` | option `default` ∉ `values` | `files` entry w/ `/` `..` abs path | `files` ∌ `item.lua` or entry ∉ `item.lua|plugin.sh` | `default_position` ∉ `left|right|center` | file missing | symlink | non-regular → hard error, nothing written, exit ≠ 0.
-- V5 install touch only: `items/stm/<name>.lua`, `plugins/stm/<name>.sh`, `items_generated.lua`, ledger row. every other file in config dir byte-identical.
+- V5 install touch only: `items/stm/<name>.lua`, `plugins/stm/<name>.sh`, `items_generated.lua`, ledger row (remote + `items/stm/<name>.toml`, V90). every other file in config dir byte-identical.
 - V6 all writes `mktemp_in` + `commit_tmp`. fail mid-install → prior state intact.
 - V7 `RESOLVED_FORMAT != lua` | manifest `dialects` ∌ `lua` → refuse, nothing written.
 - V8 ledger row exists w/o `--force` → `EX_EXISTS`, nothing written.
 - V9 `[item.<name>]` value ∉ manifest `values` → hard error. unknown option key → hard error. generated Lua hold only validated enum values as string literals.
 - V10 SketchyBar item name always `stm.<name>`. only other names: split icon sub-item `stm.<name>.icon` (V33), popup rows `stm.<name>.row.*`, netspeed `stm.netspeed.up` `stm.netspeed.rates` `stm.netspeed.pill` (V47), ai `stm.ai.icon` also in view `windows` any shape, `stm.ai.pill` (V51); step 1e ai: `stm.ai.<p>`, `stm.ai.<p>.icon`, `stm.ai.<p>.pill`, `stm.ai.<p>.row.*`, p ∈ I.ais set (v1 `stm.ai.icon` `stm.ai.pill` `stm.ai.row.*` gone); step 1g: `stm.compact.prev` `stm.compact.next` (I.pg), `stm.expand` (I.exp).
-- V11 uninstall remove only files under `items/stm/` + `plugins/stm/` + ledger row. refuse symlink / path outside. regen loader.
+- V11 uninstall remove only files under `items/stm/` (`<name>.lua`, `<name>.toml`) + `plugins/stm/` + ledger row. refuse symlink / path outside. regen loader.
 - V12 `items_generated.lua`, `items/stm/`, `plugins/stm/` excluded from `.stm-manifest` baseline + `verify` drift; included in owned backup.
 - V13 `apply` regen `items_generated.lua` from ledger + config; stay offline; no ledger → no loader change.
 - V14 `plugin.sh` + `item.lua` never hard-code hex. colours only from `colors` table (palette keys).
@@ -171,6 +179,19 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
 - V79 spotify + ai: form change while plugin run in flight → one more run on latest form after all in-flight runs end (`sbar.exec` callback); no form change | no run in flight → no extra run. late run leave stale `drawing` only until that extra run: item may still show for moment after reload (measured 181-502 ms spotify, off by +2.2 s ai). needs SbarLua ≥ 5cfb4888 (older skip callback on empty output). callback lost (plugin past 60 s) → back to next tick, nothing else break (B24).
 - V80 doctor (Lua): key w/ literal `0x` value in config `colors.lua` | `colors_user.lua` (char scan skip line + block comments, `--[==[` levels too, + quoted strings, brace depth 1 only, key start at line | `{` `,` space) = covered; text scan, not parser: other flat table + Lua long string not told apart → no `USED BUT MISSING`, no fail; listed `from colors.lua` when palette lack it. key neither palette nor those define → fail + name each file using it (doctor not trace `require`: unloaded file still count) (B26).
 - V81 installed item w/o bundle in running stm (no `bundles/items/<n>` entry) → every loader render (`apply`, `install` | `uninstall` of other item) stderr exactly one line `warning: item:<n> is installed but no longer bundled; left out of items_generated.lua (stm uninstall item:<n> removes it)`, exit 0; no `stm_item("<n>"`; ledger row + `items/stm/<n>.lua` kept. never install-path `item not bundled ... only items shipped` text. entry present but bad → its own `stm_item_load` error, then `left out` (B28, #22).
+- V82 remote spec (I.remote) checked whole before any URL built: bad host | ref ≠ 40 hex (branch, tag, short) | missing `@` | > 1 `@` | `.git` | subgroup | empty / `.` / `..` part | char ∉ `[A-Za-z0-9._/@-]` | bad last part (V3) → `EX_USAGE`, zero fetch, nothing written. `--allow-host` + remote item → `EX_USAGE`.
+- V83 offline refusals before first fetch: bundled name reserved (bundle entry exist, installed or not) → `EX_USAGE`; ledger row other source (remote ≠ canonical | `bundled`) → `EX_EXISTS` even `--force` (uninstall first); bundled install over remote row → same; same source w/o `--force` → `EX_EXISTS`; format ≠ lua → `EX_CONFIG`; `items/stm` `plugins/stm` symlink | non-dir, dest file symlink | non-regular → `EX_CONFIG`.
+- V84 item fetch refuse every 3xx (`STM_FETCH` exit 23 | curl 3xx) → `EX_NETWORK`, redirect target never fetched. 404 → `EX_NOTFOUND`, no fallback URL. host ∈ `raw.githubusercontent.com|gitlab.com|codeberg.org` only. palette fetch (`stm_fetch_https`) redirect handling unchanged.
+- V85 caps after fetch (curl + `STM_FETCH` alike): file ≤ 65536 bytes, bundle (manifest + files) ≤ 196608 → else `EX_INVALID`, nothing printed, nothing written.
+- V86 byte gate every fetched file before any print: NUL, C0 except TAB LF (CR too), DEL, UTF-8 C1 (`C2 80`-`C2 9F`), bidi override (U+202A-202E, U+2066-2069) → `EX_INVALID`. other UTF-8 (glyph) + shebang ok. palette `lint_bytes_gate` not reused (shebang legal in `plugin.sh`).
+- V87 manifest parsed by `STM_ITEM_TOML_AWK` (V4 closed set) before any other fetch; fetched set = manifest `files` exactly. fetched bytes never `eval`'d, `source`d, run during fetch, validation, review.
+- V88 review = every fetched file in full on stdout + source + sha + tree hash; replace → + `diff -u` vs installed bytes. no pager, no prompt, same tty | pipe; `--quiet` `--force` never hide it, never stand in for trust. no `--trust` → `EX_EXISTS`, nothing written (no dir, no ledger). `--dry-run` → review, exit 0, nothing persistent. `--trust` → install exactly staged bytes.
+- V89 tree hash = `stm_item_tree_sha` for bundled install, remote install, update, doctor (one helper; lines name bundle files, so bundle dir, staged fetch, installed files hash alike). hash fail → hard error, never empty field in ledger.
+- V90 remote install write `items/stm/<n>.lua` (0644), `items/stm/<n>.toml` (0644, reviewed manifest), `plugins/stm/<n>.sh` (0755 explicit) if listed, ledger row, loader. replace w/ manifest w/o `plugin.sh` → old `plugins/stm/<n>.sh` removed. all staged + dest preflight before first commit; commit fail → every touched dest back from pre-image (new → removed), `EX_CONFIG`.
+- V91 loader + doctor for row w/ source ≠ `bundled` read `items/stm/<n>.toml` + listed installed files, offline; never `bundles/items/`. in-flight install use staged records (no row yet). doctor: tree of installed files = ledger → ok; ≠ → fail line + reinstall hint; manifest bad → fail. `items/stm/*.toml` w/o ledger row → stray. `.toml` owned: in backup, out of `verify` baseline (V12).
+- V92 ledger fields untrusted on read: source + ref re-parsed by I.remote grammar (V82) before any URL; name by V3; source ≠ canonical → refuse. never unchecked ledger / manifest field into path, Lua, URL, TSV.
+- V93 `update` (no arg) per palette ledger row: slug valid, https, host ∈ `raw.githubusercontent.com|github.com|gitlab.com|codeberg.org` else skip + note (custom `--allow-host` host). local file hash ≠ recorded → skip + report, untouched. refetch recorded URL (no fallback), lint, same slug. same bytes → `unchanged`. URL w/ 40-hex commit (GitHub raw ref, GitLab `/-/raw/<sha>`, Codeberg `/raw/commit/<sha>`) + bytes ≠ → integrity error `EX_INVALID`, untouched. else replace. all rows fetched + linted first, then files + one ledger write (hash + time, URL + ref kept). never apply, never reload, never catalog.
+- V94 `update` item rows: `bundled` → skip + `stm install item:<n> --force` hint, zero fetch. remote → refetch recorded sha (V82-V87); tree = ledger → `unchanged`; ≠ → print review + refuse `EX_INVALID`, nothing written. never take new sha (upgrade = `install …@<new>/… --force --trust`). `update item:<n>` → that row only; not installed → `EX_NOTFOUND`; other arg → `EX_USAGE`. exit = first failure, every row still tried.
 
 ## §T tasks
 
@@ -256,6 +277,10 @@ step 1g (#31): pager. `»` popup = name list only, user want reach items that no
 | T77 | x | bundle `expand` (after T76 OK): item.toml + item.lua; compact subscribe `stm_expand` → unsettled; Lua probe: load `off` + no trigger, click sequence on/off payload, only own name set, shapes; lint + install | V10,V14,V61,V70,I.exp |
 | T78 | x | ship expander: packaging test lists `expand`; README Items `expand` (experimental, event only, no-notch gain) + `spaces.lua` snippet | C3,C19,V21,I.exp |
 | T80 | x | ai 0.5.0 label details: `claude_accounts` `codex_accounts` `account_label` `percent` `period` `reset`; red tests first (defaults + bad values = 0.4.0 argv, left + bands, period, eta table via `STM_NOW`, split slots + names + unused off + `+N more accounts`, short prefixes + collision fallback + pro/plus, no data, compact, icon probe per slot, Lua probe 4 hidden slots + env only non-default); README Items `ai`; manifest comments | V9,V49,V50,V53,V54,V55,V56,V57,V74,V75,V76,V77,V78,I.ais,I.form |
+| T81 | x | SPEC step 2 (#17): §G §C20 I.cli I.remote I.fs, V1 V3 V5 V11 amend, V82-V94 | C20,V82,V83,V84,V85,V86,V87,V88,V89,V90,V91,V92,V93,V94,I.remote |
+| T82 | x | red tests `tests/test_item_remote.sh` (stub serve by exact URL): grammar accept/refuse, `--allow-host`, `--trust` misuse, review + refuse exit 4, `--quiet`, `--dry-run`, per-host URLs, no plugin, 3xx, 404, size cap, control/C1/bidi, name mismatch, unknown file, trust install + modes + ledger, same source w/o `--force`, cross source both ways, apply offline + options, doctor ok/differ/stray, backup, replace diff + plugin drop, symlink dir / dest, uninstall, update unchanged/changed/bundled/not installed, palette refresh/local edit/pinned/custom host, hostile ledger row | V82,V83,V84,V85,V86,V88,V90,V91,V92,V93,V94 |
+| T83 | x | `bin/stm` remote path: grammar, item-only no-redirect fetch, caps, byte gate, fetch bundle, review + diff, `--trust` gate, preflight + staged commit w/ rollback, `.toml` kept; loader pending + installed manifest; doctor; uninstall `.toml`; `stm_item_tree_sha` fail propagation | V82,V83,V84,V85,V86,V87,V88,V89,V90,V91,V92 |
+| T84 | x | `stm update [item:<name>]` palettes + items; `--trust` flag; help + README + AGENTS + CONTRIBUTING | V93,V94,I.cli |
 
 ## §B bugs
 
