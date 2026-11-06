@@ -1275,6 +1275,51 @@ assert_status 0
 assert_contains "$STM_OUT" "no longer bundled"
 done_it
 
+# One warning line per unbundled installed item, naming the fix; never the
+# install-path "only items shipped with stm" message (#22, B28).
+assert_one_unbundled_warning() {
+  assert_eq 1 "$(printf '%s\n' "$STM_ERR" | /usr/bin/grep -c 'tailscale')" "one line names tailscale"
+  assert_contains "$STM_ERR" "warning: item:tailscale is installed but no longer bundled; left out of items_generated.lua (stm uninstall item:tailscale removes it)"
+  assert_not_contains "$STM_ERR" "only items shipped with stm"
+  assert_file_not_contains "$DC/items_generated.lua" 'stm_item("tailscale"'
+  assert_file_exists "$DC/items/stm/tailscale.lua" "item file untouched"
+  assert_eq 1 "$(awk -F'\t' '$1=="tailscale"' "$ITEM_LEDGER" | wc -l | tr -d ' ')" "ledger row untouched"
+}
+
+it "apply / install / uninstall of other items: unbundled installed item warns once (V81, #22, B28)"
+cp -R "$REPO_ROOT/bundles/items/cpu" "$T_ROOT/bundles/items/cpu"
+STM_ROOT="$T_ROOT" run_stm --dir "$DC" --no-reload uninstall item:cpu
+assert_status 0
+assert_one_unbundled_warning
+STM_ROOT="$T_ROOT" run_stm --dir "$DC" --no-reload install item:cpu
+assert_status 0
+assert_one_unbundled_warning
+assert_file_contains "$DC/items_generated.lua" 'stm_item("cpu"'
+STM_ROOT="$T_ROOT" run_stm --dir "$DC" --no-reload apply nord
+assert_status 0
+assert_one_unbundled_warning
+assert_file_contains "$DC/items_generated.lua" 'stm_item("cpu"'
+done_it
+
+it "renderer: a bundle that exists but is invalid shows its real error (#22)"
+cp -R "$REPO_ROOT/bundles/items/tailscale" "$T_ROOT/bundles/items/tailscale"
+rm -f "$T_ROOT/bundles/items/tailscale/item.toml"
+STM_ROOT="$T_ROOT" run_stm --dir "$DC" --no-reload apply nord
+assert_status 0
+assert_contains "$STM_ERR" "item:tailscale: item.toml is missing or not a regular file"
+assert_contains "$STM_ERR" "warning: item:tailscale left out of items_generated.lua"
+assert_not_contains "$STM_ERR" "item:tailscale is installed but no longer bundled"
+assert_file_not_contains "$DC/items_generated.lua" 'stm_item("tailscale"'
+assert_file_contains "$DC/items_generated.lua" 'stm_item("cpu"'
+rm -rf "$T_ROOT/bundles/items/tailscale"
+done_it
+
+it "install item:<missing> keeps the install-path message (#22)"
+STM_ROOT="$T_ROOT" run_stm --dir "$DC" --no-reload install item:tailscale
+assert_status 3
+assert_contains "$STM_ERR" 'item not bundled: "tailscale" (only items shipped with stm can be installed)'
+done_it
+
 it "doctor: ledger row without files, or files without a row, is a problem"
 mv "$DC/items/stm/tailscale.lua" "$SANDBOX/ts.lua.away"
 STM_TAILSCALE="$SANDBOX/tailscale" STM_ROOT="$REPO_ROOT" run_stm --dir "$DC" doctor

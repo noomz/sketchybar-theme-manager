@@ -1591,6 +1591,14 @@ stm_item_has() {
     '$1==k && $2==v { found=1; exit } END { exit !found }'
 }
 
+# stm_item_bundled <name> — true if this stm ships a bundle entry for <name>
+# (valid or not; stm_item_load reports a defect). False when it ships none.
+stm_item_bundled() {
+  local root
+  root=$(bundled_item_dir) || return 1
+  [ -e "$root/$1" ] || [ -L "$root/$1" ]
+}
+
 # stm_item_load <name> — resolve item:<name> against the bundled items only and
 # validate the manifest and every file it lists. Any defect is a hard error.
 stm_item_load() {
@@ -1774,8 +1782,13 @@ stm_items_loader_render() {
   grows=$(stm_groups_rows) || die "$EX_CONFIG" "invalid [groups] in $RESOLVED_CONFIG"
   for n in $names; do
     validate_item_name "$n"
+    if ! stm_item_bundled "$n"; then
+      err "warning: item:$n is installed but no longer bundled; left out of items_generated.lua (stm uninstall item:$n removes it)"
+      continue
+    fi
+    # A bundle that exists but fails to load has already printed its error.
     if ! recs=$(stm_item_load "$n" && printf '%s\n' "$STM_ITEM_RECORDS"); then
-      err "warning: item:$n is installed but no longer bundled; left out of items_generated.lua"
+      err "warning: item:$n left out of items_generated.lua"
       continue
     fi
     opts=$({
