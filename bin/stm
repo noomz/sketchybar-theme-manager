@@ -80,13 +80,15 @@ cleanup_tmp() {
   [ -z "${MB_LOCK_FILE:-}" ] || menubar_lock_release
   old_ifs="$IFS"
   IFS=$'\n'
+  # A temp file that cannot be removed must not change the exit status: under
+  # set -e a failed rm here would turn every documented code into 1.
   for f in $STM_TMPFILES; do
-    [ -n "$f" ] && rm -f "$f" 2>/dev/null
+    [ -z "$f" ] || rm -f "$f" 2>/dev/null || true
   done
   for f in $STM_TMPDIRS; do
     # Only ever remove a directory we created ourselves, by name.
     case "$f" in
-      */.stm-list.?????? | */.stm-blk.?????? | */.stm-item.??????) rm -rf "$f" 2>/dev/null ;;
+      */.stm-list.?????? | */.stm-blk.?????? | */.stm-item.??????) rm -rf "$f" 2>/dev/null || true ;;
     esac
   done
   IFS="$old_ifs"
@@ -1336,14 +1338,18 @@ STM_ITEM_NAME_MAX=28
 # validate_item_name <name> — the part after `item:`. A bare bundled name only:
 # no path, ref, scheme or URL can reach a lookup.
 validate_item_name() {
-  local s="$1"
+  local s="$1" shown="$1"
   [ -n "$s" ] || die "$EX_USAGE" "item: needs a bundled item name (item:<name>)"
+  # The name may come from the item ledger: never echo a control byte.
+  case "$s" in
+    *[!\ -~]*) shown="(not shown: it has non-printable bytes)" ;;
+  esac
   if [ "${#s}" -gt "$STM_ITEM_NAME_MAX" ]; then
-    die "$EX_USAGE" "item name is too long (max $STM_ITEM_NAME_MAX): \"item:$s\""
+    die "$EX_USAGE" "item name is too long (max $STM_ITEM_NAME_MAX): \"item:$shown\""
   fi
   case "$s" in
     *[!a-z0-9_-]* | [!a-z]*)
-      die "$EX_USAGE" "invalid item name \"item:$s\" (want [a-z][a-z0-9_-]*)"
+      die "$EX_USAGE" "invalid item name \"item:$shown\" (want [a-z][a-z0-9_-]*)"
       ;;
   esac
 }
@@ -1663,6 +1669,32 @@ stm_item_ledger_field() {
   file=$(stm_item_ledger_file)
   [ -f "$file" ] || return 0
   awk -F'\t' -v n="$1" -v c="$2" '$1==n { print $c; exit }' "$file"
+}
+
+# stm_item_ledger_row_ok <name> — true when <name>'s item ledger row is one
+# install could have written: a valid name, then source `bundled` with a
+# version ref, or a remote source + ref that re-parse through the I.remote
+# grammar to this name and source. Prints nothing. A caller that gets false
+# says "invalid ledger row" and never echoes the row: its bytes could be
+# terminal escapes.
+stm_item_ledger_row_ok() {
+  local n="$1" src ref
+  case "$n" in
+    "" | *[!a-z0-9_-]* | [!a-z]*) return 1 ;;
+  esac
+  [ "${#n}" -le "$STM_ITEM_NAME_MAX" ] || return 1
+  src=$(stm_item_ledger_field "$n" 2)
+  ref=$(stm_item_ledger_field "$n" 4)
+  if [ "$src" = bundled ]; then
+    case "$ref" in
+      "" | *[!A-Za-z0-9.+-]*) return 1 ;;
+    esac
+    return 0
+  fi
+  (
+    stm_parse_item_remote "$(stm_item_spec_of "$src" "$ref")"
+    [ "$STM_IR_NAME" = "$n" ] && [ "$STM_IR_SOURCE" = "$src" ] && [ "$STM_IR_SHA" = "$ref" ]
+  ) >/dev/null 2>&1
 }
 
 # stm_item_path <file> — where bundle file <file> (item.toml, item.lua,
@@ -2857,17 +2889,24 @@ stm_item_fetch() {
     die "$EX_INVALID" "item file too large ($sz bytes; max $STM_ITEM_FILE_MAX): $url"
 }
 
-# stm_item_bytes_gate <file> <label> <seqfile> — refuse what could make the
-# printed review differ from the bytes installed: NUL, CR, every other C0
-# control, DEL, UTF-8 C1 controls (C2 80-9F) and bidi overrides (U+202A-202E,
-# U+2066-2069). TAB, LF, printable ASCII and other UTF-8 (glyphs) pass; a
-# shebang is fine.
-stm_item_bytes_gate() {
-  local file="$1" label="$2" seq="$3" n
+# stm_item_bytes_ok <file> <seqfile> — true when <file> is safe to print:
+# no NUL, CR, other C0 control or DEL; valid UTF-8 (so no raw C1 byte such as
+# a lone 0x9b, which some terminals read as CSI); no UTF-8 C1 control (C2
+# 80-9F) and no bidi override (U+202A-202E, U+2066-2069). TAB, LF, printable
+# ASCII and other UTF-8 (glyphs) pass; a shebang is fine.
+stm_item_bytes_ok() {
+  local file="$1" seq="$2" n
   n=$(tr -d '\11\12\40-\176\200-\377' <"$file" | wc -c | tr -d ' ')
-  if [ "$n" -ne 0 ] || grep -qF -f "$seq" "$file"; then
-    die "$EX_INVALID" "item file $label contains NUL, control or bidi-override bytes; refused before review"
-  fi
+  [ "$n" -eq 0 ] || return 1
+  iconv -f UTF-8 -t UTF-8 <"$file" >/dev/null 2>&1 || return 1
+  ! grep -qF -f "$seq" "$file"
+}
+
+# stm_item_bytes_gate <file> <label> <seqfile> — refuse a fetched file that
+# could make the printed review differ from the bytes installed.
+stm_item_bytes_gate() {
+  stm_item_bytes_ok "$1" "$3" ||
+    die "$EX_INVALID" "item file $2 contains NUL, control, bidi-override or non-UTF-8 bytes; refused before review"
 }
 
 # stm_item_seq_file <path> — the byte sequences stm_item_bytes_gate refuses
@@ -2958,24 +2997,45 @@ stm_item_review_diff() {
       new="$STM_ITEM_DIR/$f"
     fi
     [ "$old$new" != /dev/null/dev/null ] || continue
+    # The installed side never went through the fetch gate: a file edited
+    # in place could carry terminal escapes. Name it, never print it.
+    if [ "$old" != /dev/null ] && ! stm_item_bytes_ok "$old" "$STM_ITEM_DIR/.seq"; then
+      printf -- '--- installed/%s: not shown (it has control, bidi-override or non-UTF-8 bytes)\n' "$f"
+      continue
+    fi
     diff -u -L "installed/$f" -L "fetched/$f" "$old" "$new" || true
   done
 }
 
-# stm_item_preflight <name> — refuse before any fetch when a destination
-# could not be written safely: stm-owned dirs that are symlinks or not
-# directories, destination files that are symlinks or not regular files.
-stm_item_preflight() {
-  local name="$1" d="$RESOLVED_DIR" p f
-  for p in items plugins; do
-    if [ -e "$d/$p" ] && [ ! -d "$d/$p" ]; then
-      die "$EX_CONFIG" "refusing to install item:$name: $d/$p is not a directory"
+# stm_item_dirs_bad — print the first of items, items/stm, plugins,
+# plugins/stm (under the config dir) that is a symlink or not a directory;
+# nothing, and false, when all are absent or real directories. The config dir
+# itself may be a symlink (dotfiles); a remote item's dirs below it may not,
+# or a file meant for items/stm could land anywhere.
+stm_item_dirs_bad() {
+  local d="$RESOLVED_DIR" p
+  for p in items items/stm plugins plugins/stm; do
+    if [ -L "$d/$p" ]; then
+      printf '%s/%s is a symlink\n' "$d" "$p"
+      return 0
     fi
-    [ -L "$d/$p/stm" ] && die "$EX_CONFIG" "refusing to install item:$name: $d/$p/stm is a symlink"
-    if [ -e "$d/$p/stm" ] && [ ! -d "$d/$p/stm" ]; then
-      die "$EX_CONFIG" "refusing to install item:$name: $d/$p/stm is not a directory"
+    if [ -e "$d/$p" ] && [ ! -d "$d/$p" ]; then
+      printf '%s/%s is not a directory\n' "$d" "$p"
+      return 0
     fi
   done
+  return 1
+}
+
+# stm_item_preflight <name> — refuse when a destination could not be written
+# safely: stm dirs that are symlinks or not directories, destination files
+# that are symlinks or not regular files. Run before the fetch and again after
+# it, once the dirs exist, since the fetch leaves time for them to change.
+stm_item_preflight() {
+  local name="$1" d="$RESOLVED_DIR" bad f
+  if bad=$(stm_item_dirs_bad); then
+    die "$EX_CONFIG" "refusing to install item:$name: $bad"
+  fi
   for f in "$d/items/stm/$name.lua" "$d/items/stm/$name.toml" "$d/plugins/stm/$name.sh"; do
     [ -L "$f" ] && die "$EX_CONFIG" "refusing to install item:$name: $f is a symlink"
     if [ -e "$f" ] && [ ! -f "$f" ]; then
@@ -2985,15 +3045,31 @@ stm_item_preflight() {
   return 0
 }
 
-# stm_item_commit <plan> — commit staged files as one unit. <plan> lines are
-# `tmp<TAB>dest<TAB>mode`, tmp `-` = remove dest. Each existing dest is first
-# copied to a pre-image beside it; if any step fails, every dest already
-# touched is put back from its pre-image (or removed if it was new).
+# stm_item_dest_safe <dest> — false when <dest> is a symlink, or lies under
+# the config dir's items/ or plugins/ while one of the stm dirs there is a
+# symlink or not a directory (stm_item_dirs_bad).
+stm_item_dest_safe() {
+  [ ! -L "$1" ] || return 1
+  case "$1" in
+    "$RESOLVED_DIR"/items/* | "$RESOLVED_DIR"/plugins/*)
+      ! stm_item_dirs_bad >/dev/null
+      ;;
+  esac
+}
+
+# stm_item_commit <plan> [what] — commit staged files as one unit. <plan>
+# lines are `tmp<TAB>dest<TAB>mode`, tmp `-` = remove dest. Each existing dest
+# is first copied to a pre-image beside it; if any step fails, every dest
+# already touched is put back from its pre-image (or removed if it was new).
+# Every dest is checked again right before its own write: a dir swapped for a
+# symlink after the caller's checks stops the commit, and nothing is written
+# or put back through it. [what] names the files in the failure message.
 stm_item_commit() {
-  local plan="$1" tmp dest mode pres="" done_list="" failed=0 pdest pre
+  local plan="$1" what="${2:-the item files}" tmp dest mode pres="" done_list="" failed=0 pdest pre
   while IFS=$'\t' read -r tmp dest mode; do
     [ -n "$dest" ] || continue
-    [ -L "$dest" ] && die "$EX_CONFIG" "refusing to write $dest: it is a symlink"
+    stm_item_dest_safe "$dest" ||
+      die "$EX_CONFIG" "refusing to write $dest: it, or an stm dir above it, is a symlink"
     assert_writable_target "$dest"
     [ -e "$dest" ] || continue
     mktemp_in "$(dirname "$dest")"
@@ -3005,6 +3081,7 @@ $plan
 STM_PLAN
   while IFS=$'\t' read -r tmp dest mode; do
     [ -n "$dest" ] || continue
+    stm_item_dest_safe "$dest" || { failed=1; break; }
     if [ "$tmp" = - ]; then
       rm -f "$dest" || { failed=1; break; }
     else
@@ -3018,6 +3095,7 @@ STM_PLAN
   if [ "$failed" -eq 1 ]; then
     while IFS= read -r dest; do
       [ -n "$dest" ] || continue
+      stm_item_dest_safe "$dest" || continue
       pre=""
       while IFS=$'\t' read -r tmp pdest; do
         [ "$pdest" = "$dest" ] && pre="$tmp"
@@ -3032,7 +3110,7 @@ STM_PRES
     done <<STM_DONE
 $done_list
 STM_DONE
-    die "$EX_CONFIG" "could not write the item files; the previous state was put back"
+    die "$EX_CONFIG" "could not write $what; the previous state was put back"
   fi
   while IFS=$'\t' read -r tmp pdest; do
     [ -z "$tmp" ] || rm -f "$tmp"
@@ -3060,6 +3138,9 @@ cmd_install_item_remote() {
     die "$EX_CONFIG" "item:$name needs the lua config format (found: $RESOLVED_FORMAT)"
 
   src=$(stm_item_ledger_field "$name" 2)
+  if stm_item_installed "$name" && ! stm_item_ledger_row_ok "$name"; then
+    die "$EX_EXISTS" "item:$name has an invalid ledger row in $(stm_item_ledger_file) (not shown); stm uninstall item:$name first"
+  fi
   if [ -n "$src" ]; then
     if [ "$src" != "$STM_IR_SOURCE" ]; then
       die "$EX_EXISTS" "item:$name is already installed from $src; a different source never replaces it, not even with --force (stm uninstall item:$name first)"
@@ -3100,7 +3181,12 @@ cmd_install_item_remote() {
   ts=$(stm_iso8601)
   row=$(printf '%s\t%s\t%s\t%s\t%s' "$name" "$STM_IR_SOURCE" "$STM_ITEM_TREE" "$STM_IR_SHA" "$ts")
 
+  # The fetch and review left time for an stm dir to be swapped for a
+  # symlink; mkdir -p would follow one. Check again, then stage inside the
+  # checked dirs. stm_item_commit checks each dest once more.
+  stm_item_preflight "$name"
   mkdir -p "$d/items/stm"
+  stm_item_preflight "$name"
   for f in lua toml; do
     mktemp_in "$d/items/stm"
     cat "$work/item.$f" >"$STM_TMP"
@@ -3109,6 +3195,7 @@ cmd_install_item_remote() {
   done
   if stm_item_has file plugin.sh; then
     mkdir -p "$d/plugins/stm"
+    stm_item_preflight "$name"
     mktemp_in "$d/plugins/stm"
     cat "$work/plugin.sh" >"$STM_TMP"
     plan="$plan$STM_TMP	$d/plugins/stm/$name.sh	755
@@ -6496,6 +6583,11 @@ doctor_items() {
   printf '\nItems\n'
   ledger=$(stm_item_ledger_file)
   for n in $names; do
+    if ! stm_item_ledger_row_ok "$n"; then
+      printf '  %-16s invalid ledger row in %s (not shown; fix or remove that line)\n' "?" "$ledger"
+      rc=1
+      continue
+    fi
     ref=$(awk -F'\t' -v n="$n" '$1==n { print $4; exit }' "$ledger")
     src=$(awk -F'\t' -v n="$n" '$1==n { print $2; exit }' "$ledger")
     if [ ! -f "$d/items/stm/$n.lua" ]; then
@@ -7650,6 +7742,9 @@ cmd_install_item() {
     die "$EX_USAGE" "--trust applies only to a remote item (item:[host/]owner/repo@<sha>/<bundle-dir>); item:$name is bundled with stm"
   validate_item_name "$name"
   src=$(stm_item_ledger_field "$name" 2)
+  if stm_item_installed "$name" && ! stm_item_ledger_row_ok "$name"; then
+    die "$EX_EXISTS" "item:$name has an invalid ledger row in $(stm_item_ledger_file) (not shown); stm uninstall item:$name first"
+  fi
   if [ -n "$src" ] && [ "$src" != bundled ]; then
     die "$EX_EXISTS" "item:$name is installed from $src; a bundled item never replaces it, not even with --force (stm uninstall item:$name first)"
   fi
@@ -8015,7 +8110,7 @@ stm_url_pinned() {
 # Everything is fetched and linted first; then the changed files and one
 # ledger write are committed. Failures go to stm_update_fail.
 stm_update_palettes() {
-  local file dir work slug url hash _ref _ts host dest t st new i=0 queue="" led
+  local file dir work slug url hash _ref _ts host dest t st new i=0 queue="" led plan=""
   file=$(stm_ledger_file)
   [ -f "$file" ] || return 0
   dir=$(user_palette_dir) ||
@@ -8092,28 +8187,47 @@ stm_update_palettes() {
       stm_update_fail "$EX_INVALID"
       continue
     fi
-    queue="$queue$slug	$new	$t
+    queue="$queue$slug	$new	$t	$hash
 "
   done <"$file"
 
-  [ -n "$queue" ] || return 0
-  while IFS=$'\t' read -r slug new t; do
+  # Every fetch is done. Check each local file against its recorded hash
+  # once more (it may have been edited while the refreshes were fetched),
+  # stage the survivors and the new ledger, then commit them as one unit:
+  # a ledger that cannot be written puts the old palette bytes back.
+  : >"$work/queue"
+  while IFS=$'\t' read -r slug new t hash; do
     [ -n "$slug" ] || continue
+    dest="$dir/$slug.toml"
+    if [ -L "$dest" ] || [ ! -f "$dest" ] || [ "$(stm_sha256 "$dest")" != "$hash" ]; then
+      err "warning: $slug: $dest has local edits (it changed during the update); left alone"
+      continue
+    fi
+    if [ "$OPT_DRY_RUN" -eq 1 ]; then
+      info "$slug: would update -> $dest (dry run, nothing written)"
+      continue
+    fi
     mktemp_in "$dir"
     cat "$t" >"$STM_TMP"
-    commit_tmp "$STM_TMP" "$dir/$slug.toml"
+    plan="$plan$STM_TMP	$dest	644
+"
     printf '%s\t%s\n' "$slug" "$new" >>"$work/queue"
-    info "$slug: updated -> $dir/$slug.toml"
   done <<STM_QUEUE
 $queue
 STM_QUEUE
+  [ -n "$plan" ] || return 0
   led=$(dirname "$file")
   mktemp_in "$led"
   awk -F'\t' -v OFS='\t' -v ts="$(stm_iso8601)" '
     NR == FNR { h[$1] = $2; next }
     ($1 in h) { $3 = h[$1]; $5 = ts }
     { print }' "$work/queue" "$file" >"$STM_TMP"
-  commit_tmp "$STM_TMP" "$file"
+  plan="$plan$STM_TMP	$file	644
+"
+  stm_item_commit "$plan" "the updated palettes and the palette ledger"
+  while IFS=$'\t' read -r slug new; do
+    info "$slug: updated -> $dir/$slug.toml"
+  done <"$work/queue"
 }
 
 # stm_update_item <name> — refetch a remote item at its recorded commit and
@@ -8122,6 +8236,11 @@ STM_QUEUE
 # stm_update_fail.
 stm_update_item() {
   local n="$1" src work st
+  if ! stm_item_ledger_row_ok "$n"; then
+    err "invalid item ledger row in $(stm_item_ledger_file) (not shown); skipped, nothing fetched"
+    stm_update_fail "$EX_INVALID"
+    return 0
+  fi
   src=$(stm_item_ledger_field "$n" 2)
   if [ "$src" = bundled ]; then
     info "item:$n: bundled with stm; to refresh it: stm install item:$n --force"
@@ -8132,11 +8251,7 @@ stm_update_item() {
   set +e
   (
     set -e
-    validate_item_name "$n"
     stm_parse_item_remote "$(stm_item_spec_of "$src" "$(stm_item_ledger_field "$n" 4)")"
-    if [ "$STM_IR_NAME" != "$n" ] || [ "$STM_IR_SOURCE" != "$src" ]; then
-      die "$EX_INVALID" "item:$n: its ledger row does not name a canonical source; reinstall it"
-    fi
     stm_item_fetch_bundle "$work"
     if [ "$STM_ITEM_TREE" = "$(stm_item_ledger_field "$n" 3)" ]; then
       info "item:$n unchanged ($STM_IR_SOURCE@$STM_IR_SHA)"
@@ -8759,6 +8874,7 @@ COMMANDS
                                 every file; written only with --trust
   update [item:<name>]          Refresh installed palettes (unedited files only) and
                                 re-check remote items at their recorded commit
+                                (--dry-run: report what would change, write nothing)
   search [query]                Search the theme catalog (metadata only)
   login                         Store a catalog token (0600; never printed)
   logout                        Remove stored catalog credentials

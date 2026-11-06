@@ -1134,9 +1134,10 @@ $ stm install item:alice/bar-items@0123456789abcdef0123456789abcdef01234567/widg
   name of a bundled one.
 - **Fetch.** `item.toml` first, from the raw URL at that commit, then exactly
   the files it lists (`item.lua`, optionally `plugin.sh`). Every redirect is
-  refused. Each file is at most 64 KiB (192 KiB per bundle); NUL, control and
-  bidi-override bytes are refused before anything is printed. Nothing fetched
-  runs.
+  refused. Each file is at most 64 KiB (192 KiB per bundle) and must be valid
+  UTF-8; NUL, control (C0, DEL, C1, raw or encoded) and bidi-override bytes
+  are refused before anything is printed. UTF-8 text such as Thai or emoji is
+  fine. Nothing fetched runs.
 - **Review.** Every file is printed to stdout with the canonical source, the
   commit and the tree hash — no pager, no prompt, the same on a terminal or a
   pipe, and `--quiet` does not hide it. Without `--trust` nothing is written
@@ -1149,7 +1150,15 @@ $ stm install item:alice/bar-items@0123456789abcdef0123456789abcdef01234567/widg
   tree hash and the commit.
 - **Replacing.** Same source, new commit: `--force --trust`, which also prints
   a `diff -u` against the installed files. A different source with the same
-  name is refused even with `--force`; uninstall the old one first.
+  name is refused even with `--force`; uninstall the old one first. An
+  installed file that would not pass the fetch byte check is not printed in
+  the diff; a `not shown` line names it instead.
+- **Dirs.** `items/`, `items/stm`, `plugins/` and `plugins/stm` must be real
+  directories (the config dir itself may be a symlink). They are checked
+  before the fetch, again after it, and before each file is written. A
+  process running as you that swaps one for a symlink in the instant between
+  that last check and the rename can still win; stm does not guard against
+  your own account.
 
 `stm update` refreshes what the ledgers recorded and never applies or reloads:
 
@@ -1157,13 +1166,22 @@ $ stm install item:alice/bar-items@0123456789abcdef0123456789abcdef01234567/widg
   replaced only if your copy still matches the recorded hash; a file you
   edited is left alone and reported. A palette whose URL names a commit is
   pinned: different bytes there are an integrity error (exit `1`). Rows on a
-  custom `--allow-host` host are skipped with a note.
+  custom `--allow-host` host are skipped with a note. Each file is checked
+  against its recorded hash again after every fetch, just before it is
+  written, so an edit made while `update` runs is kept. The new palettes and
+  the ledger are written as one unit: if the ledger cannot be written, the
+  previous palette bytes are put back.
+- `stm --dry-run update` fetches and checks the same way and reports
+  `would update` for each palette, but writes nothing.
 - Each remote item is fetched again at its recorded commit. The same tree is
   `unchanged`; a different tree is printed and refused (exit `1`), and nothing
   is written. `update` never moves an item to a new commit — install that
   commit with `--force --trust`. A bundled item is skipped with
   `stm install item:<name> --force`.
 - `stm update item:<name>` checks only that item.
+- An item ledger row that `stm install` could not have written (bad name,
+  source or ref) is reported as an invalid ledger row and never printed or
+  fetched; `update` and `doctor` exit non-zero.
 
 ### Smart menu bar
 

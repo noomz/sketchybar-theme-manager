@@ -48,6 +48,13 @@ fi
 p="$STUB_ROOT/${1#https://}"
 [ -f "$p" ] || exit 22
 cp "$p" "$2"
+# STUB_HOOK runs once the URL ending in STUB_HOOK_URL is served: it changes
+# local state between stm's checks and its commit, as a racing process would.
+if [ -n "${STUB_HOOK:-}" ]; then
+  case "$1" in
+    *"$STUB_HOOK_URL") sh -c "$STUB_HOOK" ;;
+  esac
+fi
 STUB
 chmod 755 "$SANDBOX/bin/remote-fetch"
 export STM_FETCH="$SANDBOX/bin/remote-fetch"
@@ -602,6 +609,171 @@ done_it
 it "update rejects a non-item argument"
 run_stm --dir "$D" --no-reload update nord
 assert_eq 64 "$STM_STATUS"
+done_it
+
+# --- review fixes (PR #46) ---------------------------------------------------
+
+ESC=$(printf '\033')
+PAL_LEDGER_DIR=$(dirname "$PAL_LEDGER")
+
+# race_install <hook> — fresh remote install whose fetch of plugin.sh (the
+# last file) runs <hook>: a process swapping an stm dir after the preflight.
+race_install() {
+  clean_install
+  rm -rf "$PWN"
+  mkdir -p "$PWN"
+  STUB_HOOK_URL="$GH_BASE/plugin.sh" STUB_HOOK="$1" \
+    run_stm --dir "$D" --no-reload install "$SPEC" --trust
+}
+
+assert_race_refused() {
+  assert_eq 2 "$STM_STATUS" "a dir swapped for a symlink mid-install must be refused: $STM_ERR"
+  assert_contains "$STM_ERR" "symlink"
+  assert_eq "" "$(find "$PWN" -type f)" "nothing may be written through the symlink"
+  assert_file_absent "$ITEM_LEDGER"
+  rm -rf "$D/items" "$D/plugins"
+}
+
+it "items/stm swapped for a symlink during the fetch: refused, nothing written outside"
+race_install "mkdir -p '$D/items' && ln -s '$PWN' '$D/items/stm'"
+assert_race_refused
+done_it
+
+it "plugins/stm swapped for a symlink during the fetch: refused, nothing written outside"
+race_install "mkdir -p '$D/plugins' && ln -s '$PWN' '$D/plugins/stm'"
+assert_race_refused
+done_it
+
+it "items/ swapped for a symlink during the fetch: refused, nothing written outside"
+race_install "mkdir -p '$PWN/stm' && ln -s '$PWN' '$D/items'"
+assert_race_refused
+done_it
+
+# install_nord — nord installed from a moving (HEAD) URL, then upstream moves.
+install_nord() {
+  clean_install
+  rm -f "$PAL_LEDGER" "$USER_PAL/nord.toml"
+  cp "$REPO_ROOT/palettes/nord.toml" "$STUB_ROOT/$NORD_URL"
+  run_stm --dir "$D" --no-reload install alice/themes/palettes/nord.toml
+  assert_eq 0 "$STM_STATUS" "$STM_ERR"
+  printf '# upstream moved\n' >>"$STUB_ROOT/$NORD_URL"
+  cp "$USER_PAL/nord.toml" "$SANDBOX/nord.before"
+}
+
+it "update --dry-run: reports the palette that would change, writes nothing"
+install_nord
+before=$(snapshot)
+run_stm --dir "$D" --no-reload --dry-run update
+assert_eq 0 "$STM_STATUS" "$STM_ERR"
+assert_contains "$STM_OUT" "nord: would update"
+assert_eq "$before" "$(snapshot)" "dry run must write nothing"
+done_it
+
+it "update: an unwritable ledger dir leaves the palette and ledger as they were"
+install_nord
+led=$(cat "$PAL_LEDGER")
+chmod 555 "$PAL_LEDGER_DIR"
+run_stm --dir "$D" --no-reload update
+chmod 755 "$PAL_LEDGER_DIR"
+assert_ne 0 "$STM_STATUS" "a ledger that cannot be written must fail the update"
+assert_files_equal "$SANDBOX/nord.before" "$USER_PAL/nord.toml"
+assert_eq "$led" "$(cat "$PAL_LEDGER")"
+done_it
+
+it "update: a failed ledger commit puts the previous palette bytes back"
+install_nord
+led=$(cat "$PAL_LEDGER")
+chflags uchg "$PAL_LEDGER"
+run_stm --dir "$D" --no-reload update
+chflags -R nouchg "$PAL_LEDGER_DIR"
+rm -f "$PAL_LEDGER_DIR"/.stm-tmp.* "$USER_PAL"/.stm-tmp.*
+assert_eq 2 "$STM_STATUS" "a failed ledger commit must fail the update: $STM_ERR"
+assert_contains "$STM_ERR" "put back"
+assert_files_equal "$SANDBOX/nord.before" "$USER_PAL/nord.toml"
+assert_eq "$led" "$(cat "$PAL_LEDGER")"
+done_it
+
+it "update: a palette edited while its refresh was fetched is left alone"
+install_nord
+led=$(cat "$PAL_LEDGER")
+STUB_HOOK_URL="$NORD_URL" STUB_HOOK="printf '# edited mid-update\n' >>'$USER_PAL/nord.toml'" \
+  run_stm --dir "$D" --no-reload update
+assert_eq 0 "$STM_STATUS" "$STM_ERR"
+assert_contains "$STM_ERR" "local edits"
+assert_contains "$(cat "$USER_PAL/nord.toml")" "# edited mid-update"
+assert_not_contains "$(cat "$USER_PAL/nord.toml")" "# upstream moved"
+assert_eq "$led" "$(cat "$PAL_LEDGER")"
+run_stm --dir "$D" --no-reload uninstall nord
+done_it
+
+it "byte gate: raw C1 and other bytes that are not UTF-8 are refused"
+for bytes in 'x\233y' '\237' '\300\233' '\377'; do
+  # shellcheck disable=SC2059  # the escapes are the point
+  printf -- "-- $bytes\n" >>"$STUB_ROOT/$GH_BASE/item.lua"
+  assert_fetch_refused "control"
+  serve_bundle "$GH_BASE" "$SRC"
+done
+done_it
+
+it "byte gate: Thai and emoji text in item.lua are allowed"
+clean_install
+printf -- '-- label \340\270\252\340\270\247\340\270\261\340\270\252\340\270\224\340\270\265 \360\237\214\231\n' >>"$SRC/item.lua"
+serve_bundle "$GH_BASE" "$SRC"
+run_stm --dir "$D" --no-reload --dry-run install "$SPEC"
+assert_eq 0 "$STM_STATUS" "$STM_ERR"
+make_bundle "$SRC" clockx v1
+serve_bundle "$GH_BASE" "$SRC"
+done_it
+
+it "replace review: installed bytes that fail the gate are not printed"
+clean_install
+serve_bundle "$GH_BASE" "$SRC"
+serve_bundle "$GH_BASE2" "$SRC2"
+run_stm --dir "$D" --no-reload install "$SPEC" --trust
+assert_eq 0 "$STM_STATUS" "$STM_ERR"
+printf -- '-- \033[2J tampered\n' >>"$D/items/stm/clockx.lua"
+run_stm --dir "$D" --no-reload --force install "item:alice/bar@$SHA2/widgets/clockx"
+assert_eq 4 "$STM_STATUS" "$STM_ERR"
+assert_not_contains "$STM_OUT$STM_ERR" "$ESC" "installed ESC bytes reached the terminal"
+assert_contains "$STM_OUT" "installed/item.lua: not shown"
+assert_contains "$STM_OUT" "-- marker v2" "the fetched side is still reviewed in full"
+done_it
+
+# hostile_row <col> <value> — the clockx ledger row with one field replaced.
+hostile_row() {
+  awk -F'\t' -v OFS='\t' -v c="$1" -v v="$2" '$1=="clockx" { $c = v } { print }' \
+    "$SANDBOX/ledger.good" >"$ITEM_LEDGER"
+}
+
+it "a ledger row with control bytes is never echoed (doctor, update, install, apply)"
+clean_install
+run_stm --dir "$D" --no-reload install "$SPEC" --trust
+assert_eq 0 "$STM_STATUS" "$STM_ERR"
+cp "$ITEM_LEDGER" "$SANDBOX/ledger.good"
+for spec in "2|$SOURCE${ESC}[2J" "4|${ESC}[2J" "1|clockx${ESC}[2J"; do
+  hostile_row "${spec%%|*}" "${spec#*|}"
+  run_stm --dir "$D" doctor
+  assert_not_contains "$STM_OUT$STM_ERR" "$ESC" "doctor echoed a hostile ledger field (col ${spec%%|*})"
+  assert_contains "$STM_OUT" "invalid ledger row"
+  assert_ne 0 "$STM_STATUS" "doctor must fail on an invalid ledger row"
+  reset_fetch_log
+  run_stm --dir "$D" --no-reload update
+  assert_not_contains "$STM_OUT$STM_ERR" "$ESC" "update echoed a hostile ledger field (col ${spec%%|*})"
+  assert_ne 0 "$STM_STATUS" "update must fail on an invalid ledger row"
+  assert_eq "" "$(fetch_log)" "an invalid ledger row must never be fetched"
+  run_stm --dir "$D" --no-reload --force install "$SPEC" --trust
+  assert_not_contains "$STM_OUT$STM_ERR" "$ESC" "install echoed a hostile ledger field (col ${spec%%|*})"
+  run_stm --dir "$D" --no-reload apply nord
+  assert_not_contains "$STM_OUT$STM_ERR" "$ESC" "apply echoed a hostile ledger field (col ${spec%%|*})"
+done
+hostile_row 2 "bundled"
+awk -F'\t' -v OFS='\t' -v v="${ESC}[2J" '$1=="clockx" { $4 = v } { print }' "$ITEM_LEDGER" >"$SANDBOX/l" && mv "$SANDBOX/l" "$ITEM_LEDGER"
+run_stm --dir "$D" doctor
+assert_not_contains "$STM_OUT$STM_ERR" "$ESC" "doctor echoed a bundled row's hostile ref"
+assert_contains "$STM_OUT" "invalid ledger row"
+cp "$SANDBOX/ledger.good" "$ITEM_LEDGER"
+run_stm --dir "$D" --no-reload uninstall item:clockx
+assert_eq 0 "$STM_STATUS" "$STM_ERR"
 done_it
 
 finish
