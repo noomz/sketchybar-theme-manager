@@ -75,7 +75,7 @@ STM_ROOT="$PWD" bin/stm preview my-theme
   `install` only (still HTTPS-only). Fetch / host failures exit `5`
   (`EX_NETWORK`). The only commands that may make an outbound request are
   `install`, `search`, `login`, `logout`, `publish`, and `update`, and
-  `install item:<name>` never does. Everything
+  `install item:<name>` (a bundled name) never does. Everything
   else (`apply`, `preview`, `list`, `doctor`, `verify`, `adopt`, `backup`,
   `restore`, `import`, `export`, `add`, `lint`, `uninstall`, `remove`, `menubar`) is
   offline. Tests stub `STM_FETCH` and must not talk to the internet. `stm lint`
@@ -134,7 +134,8 @@ Layout scrape is data only; item files are never edited.
 ## Templates and the trust boundary
 
 The rule that shapes most of the design: **a palette is untrusted data, a
-template is trusted code.** Bundled items are the one other kind of code — see
+template is trusted code.** Items are the one other kind of code — bundled
+with stm, or remote and installed only with an explicit `--trust` — see
 below.
 
 A palette may be downloaded from anywhere, so the only thing it ever
@@ -168,6 +169,21 @@ colours only from the palette's `colors` table, never hard-coded hex. User
 options in `[item.<name>]` are enum values checked against the manifest before
 they reach `items_generated.lua`; a palette's are checked against the manifest
 too, but an unknown key or value only warns (bad syntax still fails the parse). A theme picks among options a bundle already ships — it never adds code.
+
+Remote items (`stm install item:[host/]owner/repo@<sha>/<dir> --trust`, #17)
+are the one way item code crosses the network, and only on that path: never
+through a palette, the catalog or `stm install <url>`. The spec is pinned to a
+full 40-hex commit on `github.com`, `gitlab.com` or `codeberg.org` (no
+`--allow-host`). The manifest is fetched first and parsed by the same
+closed-field awk parser; then exactly its `files`. Item fetches refuse every
+redirect (palette fetches keep their own redirect handling), cap each file at
+64 KiB and the bundle at 192 KiB, and refuse NUL, control and bidi-override
+bytes before anything is printed. Every file is printed in full; without
+`--trust` nothing is written (exit `4`). The reviewed manifest is kept as
+`items/stm/<name>.toml` so `apply` and `doctor` stay offline. Bundled names
+are reserved, a different source never replaces an installed item, and
+`update` re-checks the recorded commit's tree hash and refuses a change — it
+never takes a new commit. Nothing fetched is ever run by stm.
 A new bundled item is reviewed like any other code change to `bin/stm`, and
 `stm lint item:<name>` must pass.
 
