@@ -86,7 +86,7 @@ cleanup_tmp() {
   for f in $STM_TMPDIRS; do
     # Only ever remove a directory we created ourselves, by name.
     case "$f" in
-      */.stm-list.?????? | */.stm-blk.??????) rm -rf "$f" 2>/dev/null ;;
+      */.stm-list.?????? | */.stm-blk.?????? | */.stm-item.??????) rm -rf "$f" 2>/dev/null ;;
     esac
   done
   IFS="$old_ifs"
@@ -1150,6 +1150,7 @@ OPT_NO_WIRE=0
 OPT_NO_LAYOUT=0
 OPT_ALLOW_HOST=""
 OPT_REGISTRY=""
+OPT_TRUST=0
 
 RESOLVED_CONFIG=""
 RESOLVED_DIR=""
@@ -1342,7 +1343,7 @@ validate_item_name() {
   fi
   case "$s" in
     *[!a-z0-9_-]* | [!a-z]*)
-      die "$EX_USAGE" "invalid item name \"item:$s\" (want [a-z][a-z0-9_-]*; only bundled items can be installed)"
+      die "$EX_USAGE" "invalid item name \"item:$s\" (want [a-z][a-z0-9_-]*)"
       ;;
   esac
 }
@@ -1575,9 +1576,12 @@ END {
 }
 '
 
-# Set by stm_item_load: the validated records and the bundle directory.
+# Set by stm_item_load: the validated records and the bundle directory. Set
+# by stm_item_load_installed instead: STM_ITEM_INSTALLED names a remote item
+# whose files are read from where install wrote them (see stm_item_path).
 STM_ITEM_RECORDS=""
 STM_ITEM_DIR=""
+STM_ITEM_INSTALLED=""
 
 # stm_item_files — the bundle files the loaded manifest lists, one per line.
 stm_item_files() {
@@ -1621,6 +1625,7 @@ stm_item_load() {
     [ -f "$dir/$f" ] || die "$EX_INVALID" "item:$name: bundle file $f is not a regular file"
   done
   STM_ITEM_DIR="$dir"
+  STM_ITEM_INSTALLED=""
 }
 
 # ---------------------------------------------------------------------------
@@ -1650,13 +1655,78 @@ stm_item_installed() {
   [ -f "$file" ] && awk -F'\t' -v n="$1" '$1==n { found=1; exit } END { exit !found }' "$file"
 }
 
+# stm_item_ledger_field <name> <column> — one field of <name>'s item ledger
+# row (2 source, 3 tree-sha256, 4 ref), or nothing. Unchecked ledger text:
+# callers validate before it reaches a path, a URL or generated code.
+stm_item_ledger_field() {
+  local file
+  file=$(stm_item_ledger_file)
+  [ -f "$file" ] || return 0
+  awk -F'\t' -v n="$1" -v c="$2" '$1==n { print $c; exit }' "$file"
+}
+
+# stm_item_path <file> — where bundle file <file> (item.toml, item.lua,
+# plugin.sh) of the loaded item lives: in the bundle dir, or for an installed
+# remote item in the config dir, where install wrote it.
+stm_item_path() {
+  if [ -z "$STM_ITEM_INSTALLED" ]; then
+    printf '%s/%s\n' "$STM_ITEM_DIR" "$1"
+    return 0
+  fi
+  case "$1" in
+    item.toml) printf '%s/items/stm/%s.toml\n' "$RESOLVED_DIR" "$STM_ITEM_INSTALLED" ;;
+    item.lua) printf '%s/items/stm/%s.lua\n' "$RESOLVED_DIR" "$STM_ITEM_INSTALLED" ;;
+    plugin.sh) printf '%s/plugins/stm/%s.sh\n' "$RESOLVED_DIR" "$STM_ITEM_INSTALLED" ;;
+    *) return 1 ;;
+  esac
+}
+
 # stm_item_tree_sha — sha256 over item.toml and every listed file of the loaded
-# bundle, in a fixed order: any byte change in the bundle changes the hash.
+# item, in a fixed order: any byte change in the bundle changes the hash. The
+# hashed lines name the bundle files, so a bundle dir, a staged remote fetch
+# and an installed remote item hash alike. Fails (prints nothing) when a file
+# is missing or cannot be hashed; callers must check.
 stm_item_tree_sha() {
-  local f
+  local f p h lines=""
   for f in item.toml $(stm_item_files | LC_ALL=C sort); do
-    printf '%s  %s\n' "$(stm_sha256 "$STM_ITEM_DIR/$f")" "$f"
-  done | stm_sha256 /dev/stdin
+    p=$(stm_item_path "$f") || return 1
+    [ -f "$p" ] || return 1
+    h=$(stm_sha256 "$p") || return 1
+    case "$h" in
+      *[!0-9a-f]*) return 1 ;;
+    esac
+    [ "${#h}" -eq 64 ] || return 1
+    lines="$lines$h  $f
+"
+  done
+  h=$(printf '%s' "$lines" | stm_sha256 /dev/stdin) || return 1
+  [ "${#h}" -eq 64 ] || return 1
+  printf '%s\n' "$h"
+}
+
+# stm_item_load_installed <name> — load an installed remote item from what
+# install wrote: the reviewed manifest items/stm/<name>.toml and the files it
+# lists. Offline; the same closed-field parser as a bundle. Any defect is a
+# hard error.
+stm_item_load_installed() {
+  local name="$1" p f
+  validate_item_name "$name"
+  for p in items/stm plugins/stm; do
+    [ -L "$RESOLVED_DIR/$p" ] && die "$EX_CONFIG" "item:$name: $RESOLVED_DIR/$p is a symlink"
+  done
+  STM_ITEM_DIR=""
+  STM_ITEM_INSTALLED="$name"
+  f=$(stm_item_path item.toml)
+  [ -L "$f" ] && die "$EX_INVALID" "item:$name: installed manifest is a symlink: $f"
+  [ -f "$f" ] || die "$EX_INVALID" "item:$name: installed manifest is missing: $f"
+  STM_ITEM_RECORDS=$(awk -v prog="$PROGNAME" -v bundle="$name" -v required="$STM_REQUIRED_KEYS" \
+    "$STM_ITEM_TOML_AWK" "$f") || die "$EX_INVALID" "invalid installed manifest: $f"
+  for f in $(stm_item_files); do
+    p=$(stm_item_path "$f") || die "$EX_INVALID" "item:$name: unknown file $f"
+    [ -L "$p" ] && die "$EX_INVALID" "item:$name: installed file is a symlink: $p"
+    [ -f "$p" ] || die "$EX_INVALID" "item:$name: installed file is missing: $p"
+  done
+  return 0
 }
 
 # stm_groups_rows — validated `group<TAB>slug<TAB>members` rows from [groups]
@@ -1742,12 +1812,19 @@ stm_current_palette_records() {
   stm_parse_palette "$file" 2>/dev/null || true
 }
 
+# Set by a remote install while it renders the loader: the item being
+# installed has no ledger row or installed manifest yet, so its staged,
+# validated records stand in for them.
+STM_ITEM_PENDING_NAME=""
+STM_ITEM_PENDING_RECORDS=""
+
 # stm_items_loader_render <names> <palette-records> — items_generated.lua on
 # stdout for the newline-separated item <names>, in order. Position is the
 # palette [items] slot for stm.<name>, else the manifest default_position.
-# An item no longer bundled is left out with a warning.
+# A bundled item no longer bundled is left out with a warning. A remote item
+# is read from its installed manifest (offline), never from bundles/items.
 stm_items_loader_render() {
-  local names="$1" precs="$2" dir n recs pos freq ev events opts theme blocks units forms prio
+  local names="$1" precs="$2" dir n recs pos freq ev events opts theme blocks units forms prio src
   local out cmode gstr gslug gmembers m x joined
   dir=$(cd -- "$RESOLVED_DIR" && pwd) || die "$EX_CONFIG" "sketchybar config dir does not exist: $RESOLVED_DIR"
   case "$dir" in
@@ -1782,12 +1859,20 @@ stm_items_loader_render() {
   grows=$(stm_groups_rows) || die "$EX_CONFIG" "invalid [groups] in $RESOLVED_CONFIG"
   for n in $names; do
     validate_item_name "$n"
-    if ! stm_item_bundled "$n"; then
+    src=""
+    [ "$n" = "$STM_ITEM_PENDING_NAME" ] || src=$(stm_item_ledger_field "$n" 2)
+    if [ "$n" = "$STM_ITEM_PENDING_NAME" ]; then
+      recs="$STM_ITEM_PENDING_RECORDS"
+    elif [ -n "$src" ] && [ "$src" != bundled ]; then
+      if ! recs=$(stm_item_load_installed "$n" && printf '%s\n' "$STM_ITEM_RECORDS"); then
+        err "warning: item:$n left out of items_generated.lua"
+        continue
+      fi
+    elif ! stm_item_bundled "$n"; then
       err "warning: item:$n is installed but no longer bundled; left out of items_generated.lua (stm uninstall item:$n removes it)"
       continue
-    fi
     # A bundle that exists but fails to load has already printed its error.
-    if ! recs=$(stm_item_load "$n" && printf '%s\n' "$STM_ITEM_RECORDS"); then
+    elif ! recs=$(stm_item_load "$n" && printf '%s\n' "$STM_ITEM_RECORDS"); then
       err "warning: item:$n left out of items_generated.lua"
       continue
     fi
@@ -2597,6 +2682,450 @@ stm_fetch_https() {
   [ -f "$dest" ] || die "$EX_NETWORK" "fetch wrote nothing: $url"
   # Persist the URL that actually landed so the ledger is not the 404.
   STM_SPEC_URL="$url"
+}
+
+# ---------------------------------------------------------------------------
+# remote item bundles (#17) — item:[host/]owner/repo@<sha>/<bundle-dir>
+#
+# Items are code. A remote bundle is pinned to a full commit SHA, fetched file
+# by file (manifest first, then exactly the files it lists), never through a
+# redirect, printed in full, and written only with --trust. Fetched bytes are
+# data until then: parsed by awk, hashed, printed, never run.
+# ---------------------------------------------------------------------------
+
+STM_ITEM_FILE_MAX=65536
+STM_ITEM_BUNDLE_MAX=196608
+
+# Set by stm_parse_item_remote: validated parts and the canonical source
+# host/owner/repo/bundle-dir (the item ledger's source column).
+STM_IR_HOST=""
+STM_IR_OWNER=""
+STM_IR_REPO=""
+STM_IR_SHA=""
+STM_IR_DIR=""
+STM_IR_NAME=""
+STM_IR_SOURCE=""
+# Set by stm_item_fetch_bundle: the tree hash of the staged bundle.
+STM_ITEM_TREE=""
+
+stm_item_git_name() {
+  local n="$1" what="$2"
+  if [ -z "$n" ] || [ "${#n}" -gt 100 ]; then
+    die "$EX_USAGE" "item: $what must be 1-100 characters"
+  fi
+  case "$n" in
+    *[!A-Za-z0-9._-]* | -* | .*) die "$EX_USAGE" "item: invalid $what \"$n\"" ;;
+  esac
+}
+
+# stm_parse_item_remote <spec> — the part after `item:` of a remote item.
+# Sets STM_IR_*; any defect is a usage error, before any URL is built.
+stm_parse_item_remote() {
+  local spec="$1" left right rest host owner repo sha dir part
+  [ "${#spec}" -le "$STM_SPEC_MAX" ] || die "$EX_USAGE" "item: spec is too long"
+  # One allowlist rules out whitespace, controls, percent-encoding, schemes,
+  # ports, queries and every shell metacharacter at once.
+  case "$spec" in
+    *[!A-Za-z0-9._/@-]*)
+      die "$EX_USAGE" "item: spec has a character outside A-Z a-z 0-9 . _ / @ - (want [host/]owner/repo@<sha>/<bundle-dir>)"
+      ;;
+  esac
+  case "$spec" in
+    *@*@*) die "$EX_USAGE" "item: spec has more than one @" ;;
+    *@*) : ;;
+    *) die "$EX_USAGE" "item:$spec: a remote item needs a pinned commit (want [host/]owner/repo@<40-hex sha>/<bundle-dir>)" ;;
+  esac
+  left=${spec%%@*}
+  right=${spec#*@}
+
+  case "$left" in
+    "" | /* | */ | *//*) die "$EX_USAGE" "item:$spec: want [host/]owner/repo before @" ;;
+    */*/*/*) die "$EX_USAGE" "item:$spec: too many parts before @ (want [host/]owner/repo; GitLab subgroups are not supported)" ;;
+    */*/*)
+      host=$(stm_lc "${left%%/*}")
+      rest=${left#*/}
+      ;;
+    */*)
+      host=github.com
+      rest=$left
+      ;;
+    *) die "$EX_USAGE" "item:$spec: want [host/]owner/repo before @" ;;
+  esac
+  case "$host" in
+    github.com | gitlab.com | codeberg.org) : ;;
+    *) die "$EX_USAGE" "item: host not allowed: $host (want github.com, gitlab.com or codeberg.org)" ;;
+  esac
+  owner=${rest%%/*}
+  repo=${rest#*/}
+  stm_item_git_name "$owner" owner
+  stm_item_git_name "$repo" repo
+  case "$repo" in
+    *.git) die "$EX_USAGE" "item: repo \"$repo\" must not use a .git suffix" ;;
+  esac
+
+  sha=${right%%/*}
+  [ "$sha" != "$right" ] || die "$EX_USAGE" "item:$spec: missing the bundle dir after @<sha> (want @<sha>/<bundle-dir>)"
+  case "$sha" in
+    "" | *[!0-9A-Fa-f]*) die "$EX_USAGE" "item: ref \"$sha\" is not a full 40-hex commit SHA (branches, tags and short SHAs are refused)" ;;
+  esac
+  [ "${#sha}" -eq 40 ] ||
+    die "$EX_USAGE" "item: ref \"$sha\" is not a full 40-hex commit SHA (branches, tags and short SHAs are refused)"
+  sha=$(stm_lc "$sha")
+
+  dir=${right#*/}
+  case "$dir" in
+    "" | /* | */ | *//*) die "$EX_USAGE" "item:$spec: the bundle dir has an empty part" ;;
+  esac
+  rest=$dir
+  while :; do
+    part=${rest%%/*}
+    case "$part" in
+      . | ..) die "$EX_USAGE" "item:$spec: the bundle dir may not contain . or .. parts" ;;
+    esac
+    [ "$part" != "$rest" ] || break
+    rest=${rest#*/}
+  done
+  # The last part names the item; the manifest name must match it.
+  validate_item_name "$part"
+
+  STM_IR_HOST="$host"
+  STM_IR_OWNER="$owner"
+  STM_IR_REPO="$repo"
+  STM_IR_SHA="$sha"
+  STM_IR_DIR="$dir"
+  STM_IR_NAME="$part"
+  STM_IR_SOURCE="$host/$owner/$repo/$dir"
+}
+
+# stm_item_spec_of <source> <sha> — the install spec for a ledger source and
+# ref. Unchecked ledger text in, so the result goes through
+# stm_parse_item_remote before any use.
+stm_item_spec_of() {
+  local src="$1" host owner repo
+  host=${src%%/*}
+  src=${src#*/}
+  owner=${src%%/*}
+  src=${src#*/}
+  repo=${src%%/*}
+  printf '%s/%s/%s@%s/%s\n' "$host" "$owner" "$repo" "$2" "${src#*/}"
+}
+
+# stm_item_url <file> — raw URL of one bundle file at the pinned commit.
+stm_item_url() {
+  case "$STM_IR_HOST" in
+    github.com)
+      printf 'https://raw.githubusercontent.com/%s/%s/%s/%s/%s\n' "$STM_IR_OWNER" "$STM_IR_REPO" "$STM_IR_SHA" "$STM_IR_DIR" "$1"
+      ;;
+    gitlab.com)
+      printf 'https://gitlab.com/%s/%s/-/raw/%s/%s/%s\n' "$STM_IR_OWNER" "$STM_IR_REPO" "$STM_IR_SHA" "$STM_IR_DIR" "$1"
+      ;;
+    codeberg.org)
+      printf 'https://codeberg.org/%s/%s/raw/commit/%s/%s/%s\n' "$STM_IR_OWNER" "$STM_IR_REPO" "$STM_IR_SHA" "$STM_IR_DIR" "$1"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# stm_item_fetch <url> <dest> — one item file. Unlike a palette fetch, every
+# 3xx is refused: a pinned raw URL has no reason to move. Size is checked
+# after the fetch as well, so a STM_FETCH stub is held to the same cap.
+stm_item_fetch() {
+  local url="$1" dest="$2" rest host st=0 sz
+  case "$url" in
+    https://*@*) die "$EX_USAGE" "item fetch URL refused: $url" ;;
+    https://*) : ;;
+    *) die "$EX_USAGE" "item fetch URL is not https: $url" ;;
+  esac
+  rest=${url#https://}
+  host=${rest%%/*}
+  case "$host" in
+    raw.githubusercontent.com | gitlab.com | codeberg.org) : ;;
+    *) die "$EX_USAGE" "item fetch host not allowed: $host" ;;
+  esac
+  stm_try_fetch "$url" "$dest" || st=$?
+  case "$st" in
+    0) : ;;
+    23) die "$EX_NETWORK" "item fetch got a redirect, refused (item files are never fetched through a redirect): $url" ;;
+    22) die "$EX_NOTFOUND" "item file not found: $url" ;;
+    *) die "$EX_NETWORK" "item fetch failed (exit $st): $url" ;;
+  esac
+  if [ ! -f "$dest" ] || [ -L "$dest" ]; then
+    die "$EX_NETWORK" "item fetch wrote nothing: $url"
+  fi
+  sz=$(wc -c <"$dest" | tr -d ' ')
+  [ "$sz" -le "$STM_ITEM_FILE_MAX" ] ||
+    die "$EX_INVALID" "item file too large ($sz bytes; max $STM_ITEM_FILE_MAX): $url"
+}
+
+# stm_item_bytes_gate <file> <label> <seqfile> — refuse what could make the
+# printed review differ from the bytes installed: NUL, CR, every other C0
+# control, DEL, UTF-8 C1 controls (C2 80-9F) and bidi overrides (U+202A-202E,
+# U+2066-2069). TAB, LF, printable ASCII and other UTF-8 (glyphs) pass; a
+# shebang is fine.
+stm_item_bytes_gate() {
+  local file="$1" label="$2" seq="$3" n
+  n=$(tr -d '\11\12\40-\176\200-\377' <"$file" | wc -c | tr -d ' ')
+  if [ "$n" -ne 0 ] || grep -qF -f "$seq" "$file"; then
+    die "$EX_INVALID" "item file $label contains NUL, control or bidi-override bytes; refused before review"
+  fi
+}
+
+# stm_item_seq_file <path> — the byte sequences stm_item_bytes_gate refuses
+# beyond what tr catches, one per line, for grep -F.
+stm_item_seq_file() {
+  local out="$1" a b
+  : >"$out"
+  for a in 0 1 2 3; do
+    for b in 0 1 2 3 4 5 6 7; do
+      # shellcheck disable=SC2059  # the format is the octal escape itself
+      printf "\\302\\2$a$b\\n" >>"$out"
+    done
+  done
+  printf '\342\200\252\n\342\200\253\n\342\200\254\n\342\200\255\n\342\200\256\n' >>"$out"
+  printf '\342\201\246\n\342\201\247\n\342\201\250\n\342\201\251\n' >>"$out"
+}
+
+# stm_item_workdir — a private staging dir, removed on exit. Sets STM_TMP.
+stm_item_workdir() {
+  STM_TMP=$(mktemp -d "${TMPDIR:-/tmp}/.stm-item.XXXXXX") ||
+    die "$EX_CONFIG" "could not create a temporary directory"
+  STM_TMPDIRS="$STM_TMPDIRS
+$STM_TMP"
+}
+
+# stm_item_fetch_bundle <work> — fetch item.toml at STM_IR_*, validate it with
+# the closed-field manifest parser, then fetch exactly the files it lists.
+# Every byte is gated before anything is printed. Sets STM_ITEM_DIR (= <work>),
+# STM_ITEM_RECORDS and STM_ITEM_TREE.
+stm_item_fetch_bundle() {
+  local work="$1" f total=0 sz
+  stm_item_seq_file "$work/.seq"
+  stm_item_fetch "$(stm_item_url item.toml)" "$work/item.toml"
+  stm_item_bytes_gate "$work/item.toml" item.toml "$work/.seq"
+  STM_ITEM_INSTALLED=""
+  STM_ITEM_DIR="$work"
+  STM_ITEM_RECORDS=$(awk -v prog="$PROGNAME" -v bundle="$STM_IR_NAME" -v required="$STM_REQUIRED_KEYS" \
+    "$STM_ITEM_TOML_AWK" "$work/item.toml") ||
+    die "$EX_INVALID" "invalid item manifest: $STM_IR_SOURCE@$STM_IR_SHA"
+  for f in $(stm_item_files); do
+    case "$f" in
+      item.lua | plugin.sh) : ;;
+      *) die "$EX_INVALID" "item manifest lists an unknown file: $f" ;;
+    esac
+    stm_item_fetch "$(stm_item_url "$f")" "$work/$f"
+    stm_item_bytes_gate "$work/$f" "$f" "$work/.seq"
+  done
+  for f in item.toml $(stm_item_files); do
+    sz=$(wc -c <"$work/$f" | tr -d ' ')
+    total=$((total + sz))
+  done
+  [ "$total" -le "$STM_ITEM_BUNDLE_MAX" ] ||
+    die "$EX_INVALID" "item bundle too large ($total bytes; max $STM_ITEM_BUNDLE_MAX)"
+  STM_ITEM_TREE=$(stm_item_tree_sha) || die "$EX_INVALID" "could not hash item:$STM_IR_NAME"
+}
+
+# stm_item_review — the fetched bundle in full on stdout, whatever --quiet
+# says: source, commit, tree hash, then every file between markers.
+stm_item_review() {
+  local f p
+  printf 'remote item:%s\n' "$STM_IR_NAME"
+  printf '  source  %s\n' "$STM_IR_SOURCE"
+  printf '  commit  %s\n' "$STM_IR_SHA"
+  printf '  tree    sha256:%s\n' "$STM_ITEM_TREE"
+  for f in item.toml $(stm_item_files | LC_ALL=C sort); do
+    p="$STM_ITEM_DIR/$f"
+    printf '\n==> %s (%s) <==\n' "$f" "$(stm_item_url "$f")"
+    cat "$p"
+    [ -z "$(tail -c 1 "$p")" ] || printf '\n'
+    printf '<== end %s ==>\n' "$f"
+  done
+}
+
+# stm_item_review_diff <name> — unified diff of the installed item:<name>
+# against the staged bundle, file by file (absent side = /dev/null).
+stm_item_review_diff() {
+  local n="$1" f old new
+  printf '\n==> diff: installed item:%s -> fetched <==\n' "$n"
+  for f in item.toml item.lua plugin.sh; do
+    case "$f" in
+      item.toml) old="$RESOLVED_DIR/items/stm/$n.toml" ;;
+      item.lua) old="$RESOLVED_DIR/items/stm/$n.lua" ;;
+      *) old="$RESOLVED_DIR/plugins/stm/$n.sh" ;;
+    esac
+    [ -f "$old" ] && [ ! -L "$old" ] || old=/dev/null
+    new=/dev/null
+    if [ "$f" = item.toml ] || stm_item_has file "$f"; then
+      new="$STM_ITEM_DIR/$f"
+    fi
+    [ "$old$new" != /dev/null/dev/null ] || continue
+    diff -u -L "installed/$f" -L "fetched/$f" "$old" "$new" || true
+  done
+}
+
+# stm_item_preflight <name> — refuse before any fetch when a destination
+# could not be written safely: stm-owned dirs that are symlinks or not
+# directories, destination files that are symlinks or not regular files.
+stm_item_preflight() {
+  local name="$1" d="$RESOLVED_DIR" p f
+  for p in items plugins; do
+    if [ -e "$d/$p" ] && [ ! -d "$d/$p" ]; then
+      die "$EX_CONFIG" "refusing to install item:$name: $d/$p is not a directory"
+    fi
+    [ -L "$d/$p/stm" ] && die "$EX_CONFIG" "refusing to install item:$name: $d/$p/stm is a symlink"
+    if [ -e "$d/$p/stm" ] && [ ! -d "$d/$p/stm" ]; then
+      die "$EX_CONFIG" "refusing to install item:$name: $d/$p/stm is not a directory"
+    fi
+  done
+  for f in "$d/items/stm/$name.lua" "$d/items/stm/$name.toml" "$d/plugins/stm/$name.sh"; do
+    [ -L "$f" ] && die "$EX_CONFIG" "refusing to install item:$name: $f is a symlink"
+    if [ -e "$f" ] && [ ! -f "$f" ]; then
+      die "$EX_CONFIG" "refusing to install item:$name: $f is not a regular file"
+    fi
+  done
+  return 0
+}
+
+# stm_item_commit <plan> — commit staged files as one unit. <plan> lines are
+# `tmp<TAB>dest<TAB>mode`, tmp `-` = remove dest. Each existing dest is first
+# copied to a pre-image beside it; if any step fails, every dest already
+# touched is put back from its pre-image (or removed if it was new).
+stm_item_commit() {
+  local plan="$1" tmp dest mode pres="" done_list="" failed=0 pdest pre
+  while IFS=$'\t' read -r tmp dest mode; do
+    [ -n "$dest" ] || continue
+    [ -L "$dest" ] && die "$EX_CONFIG" "refusing to write $dest: it is a symlink"
+    assert_writable_target "$dest"
+    [ -e "$dest" ] || continue
+    mktemp_in "$(dirname "$dest")"
+    cp -p "$dest" "$STM_TMP" || die "$EX_CONFIG" "could not save $dest before replacing it"
+    pres="$pres$STM_TMP	$dest
+"
+  done <<STM_PLAN
+$plan
+STM_PLAN
+  while IFS=$'\t' read -r tmp dest mode; do
+    [ -n "$dest" ] || continue
+    if [ "$tmp" = - ]; then
+      rm -f "$dest" || { failed=1; break; }
+    else
+      { chmod "$mode" "$tmp" && mv -f "$tmp" "$dest"; } || { failed=1; break; }
+    fi
+    done_list="$done_list$dest
+"
+  done <<STM_PLAN
+$plan
+STM_PLAN
+  if [ "$failed" -eq 1 ]; then
+    while IFS= read -r dest; do
+      [ -n "$dest" ] || continue
+      pre=""
+      while IFS=$'\t' read -r tmp pdest; do
+        [ "$pdest" = "$dest" ] && pre="$tmp"
+      done <<STM_PRES
+$pres
+STM_PRES
+      if [ -n "$pre" ]; then
+        mv -f "$pre" "$dest" 2>/dev/null || true
+      else
+        rm -f "$dest" 2>/dev/null || true
+      fi
+    done <<STM_DONE
+$done_list
+STM_DONE
+    die "$EX_CONFIG" "could not write the item files; the previous state was put back"
+  fi
+  while IFS=$'\t' read -r tmp pdest; do
+    [ -z "$tmp" ] || rm -f "$tmp"
+  done <<STM_PRES
+$pres
+STM_PRES
+}
+
+# cmd_install_item_remote <spec> — install item:<spec> from a pinned commit.
+# Every refusal that needs no network happens before the first fetch. Without
+# --trust the reviewed source is printed and nothing is written.
+cmd_install_item_remote() {
+  local spec="$1" name d src replacing=0 work names loader ledger row plan="" f ts
+  [ -z "$OPT_ALLOW_HOST" ] ||
+    die "$EX_USAGE" "--allow-host does not apply to item: installs (hosts: github.com, gitlab.com, codeberg.org)"
+  stm_parse_item_remote "$spec"
+  name="$STM_IR_NAME"
+  if stm_item_bundled "$name"; then
+    die "$EX_USAGE" "item:$name is the name of a bundled item; a remote item may not use it"
+  fi
+  d="$RESOLVED_DIR"
+  [ -d "$d" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $d"
+  resolve_format
+  [ "$RESOLVED_FORMAT" = "lua" ] ||
+    die "$EX_CONFIG" "item:$name needs the lua config format (found: $RESOLVED_FORMAT)"
+
+  src=$(stm_item_ledger_field "$name" 2)
+  if [ -n "$src" ]; then
+    if [ "$src" != "$STM_IR_SOURCE" ]; then
+      die "$EX_EXISTS" "item:$name is already installed from $src; a different source never replaces it, not even with --force (stm uninstall item:$name first)"
+    fi
+    [ "$OPT_FORCE" -eq 1 ] ||
+      die "$EX_EXISTS" "item:$name is already installed from $src (use --force --trust to replace it)"
+    replacing=1
+  fi
+  stm_item_preflight "$name"
+
+  stm_item_workdir
+  work="$STM_TMP"
+  stm_item_fetch_bundle "$work"
+  stm_item_has dialect lua || die "$EX_INVALID" "item:$name does not support the lua dialect"
+
+  # Rendered before anything is written, so bad [item.<name>] options fail
+  # with nothing touched.
+  STM_ITEM_PENDING_NAME="$name"
+  STM_ITEM_PENDING_RECORDS="$STM_ITEM_RECORDS"
+  names=$({
+    stm_item_names | awk -v n="$name" '$0 != n'
+    printf '%s\n' "$name"
+  })
+  loader=$(stm_items_loader_render "$names" "$(stm_current_palette_records)")
+
+  stm_item_review
+  [ "$replacing" -eq 0 ] || stm_item_review_diff "$name"
+  printf '\n'
+
+  if [ "$OPT_DRY_RUN" -eq 1 ]; then
+    info "dry run: would install item:$name from $STM_IR_SOURCE@$STM_IR_SHA (nothing written)"
+    return 0
+  fi
+  [ "$OPT_TRUST" -eq 1 ] ||
+    die "$EX_EXISTS" "item:$name not installed: review the source above, then rerun with --trust to install exactly these bytes"
+
+  ledger=$(stm_item_ledger_file)
+  ts=$(stm_iso8601)
+  row=$(printf '%s\t%s\t%s\t%s\t%s' "$name" "$STM_IR_SOURCE" "$STM_ITEM_TREE" "$STM_IR_SHA" "$ts")
+
+  mkdir -p "$d/items/stm"
+  for f in lua toml; do
+    mktemp_in "$d/items/stm"
+    cat "$work/item.$f" >"$STM_TMP"
+    plan="$plan$STM_TMP	$d/items/stm/$name.$f	644
+"
+  done
+  if stm_item_has file plugin.sh; then
+    mkdir -p "$d/plugins/stm"
+    mktemp_in "$d/plugins/stm"
+    cat "$work/plugin.sh" >"$STM_TMP"
+    plan="$plan$STM_TMP	$d/plugins/stm/$name.sh	755
+"
+  elif [ "$replacing" -eq 1 ] && [ -f "$d/plugins/stm/$name.sh" ]; then
+    plan="$plan-	$d/plugins/stm/$name.sh	-
+"
+  fi
+  stm_ledger_stage "$ledger" "$name" "$row"
+  plan="$plan$STM_TMP	$ledger	644
+"
+  mktemp_in "$d"
+  printf '%s\n' "$loader" >"$STM_TMP"
+  plan="$plan$STM_TMP	$d/items_generated.lua	644
+"
+  stm_item_commit "$plan"
+  info "installed item:$name -> $d/items/stm/$name.lua ($STM_IR_SOURCE@$STM_IR_SHA)"
 }
 
 # ---------------------------------------------------------------------------
@@ -5948,12 +6477,12 @@ stm_tailscale_cli() {
 # when no item is installed and no stray file exists (V18). Returns 1 when an
 # item cannot load; drift, unbundled items and a missing CLI are notes.
 doctor_items() {
-  local d="$RESOLVED_DIR" ledger names n p f base strays="" cur ref rc=0 wired="" cli
+  local d="$RESOLVED_DIR" ledger names n p f base strays="" cur ref rc=0 wired="" cli src tree
 
   names=$(stm_item_names)
   for p in items/stm plugins/stm; do
     [ -d "$d/$p" ] && [ ! -L "$d/$p" ] || continue
-    for f in "$d/$p"/*.lua "$d/$p"/*.sh; do
+    for f in "$d/$p"/*.lua "$d/$p"/*.sh "$d/$p"/*.toml; do
       [ -f "$f" ] || continue
       base=${f##*/}
       base=${base%.*}
@@ -5973,8 +6502,28 @@ doctor_items() {
       rc=1
       continue
     fi
-    if cur=$(stm_item_load "$n" 2>/dev/null &&
-      printf '%s\t%s\n' "$(stm_item_tree_sha)" \
+    src=$(awk -F'\t' -v n="$n" '$1==n { print $2; exit }' "$ledger")
+    if [ -n "$src" ] && [ "$src" != bundled ]; then
+      # Remote: checked offline against what install wrote and recorded.
+      if cur=$(stm_item_load_installed "$n" 2>/dev/null && tree=$(stm_item_tree_sha) &&
+        printf '%s\t%s\n' "$tree" \
+          "$(printf '%s\n' "$STM_ITEM_RECORDS" | awk -F'\t' '$1=="meta" && $2=="version" { print $3; exit }')"); then
+        if [ "${cur%%	*}" = "$(awk -F'\t' -v n="$n" '$1==n { print $3; exit }' "$ledger")" ]; then
+          printf '  %-16s %s ok (%s@%s)\n' "$n" "${cur#*	}" "$src" "$(printf '%s' "$ref" | cut -c1-12)"
+        else
+          printf '  %-16s installed files differ from the reviewed tree (%s@%s); reinstall: stm install --force --trust item:%s\n' \
+            "$n" "$src" "$(printf '%s' "$ref" | cut -c1-12)" "$(stm_item_spec_of "$src" "$ref")"
+          rc=1
+        fi
+      else
+        printf '  %-16s cannot load its installed manifest items/stm/%s.toml; reinstall: stm install --force --trust item:%s\n' \
+          "$n" "$n" "$(stm_item_spec_of "$src" "$ref")"
+        rc=1
+      fi
+      continue
+    fi
+    if cur=$(stm_item_load "$n" 2>/dev/null && tree=$(stm_item_tree_sha) &&
+      printf '%s\t%s\n' "$tree" \
         "$(printf '%s\n' "$STM_ITEM_RECORDS" | awk -F'\t' '$1=="meta" && $2=="version" { print $3; exit }')"); then
       if [ "${cur%%	*}" = "$(awk -F'\t' -v n="$n" '$1==n { print $3; exit }' "$ledger")" ]; then
         printf '  %-16s %s ok (installed with stm %s)\n' "$n" "${cur#*	}" "$ref"
@@ -7083,9 +7632,23 @@ $work"
 # plugins/stm/<name>.sh and the item ledger row. Every file is staged before
 # any is committed, so a failure while staging leaves the prior install as is.
 cmd_install_item() {
-  local name="$1" d ledger p lua_dest sh_dest="" lua_tmp sh_tmp="" row
+  local name="$1" d ledger p lua_dest sh_dest="" lua_tmp sh_tmp="" row tree src
   local names loader led_tmp gen_tmp
 
+  # A slash makes it a remote, SHA-pinned bundle (#17); a bare name is bundled.
+  case "$name" in
+    */*)
+      cmd_install_item_remote "$name"
+      return
+      ;;
+  esac
+  [ "$OPT_TRUST" -eq 0 ] ||
+    die "$EX_USAGE" "--trust applies only to a remote item (item:[host/]owner/repo@<sha>/<bundle-dir>); item:$name is bundled with stm"
+  validate_item_name "$name"
+  src=$(stm_item_ledger_field "$name" 2)
+  if [ -n "$src" ] && [ "$src" != bundled ]; then
+    die "$EX_EXISTS" "item:$name is installed from $src; a bundled item never replaces it, not even with --force (stm uninstall item:$name first)"
+  fi
   stm_item_load "$name"
   d="$RESOLVED_DIR"
   [ -d "$d" ] || die "$EX_CONFIG" "sketchybar config dir does not exist: $d"
@@ -7128,7 +7691,8 @@ cmd_install_item() {
     return 0
   fi
 
-  row=$(printf '%s\tbundled\t%s\t%s\t%s' "$name" "$(stm_item_tree_sha)" "$STM_VERSION" "$(stm_iso8601)")
+  tree=$(stm_item_tree_sha) || die "$EX_INVALID" "could not hash item:$name"
+  row=$(printf '%s\tbundled\t%s\t%s\t%s' "$name" "$tree" "$STM_VERSION" "$(stm_iso8601)")
 
   mkdir -p "$d/items/stm"
   mktemp_in "$d/items/stm"
@@ -7199,7 +7763,8 @@ release_compact_groups() {
 }
 
 # cmd_uninstall_item <name> — remove an installed item:<name>: its files under
-# items/stm/ and plugins/stm/ and its ledger row, then regenerate the loader.
+# items/stm/ (a remote item's manifest too) and plugins/stm/ and its ledger
+# row, then regenerate the loader.
 # Works for an item no longer bundled. Every target is checked, and the ledger
 # and loader staged, before anything is removed.
 cmd_uninstall_item() {
@@ -7215,7 +7780,7 @@ cmd_uninstall_item() {
       die "$EX_CONFIG" "refusing to uninstall item:$name: $d/$p/stm is not a directory"
     fi
   done
-  for f in "$d/items/stm/$name.lua" "$d/plugins/stm/$name.sh"; do
+  for f in "$d/items/stm/$name.lua" "$d/items/stm/$name.toml" "$d/plugins/stm/$name.sh"; do
     [ -L "$f" ] && die "$EX_CONFIG" "refusing to remove a symlink: $f"
     if [ -e "$f" ] && [ ! -f "$f" ]; then
       die "$EX_CONFIG" "refusing to remove $f: not a regular file"
@@ -7237,7 +7802,7 @@ cmd_uninstall_item() {
         info "would restore compact group members to live displays if the bar is available"
       fi
     fi
-    for f in "$d/items/stm/$name.lua" "$d/plugins/stm/$name.sh"; do
+    for f in "$d/items/stm/$name.lua" "$d/items/stm/$name.toml" "$d/plugins/stm/$name.sh"; do
       [ -e "$f" ] && info "would remove $f"
     done
     info "would drop item:$name from $(stm_item_ledger_file)"
@@ -7257,7 +7822,7 @@ cmd_uninstall_item() {
     printf '%s\n' "$loader" >"$gen_tmp"
   fi
 
-  rm -f "$d/items/stm/$name.lua" "$d/plugins/stm/$name.sh"
+  rm -f "$d/items/stm/$name.lua" "$d/items/stm/$name.toml" "$d/plugins/stm/$name.sh"
   stm_ledger_commit "$led_tmp" "$ledger"
   [ -z "$gen_tmp" ] || commit_tmp "$gen_tmp" "$d/items_generated.lua"
   info "removed item:$name"
@@ -7279,6 +7844,9 @@ cmd_install() {
       return
       ;;
   esac
+
+  [ "$OPT_TRUST" -eq 0 ] ||
+    die "$EX_USAGE" "--trust applies only to a remote item (item:[host/]owner/repo@<sha>/<bundle-dir>), never to a palette"
 
   STM_INSTALL_VIA_PORTAL=0
   STM_PORTAL_SLUG=""
@@ -7388,6 +7956,220 @@ cmd_uninstall() {
   rm -f "$dest"
   stm_ledger_drop "$slug"
   info "removed $slug"
+}
+
+# ---------------------------------------------------------------------------
+# update (#17) — refresh what the ledgers recorded. Never applies, never
+# reloads, never asks the catalog, never takes a new item commit: an item
+# upgrade is `install item:...@<newsha>/... --force --trust`.
+# ---------------------------------------------------------------------------
+
+# First failure's exit code across one update run; the update helpers record
+# it here and return 0, so each runs as a plain command and the `set -e`
+# inside their per-row subshells stays in force.
+STM_UPDATE_RC=0
+stm_update_fail() {
+  [ "$STM_UPDATE_RC" -ne 0 ] || STM_UPDATE_RC="$1"
+}
+
+# stm_url_pinned <url> — true if a palette URL names a full commit SHA in a
+# form stm recognises (GitHub raw, GitLab /-/raw/, Codeberg /raw/commit/).
+stm_url_pinned() {
+  local rest p ref
+  rest=${1#https://}
+  p=${rest#*/}
+  case "${rest%%/*}" in
+    raw.githubusercontent.com)
+      p=${p#*/}
+      p=${p#*/}
+      ref=${p%%/*}
+      ;;
+    gitlab.com)
+      case "$p" in
+        */*/-/raw/*) p=${p#*/-/raw/} ;;
+        *) return 1 ;;
+      esac
+      ref=${p%%/*}
+      ;;
+    codeberg.org)
+      case "$p" in
+        */*/raw/commit/*) p=${p#*/raw/commit/} ;;
+        *) return 1 ;;
+      esac
+      ref=${p%%/*}
+      ;;
+    *) return 1 ;;
+  esac
+  [ "${#ref}" -eq 40 ] || return 1
+  case "$ref" in
+    *[!0-9a-fA-F]*) return 1 ;;
+  esac
+}
+
+# stm_update_palettes — refetch every palette ledger row's recorded URL, lint
+# it, and replace the local file only when it still matches its recorded hash.
+# Everything is fetched and linted first; then the changed files and one
+# ledger write are committed. Failures go to stm_update_fail.
+stm_update_palettes() {
+  local file dir work slug url hash _ref _ts host dest t st new i=0 queue="" led
+  file=$(stm_ledger_file)
+  [ -f "$file" ] || return 0
+  dir=$(user_palette_dir) ||
+    die "$EX_CONFIG" "could not determine a writable palette directory; pass --palette-dir"
+  stm_item_workdir
+  work="$STM_TMP"
+
+  while IFS=$'\t' read -r slug url hash _ref _ts; do
+    [ -n "$slug" ] || continue
+    case "$slug" in
+      *[!a-z0-9._-]* | [!a-z0-9]*)
+        err "warning: skipping a palette ledger row with an invalid slug"
+        continue
+        ;;
+    esac
+    case "$url" in
+      https://*) : ;;
+      *)
+        err "warning: $slug: recorded source is not https; skipped"
+        continue
+        ;;
+    esac
+    case "$url" in
+      *[!A-Za-z0-9._~/:%+-]*)
+        err "warning: $slug: recorded source URL has unexpected characters; skipped"
+        continue
+        ;;
+    esac
+    host=${url#https://}
+    host=$(stm_lc "${host%%/*}")
+    case "$host" in
+      raw.githubusercontent.com | github.com | gitlab.com | codeberg.org) : ;;
+      *)
+        info "$slug: skipped (custom host $host; refresh it with: stm install --force --allow-host $host <spec>)"
+        continue
+        ;;
+    esac
+    dest="$dir/$slug.toml"
+    if [ -L "$dest" ] || [ ! -f "$dest" ]; then
+      err "warning: $slug: $dest is missing or not a regular file; skipped"
+      continue
+    fi
+    if [ "$(stm_sha256 "$dest")" != "$hash" ]; then
+      err "warning: $slug: $dest has local edits (it differs from the recorded hash); left alone"
+      continue
+    fi
+
+    i=$((i + 1))
+    mkdir "$work/$i"
+    t="$work/$i/$slug.toml"
+    # A subshell per row: a refused fetch or lint ends this row only.
+    set +e
+    (
+      set -e
+      stm_fetch_https "$url" "$t"
+      stm_lint_file "$t"
+      [ "$STM_LINT_SLUG" = "$slug" ] ||
+        die "$EX_INVALID" "$slug: the refreshed palette declares slug \"$STM_LINT_SLUG\"; refused"
+    )
+    st=$?
+    set -e
+    if [ "$st" -ne 0 ]; then
+      err "$slug: not updated"
+      stm_update_fail "$st"
+      continue
+    fi
+    new=$(stm_sha256 "$t")
+    if [ "$new" = "$hash" ]; then
+      info "$slug: unchanged"
+      continue
+    fi
+    if stm_url_pinned "$url"; then
+      err "$slug: integrity error: $url is pinned to a commit, but its bytes changed (recorded sha256 $hash, fetched $new); left alone"
+      stm_update_fail "$EX_INVALID"
+      continue
+    fi
+    queue="$queue$slug	$new	$t
+"
+  done <"$file"
+
+  [ -n "$queue" ] || return 0
+  while IFS=$'\t' read -r slug new t; do
+    [ -n "$slug" ] || continue
+    mktemp_in "$dir"
+    cat "$t" >"$STM_TMP"
+    commit_tmp "$STM_TMP" "$dir/$slug.toml"
+    printf '%s\t%s\n' "$slug" "$new" >>"$work/queue"
+    info "$slug: updated -> $dir/$slug.toml"
+  done <<STM_QUEUE
+$queue
+STM_QUEUE
+  led=$(dirname "$file")
+  mktemp_in "$led"
+  awk -F'\t' -v OFS='\t' -v ts="$(stm_iso8601)" '
+    NR == FNR { h[$1] = $2; next }
+    ($1 in h) { $3 = h[$1]; $5 = ts }
+    { print }' "$work/queue" "$file" >"$STM_TMP"
+  commit_tmp "$STM_TMP" "$file"
+}
+
+# stm_update_item <name> — refetch a remote item at its recorded commit and
+# compare the tree hash: same = unchanged; changed = print it and refuse.
+# A bundled item is skipped with the reinstall hint. Failures go to
+# stm_update_fail.
+stm_update_item() {
+  local n="$1" src work st
+  src=$(stm_item_ledger_field "$n" 2)
+  if [ "$src" = bundled ]; then
+    info "item:$n: bundled with stm; to refresh it: stm install item:$n --force"
+    return 0
+  fi
+  stm_item_workdir
+  work="$STM_TMP"
+  set +e
+  (
+    set -e
+    validate_item_name "$n"
+    stm_parse_item_remote "$(stm_item_spec_of "$src" "$(stm_item_ledger_field "$n" 4)")"
+    if [ "$STM_IR_NAME" != "$n" ] || [ "$STM_IR_SOURCE" != "$src" ]; then
+      die "$EX_INVALID" "item:$n: its ledger row does not name a canonical source; reinstall it"
+    fi
+    stm_item_fetch_bundle "$work"
+    if [ "$STM_ITEM_TREE" = "$(stm_item_ledger_field "$n" 3)" ]; then
+      info "item:$n unchanged ($STM_IR_SOURCE@$STM_IR_SHA)"
+      exit 0
+    fi
+    stm_item_review
+    die "$EX_INVALID" "item:$n: the tree at $STM_IR_SOURCE@$STM_IR_SHA changed since it was reviewed (now sha256:$STM_ITEM_TREE); refused, nothing written. To take it, review the source above and run: stm install --force --trust item:$(stm_item_spec_of "$STM_IR_SOURCE" "$STM_IR_SHA")"
+  )
+  st=$?
+  set -e
+  rm -rf "$work"
+  [ "$st" -eq 0 ] || stm_update_fail "$st"
+}
+
+# cmd_update [item:<name>] — no argument: every palette row, then every item
+# row. item:<name>: that item only.
+cmd_update() {
+  local target="${1:-}" n
+  STM_UPDATE_RC=0
+  case "$target" in
+    "")
+      stm_update_palettes
+      for n in $(stm_item_names); do
+        stm_update_item "$n"
+      done
+      ;;
+    item:*)
+      n=${target#item:}
+      validate_item_name "$n"
+      stm_item_installed "$n" || die "$EX_NOTFOUND" "item not installed: item:$n"
+      stm_update_item "$n"
+      ;;
+    *)
+      die "$EX_USAGE" "update takes no argument (every palette and item) or item:<name>"
+      ;;
+  esac
+  return "$STM_UPDATE_RC"
 }
 
 # ---------------------------------------------------------------------------
@@ -7968,6 +8750,11 @@ COMMANDS
   lint item:<name>              Validate a bundled item (writes nothing)
   install <spec>                Fetch one HTTPS .toml, lint, and store it (no apply)
   install item:<name>           Install a bundled bar item (code shipped with stm; offline)
+  install item:[host/]owner/repo@<sha>/<dir> [--trust]
+                                Fetch a remote item pinned to a 40-hex commit, print
+                                every file; written only with --trust
+  update [item:<name>]          Refresh installed palettes (unedited files only) and
+                                re-check remote items at their recorded commit
   search [query]                Search the theme catalog (metadata only)
   login                         Store a catalog token (0600; never printed)
   logout                        Remove stored catalog credentials
@@ -8005,6 +8792,7 @@ OPTIONS
   --all                 (backup) Snapshot the whole config dir, not just stm files
   --dry-run             Show what would change; write nothing
   --force               Allow add/import/adopt/install to overwrite
+  --trust               (install item:<remote>) Install the reviewed source as printed
   --allow-host <host>   Permit one extra HTTPS host for \`install\`
   --registry <url>      Catalog base URL (https only; default: $STM_REGISTRY_DEFAULT)
   --append-missing      (bash) Append palette keys absent from colors.sh
@@ -8031,7 +8819,8 @@ ENVIRONMENT
 
 EXIT CODES
   0 success   1 invalid palette   2 config/format error
-  3 theme not found   4 refusing to overwrite   5 network/fetch
+  3 theme not found   4 refusing to overwrite (or a remote item without --trust)
+  5 network/fetch
   64 usage error
 
 EOF
@@ -8111,6 +8900,7 @@ main() {
       --all) OPT_ALL=1; shift ;;
       --dry-run) OPT_DRY_RUN=1; shift ;;
       --force) OPT_FORCE=1; shift ;;
+      --trust) OPT_TRUST=1; shift ;;
       --allow-host)
         [ "$#" -ge 2 ] || die "$EX_USAGE" "--allow-host needs a value"
         OPT_ALLOW_HOST="$2"
@@ -8173,6 +8963,12 @@ main() {
   cmd="${positional[0]}"
   args_left=$((${#positional[@]} - 1))
 
+  # --trust is consent to install one reviewed remote item; nothing else
+  # takes it (install checks the spec itself).
+  if [ "$OPT_TRUST" -eq 1 ] && [ "$cmd" != install ]; then
+    die "$EX_USAGE" "--trust applies only to install item:[host/]owner/repo@<sha>/<bundle-dir>"
+  fi
+
   resolve_config_file
   resolve_sketchybar_dir
 
@@ -8215,6 +9011,10 @@ main() {
     publish)
       [ "$args_left" -ge 1 ] || die "$EX_USAGE" "publish needs a git spec or https URL"
       cmd_publish "${positional[1]}"
+      ;;
+    update)
+      [ "$args_left" -le 1 ] || die "$EX_USAGE" "update takes at most one argument: item:<name>"
+      cmd_update "${positional[1]:-}"
       ;;
     uninstall | remove)
       [ "$args_left" -ge 1 ] || die "$EX_USAGE" "uninstall needs a theme name"
