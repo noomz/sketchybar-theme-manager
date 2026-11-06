@@ -6497,12 +6497,16 @@ doctor_items() {
   ledger=$(stm_item_ledger_file)
   for n in $names; do
     ref=$(awk -F'\t' -v n="$n" '$1==n { print $4; exit }' "$ledger")
+    src=$(awk -F'\t' -v n="$n" '$1==n { print $2; exit }' "$ledger")
     if [ ! -f "$d/items/stm/$n.lua" ]; then
-      printf '  %-16s MISSING items/stm/%s.lua (run: stm install --force item:%s)\n' "$n" "$n" "$n"
+      if [ -n "$src" ] && [ "$src" != bundled ]; then
+        printf '  %-16s MISSING items/stm/%s.lua (run: stm install --force --trust item:%s)\n' "$n" "$n" "$(stm_item_spec_of "$src" "$ref")"
+      else
+        printf '  %-16s MISSING items/stm/%s.lua (run: stm install --force item:%s)\n' "$n" "$n" "$n"
+      fi
       rc=1
       continue
     fi
-    src=$(awk -F'\t' -v n="$n" '$1==n { print $2; exit }' "$ledger")
     if [ -n "$src" ] && [ "$src" != bundled ]; then
       # Remote: checked offline against what install wrote and recorded.
       if cur=$(stm_item_load_installed "$n" 2>/dev/null && tree=$(stm_item_tree_sha) &&
