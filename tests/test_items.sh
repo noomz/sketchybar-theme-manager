@@ -1305,8 +1305,12 @@ it "renderer: a bundle that exists but is invalid shows its real error (#22)"
 cp -R "$REPO_ROOT/bundles/items/tailscale" "$T_ROOT/bundles/items/tailscale"
 rm -f "$T_ROOT/bundles/items/tailscale/item.toml"
 STM_ROOT="$T_ROOT" run_stm --dir "$DC" --no-reload apply nord
+assert_status 0
 assert_contains "$STM_ERR" "item:tailscale: item.toml is missing or not a regular file"
+assert_contains "$STM_ERR" "warning: item:tailscale left out of items_generated.lua"
 assert_not_contains "$STM_ERR" "item:tailscale is installed but no longer bundled"
+assert_file_not_contains "$DC/items_generated.lua" 'stm_item("tailscale"'
+assert_file_contains "$DC/items_generated.lua" 'stm_item("cpu"'
 rm -rf "$T_ROOT/bundles/items/tailscale"
 done_it
 
