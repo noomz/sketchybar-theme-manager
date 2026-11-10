@@ -1,0 +1,44 @@
+# stm.tokens — how many tokens your AI tools used today, across providers,
+# from the Agents Usage Bar cache (#49). Needs Agents Usage Bar (`aub`)
+# installed and running; without it the item shows "no aub".
+# Installed with `stm install item:tokens`; options go in stm.config.toml
+# (or a theme's palette) under [item.tokens].
+name = "tokens"
+version = "0.1.0"
+dialects = ["lua"]
+files = ["item.lua", "plugin.sh"]
+colors = ["green", "yellow", "red", "grey", "white", "black", "bg1", "popup_bg", "popup_border"]
+default_position = "right"
+update_freq = 60
+events = ["system_woke"]
+
+# The forms compact mode (item:compact) may ask for, widest first:
+#   full  the icon and the count
+#   icon  the icon alone
+compact = "full icon"
+
+# How the item is drawn (a theme may set this in its palette):
+#   plain  <icon> <count>, no background
+#   pill   [ <icon> <count> ], one bg1 background
+#   split  [<icon>] [<count>]: the icon on the heat colour, the count on bg1
+[options.shape]
+values = ["plain", "pill", "split"]
+default = "split"
+
+# The day's total that reads fully red: green at none, yellow at half of it,
+# red at it and above, blended in between.
+[options.scale]
+values = ["100m", "250m", "500m", "1b"]
+default = "500m"
+
+# Flash the heat colour once when the tokens per minute since Agents Usage
+# Bar's last sample reach this many, or off.
+[options.pulse]
+values = ["off", "250k", "500k", "1m", "5m"]
+default = "1m"
+
+# Compact mode steps low items down first, then normal, then high; pin never
+# leaves its full form.
+[options.priority]
+values = ["pin", "high", "normal", "low"]
+default = "low"

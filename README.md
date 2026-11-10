@@ -597,6 +597,7 @@ inside the `stm` release (`bundles/items/`) and are never downloaded:
 | `netspeed` | download and upload rates: graphs and numbers | `right` |
 | `spotify` | what Spotify is playing; a popup with the cover and playback controls | `center` |
 | `tailscale` | whether Tailscale is up, your IP and exit node; a popup listing this device and its peers | `right` |
+| `tokens` | how many tokens your AI tools used today, coloured green to red as the day goes on, with a flash on a burst; a popup per provider. Needs [Agents Usage Bar](https://github.com/noomz/agents_usage_bar) | `right` |
 
 ```console
 $ stm install item:tailscale
@@ -633,7 +634,8 @@ provider, `stm.ai.<provider>`, with `stm.ai.<provider>.icon` and
 `stm.ai.<provider>.pill` as its shape needs; `compact` adds the chevron
 `stm.compact` and its popup rows, with `mode = "page"` the arrows
 `stm.compact.prev` and `stm.compact.next`, and with `mode = "groups"` one pill
-per group per display slot, `stm.compact.<group>.<display>`; `expand` is `stm.expand`). These files are kept out of the `verify` baseline and go
+per group per display slot, `stm.compact.<group>.<display>`; `expand` is `stm.expand`; `tokens` adds the popup rows
+`stm.tokens.row.*`). These files are kept out of the `verify` baseline and go
 into the owned `backup`.
 
 **Colours** come from the active palette, so `stm apply <theme>` recolours the
@@ -758,6 +760,10 @@ account_label = "short" # short | name | off — the account in front of a split
 percent = "used"    # used | left — the share used, or 100 minus it
 period = "on"       # on | off — the window after the number (" 7d")
 reset = "off"       # off | on — the time to the window's reset after it
+
+[item.tokens]
+scale = "500m"      # 100m | 250m | 500m | 1b — the day's total that reads fully red
+pulse = "1m"        # off | 250k | 500k | 1m | 5m — tokens per minute that flash the item
 ```
 
 `ai` reads [Agents Usage Bar](https://github.com/noomz/agents_usage_bar), a
@@ -848,6 +854,34 @@ time to reset. Gemini lists its models, Grok adds the credit used out of its
 limit, and OpenRouter shows the credit used and left and its limit. The last
 row opens Agents Usage Bar (or its download page when `aub` is missing).
 Ollama Cloud has no segment.
+
+`tokens` reads the same Agents Usage Bar cache, the same way as `ai` (one
+`aub usage --json` and one `osascript` a minute, never `--live`, the same
+`aub` lookup and `$STM_AUB`), and adds up today's tokens over every provider
+that reports a count. The label is that total: `999`, then `25.8K`, `255.7M`,
+`1.2B`. The icon is the Nerd Font glyph nf-md-counter. Its colour runs from
+green at no tokens to yellow at half of `scale` and red at `scale`, blended in
+between, so a slow day stays green and a heavy one turns red by evening.
+
+The time of the data is when Agents Usage Bar last polled: the newest poll
+time of the providers that report a count (not when `aub` ran). Going grey
+when stale and the burst flash need Agents Usage Bar newer than 0.1.30,
+which prints that poll time per provider; with an older one `tokens` shows
+the total and its colour only, never goes stale, and has no rate.
+
+Each time Agents Usage Bar takes a new sample, `tokens` works out the rate
+since the one before: the tokens added per minute over the providers that
+had a count both times. When that reaches `pulse` the colour flashes once,
+brighter and back, in under a second. The first sample after the bar loads
+has no rate; when a count goes down (the day rolled over) the rate is 0. The
+previous sample is kept in the bar's memory only, so a reload starts over.
+A reply older than the one shown is ignored.
+
+Click the item for its popup: the total and the time of the data, one row
+per provider, most tokens first, and the last rate (`1.3M/min`, or `--`).
+When the newest poll is more than 15 minutes old the item turns grey, keeps its
+number and never flashes; the popup says `stale`. With no counts it shows
+`--`, and without `aub` it shows `no aub`.
 
 `battery` reads `pmset`: green, yellow at 30% and below, red at 15% and below,
 green with a bolt on power. Only the Mac's own battery counts, so on a desktop
@@ -952,7 +986,7 @@ other option. `pin` never leaves `full`.
 | `date` | the day of the month | the icon | `normal` |
 | `tailscale` | — | the icon | `normal` |
 | `cpu`, `mem` | the icon and the graph | — | `low` |
-| `disk`, `net` | — | the icon | `low` |
+| `disk`, `net`, `tokens` | — | the icon | `low` |
 | `netspeed` | the graphs | — | `low` |
 | `spotify` | 12 characters | the icon | `low` |
 

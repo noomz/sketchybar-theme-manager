@@ -73,7 +73,8 @@ SHIPPED=(. ./ai ./ai/item.lua ./ai/item.toml ./ai/plugin.sh
   ./net ./net/item.lua ./net/item.toml ./net/plugin.sh
   ./netspeed ./netspeed/item.lua ./netspeed/item.toml ./netspeed/plugin.sh
   ./spotify ./spotify/item.lua ./spotify/item.toml ./spotify/plugin.sh
-  ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh)
+  ./tailscale ./tailscale/item.lua ./tailscale/item.toml ./tailscale/plugin.sh
+  ./tokens ./tokens/item.lua ./tokens/item.toml ./tokens/plugin.sh)
 
 # shipped [path...] — that tree plus the given paths, sorted like installed_items.
 shipped() {
@@ -97,10 +98,10 @@ assert_eq 0 "$INSTALL_STATUS" "install.sh must succeed: $(cat "$SANDBOX/install.
 assert_file_exists "$P/bin/stm"
 assert_eq "$(shipped ./linky ./linky/item.toml)" \
   "$(installed_items)" "only item.toml, item.lua and plugin.sh from validly named, real bundle dirs"
-for f in ai/plugin.sh battery/plugin.sh compact/plugin.sh cpu/plugin.sh disk/plugin.sh mem/plugin.sh menubar/plugin.sh net/plugin.sh netspeed/plugin.sh spotify/plugin.sh tailscale/plugin.sh; do
+for f in ai/plugin.sh battery/plugin.sh compact/plugin.sh cpu/plugin.sh disk/plugin.sh mem/plugin.sh menubar/plugin.sh net/plugin.sh netspeed/plugin.sh spotify/plugin.sh tailscale/plugin.sh tokens/plugin.sh; do
   assert_files_equal "$REPO_ROOT/bundles/items/$f" "$ITEMS/$f"
 done
-for b in ai battery clock compact cpu date disk expand mem menubar net netspeed spotify tailscale; do
+for b in ai battery clock compact cpu date disk expand mem menubar net netspeed spotify tailscale tokens; do
   for f in item.toml item.lua; do
     assert_files_equal "$REPO_ROOT/bundles/items/$b/$f" "$ITEMS/$b/$f"
   done
