@@ -297,7 +297,7 @@ step 1h (#49): bundle `tokens` item: today's AI tokens summed over aub providers
 | T85 | x | SPEC step 1h (#49): §G §C21 §I.tok, V100-V103, §T | C21,V100,V101,V102,V103,I.tok |
 | T86 | x | bundle `tokens`: item.toml + plugin.sh (lookup, bounded call, parse, records) + item.lua (draw, blend, popup, rate, pulse, forms) | C21,V10,V32,V33,V46,V100,V101,V102,V103,I.tok |
 | T87 | x | tests `test_item_tokens.sh`: stub aub records, nodata, missing, stale/ahead, hostile JSON, hang, lint + install + bad option values; Lua probe: names, label K/M/B edges + width, blend, states, hostile replies, popup, rate + pulse cases, forms; packaging list; README | V4,V46,V100,V101,V102,V103,I.tok,I.form |
-| T88 | . | real-bar smoke: install `item:tokens`, 3 shapes, popup, pulse on a burst, quit aub → stale, `STM_AUB` absent → `no aub` | V101,V103 |
+| T88 | x | real-bar smoke: install `item:tokens`, 3 shapes, popup, pulse on a burst, quit aub → stale, `STM_AUB` absent → `no aub` | V101,V103 |
 
 ## §B bugs
 
