@@ -301,9 +301,13 @@ return function(sbar, opts, colors)
   end
 
   -- sample: one plugin reply. The rate is worked out only when the data's
-  -- time moves on; the first sample after a load has none.
+  -- time moves on; the first sample after a load has none. A reply older
+  -- than the kept sample (a slow run answering late) is dropped whole.
   local function sample(out)
     local s = parse(out)
+    if prev and s.asof and s.asof < prev.asof then
+      return
+    end
     local fresh = false
     if (s.state == "ok" or s.state == "stale") and s.asof and (not prev or s.asof ~= prev.asof) then
       rate = prev and rate_of(prev, s) or nil
@@ -323,11 +327,24 @@ return function(sbar, opts, colors)
     sbar.exec(string.format("NAME=%s SENDER=%s %s", quote(name), quote(sender), plugin), sample)
   end
 
+  -- In the split icon form the main item stays drawn at zero width with
+  -- nothing in it: it hosts the popup, and SketchyBar draws no popup for a
+  -- hidden item.
   local function draw_form()
     local shown = form ~= "hidden"
     if icon_item then
       icon_item:set({ drawing = shown })
-      item:set({ drawing = shown and form == "full" })
+      if not shown then
+        item:set({ drawing = false })
+      else
+        local full = form == "full"
+        item:set({
+          drawing = true,
+          width = full and "dynamic" or 0,
+          label = { drawing = full },
+          background = { drawing = full },
+        })
+      end
     else
       item:set({ drawing = shown, label = { drawing = form == "full" } })
     end

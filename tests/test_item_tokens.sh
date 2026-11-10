@@ -35,8 +35,12 @@ EOF
 chmod 755 "$FAKE_BIN/sketchybar"
 
 NOW=1793007200 # 2026-10-26T09:33:20Z
+# The sample time is each provider's `asOf` (the poll that produced it). The
+# top-level `asOf` is when aub ran — always "now" — and must be ignored.
+CALLED=2026-10-26T09:33:20Z
 ASOF=2026-10-26T09:30:00Z
 ASOF_EPOCH=1793007000
+OLDER=2026-10-26T09:20:00Z
 
 OUT=""
 AUB_CALLS=""
@@ -54,11 +58,12 @@ lines() {
   printf '%s\n' "$@"
 }
 
-# The real shape: claude and codex have counts, grok has none, gemini null.
-REAL='{"asOf":"'$ASOF'","totals":{"costUSD":"4.20"},"providers":[
-{"id":"claude","displayName":"Claude Code","status":"ok","tokensToday":252705875},
-{"id":"codex","displayName":"Codex","status":"ok","tokensToday":25840},
-{"id":"grok","displayName":"Grok","status":"ok"},
+# The real shape: claude and codex have counts (codex polled earlier), grok
+# has none but a newer poll, gemini null and no snapshot.
+REAL='{"asOf":"'$CALLED'","totals":{"costUSD":"4.20"},"providers":[
+{"id":"claude","displayName":"Claude Code","status":"ok","asOf":"'$ASOF'","tokensToday":252705875},
+{"id":"codex","displayName":"Codex","status":"ok","asOf":"'$OLDER'","tokensToday":25840},
+{"id":"grok","displayName":"Grok","status":"ok","asOf":"'$CALLED'"},
 {"id":"gemini","displayName":"Gemini","status":"unauthenticated","tokensToday":null}]}'
 
 it "plugin: records for the real shape; total sums only providers with a count (I.tok, V100)"
@@ -69,9 +74,9 @@ assert_eq "usage --json" "$AUB_CALLS" "one aub call, argv fixed, never sketchyba
 done_it
 
 it "plugin: no provider with a count → nodata (V101)"
-run_plugin '{"asOf":"'$ASOF'","providers":[{"id":"grok","displayName":"Grok"},{"id":"gemini","tokensToday":null}]}'
+run_plugin '{"asOf":"'$CALLED'","providers":[{"id":"grok","displayName":"Grok","asOf":"'$ASOF'"},{"id":"gemini","tokensToday":null}]}'
 assert_eq "state${TAB}nodata" "$OUT" "no counts"
-run_plugin '{"asOf":"'$ASOF'","providers":[]}'
+run_plugin '{"asOf":"'$CALLED'","providers":[]}'
 assert_eq "state${TAB}nodata" "$OUT" "no providers"
 done_it
 
@@ -89,21 +94,42 @@ for json in 'not json' '[]' '{"providers":{}}' '"x"' '{"asOf":"x"}'; do
 done
 done_it
 
-it "plugin: stale after 15 minutes, future or bad asOf untrusted (V101)"
+it "plugin: sample time = newest provider asOf; stale after 15 minutes, future or bad untrusted (V101)"
 run_plugin "$REAL" STM_NOW=$((ASOF_EPOCH + 900))
 assert_contains "$OUT" "asof${TAB}$ASOF_EPOCH${TAB}0"
 run_plugin "$REAL" STM_NOW=$((ASOF_EPOCH + 901))
 assert_contains "$OUT" "asof${TAB}$ASOF_EPOCH${TAB}1"
+# Only the older provider's time is in the past: the newer one is too far
+# ahead and dropped, so the older one decides.
 run_plugin "$REAL" STM_NOW=$((ASOF_EPOCH - 301))
+assert_contains "$OUT" "asof${TAB}$((ASOF_EPOCH - 600))${TAB}0"
+# Every provider time present but untrusted → no time, stale.
+run_plugin "${REAL//$ASOF/2026-10-26 09:30}" STM_NOW=$((ASOF_EPOCH - 901))
 assert_contains "$OUT" "asof${TAB}${TAB}1"
-run_plugin "${REAL/$ASOF/2026-10-26 09:30}"
+run_plugin "${REAL//$OLDER/x}" STM_NOW=$((ASOF_EPOCH - 301))
 assert_contains "$OUT" "asof${TAB}${TAB}1"
 assert_contains "$OUT" "total${TAB}252731715"
+# A fresh top-level asOf never hides an old sample.
+run_plugin '{"asOf":"'$CALLED'","providers":[{"id":"claude","asOf":"'$OLDER'","tokensToday":5}]}' \
+  STM_NOW=$((ASOF_EPOCH + 301))
+assert_contains "$OUT" "asof${TAB}$((ASOF_EPOCH - 600))${TAB}1"
+# A newer time on a provider without a count, a dropped id or a duplicate id
+# is not the sample time.
+run_plugin '{"asOf":"'$CALLED'","providers":[{"id":"claude","asOf":"'$OLDER'","tokensToday":5},
+{"id":"grok","asOf":"'$ASOF'"},{"id":"Bad Id","asOf":"'$ASOF'","tokensToday":1},
+{"id":"claude","asOf":"'$ASOF'","tokensToday":9}]}'
+assert_contains "$OUT" "asof${TAB}$((ASOF_EPOCH - 600))${TAB}0"
+done_it
+
+it "plugin: older aub (no provider asOf) → total only, time unknown, never stale (V101)"
+run_plugin '{"asOf":"2020-01-01T00:00:00Z","providers":[{"id":"claude","tokensToday":5},{"id":"codex","asOf":null,"tokensToday":2}]}'
+assert_eq "$(lines "state${TAB}ok" "asof${TAB}${TAB}0" "total${TAB}7" \
+  "prov${TAB}claude${TAB}claude${TAB}5" "prov${TAB}codex${TAB}codex${TAB}2")" "$OUT" "records"
 done_it
 
 it "plugin: hostile JSON — non-integer counts dropped, names cleaned, ids checked, first id wins (V100)"
 # shellcheck disable=SC2016 # the $(rm) is hostile text that must stay literal
-run_plugin '{"asOf":"'$ASOF'","providers":[
+run_plugin '{"asOf":"'$CALLED'","providers":[
 {"id":"a","displayName":"A","tokensToday":1.5},
 {"id":"b","displayName":"B","tokensToday":-3},
 {"id":"c","displayName":"C","tokensToday":"12x"},
@@ -114,7 +140,7 @@ run_plugin '{"asOf":"'$ASOF'","providers":[
 {"id":"g\u0007","displayName":"‮G\u0000;$(rm)","tokensToday":9},
 {"id":"f","displayName":"dup","tokensToday":100},
 {"id":"h","tokensToday":10000000000000000}]}'
-assert_eq "$(lines "state${TAB}ok" "asof${TAB}$ASOF_EPOCH${TAB}0" "total${TAB}16" \
+assert_eq "$(lines "state${TAB}ok" "asof${TAB}${TAB}0" "total${TAB}16" \
   "prov${TAB}f${TAB}EvilNameprovxX99${TAB}7" "prov${TAB}g${TAB}G(rm)${TAB}9")" "$OUT" "only f and g"
 done_it
 
@@ -240,6 +266,12 @@ dofile(item_lua)(sbar, opts, { green = 0xff00ff00, yellow = 0xffffff00, red = 0x
 for form in (os.getenv("PROBE_FORMS") or ""):gmatch("[^,]+") do
   print("form " .. form)
   handlers["stm.tokens stm_compact"]({ SENDER = "stm_compact", STM_FORM_TOKENS = form ~= "-" and form or nil })
+end
+-- PROBE_CLICK=<item name>: a click on it after the forms.
+local click = os.getenv("PROBE_CLICK")
+if click then
+  print("click " .. click)
+  handlers[click .. " mouse.clicked"]({ SENDER = "mouse.clicked" })
 end
 for i = 2, #replies do
   handlers["stm.tokens routine"]({ SENDER = "routine" })
@@ -377,6 +409,22 @@ prov\\t${p%%=*}\\t${p%%=*}\\t${p#*=}"
     "provider null → number not counted"
   assert_eq 0 "$(pulses_of "" "$a" "$(ok 1060 1 2000000 claude=2000000)")" "stale: no pulse"
   assert_eq 0 "$(pulses_of "" "$a" "$(ok 940 0 9000000 claude=9000000)")" "asOf went back: no rate"
+  # An older reply (a slow run answering late) is dropped whole: no redraw,
+  # no new baseline, so the newest sample coming back is not a second burst.
+  out=$(probe split right "" "$a" "$b" "$a" "$b")
+  assert_eq 1 "$(printf '%s\n' "$out" | grep -c '^animate sin 20$')" "older reply between: one pulse"
+  assert_eq "1.0M 2.0M 2.0M " \
+    "$(printf '%s\n' "$out" | sed -n 's/^set stm.tokens {label={string=\([^ ]*\) .*/\1/p' | tr '\n' ' ')" \
+    "older reply never shows its total"
+  assert_not_contains "$(probe split right "" "$a" "$(ok 940 0 9000000 claude=9000000)")" "string=9.0M"
+  # Older aub (no sample time): the total and heat, but no rate, no pulse,
+  # no time in the head.
+  out=$(probe split right "" "$(ok "" 0 1000000 claude=1000000)" "$(ok "" 0 9000000 claude=9000000)")
+  assert_eq 0 "$(printf '%s\n' "$out" | grep -c '^animate sin 20$')" "no time: no pulse"
+  assert_contains "$out" "set stm.tokens {label={string=9.0M width="
+  assert_contains "$out" "set stm.tokens.row.head {label={string=9.0M}}"
+  assert_not_contains "$out" "as of"
+  assert_not_contains "$out" "/min"
   assert_eq 0 "$(pulses_of "" "$a" "state\\tnodata" "$a")" "nodata between, same asOf after: no pulse"
   assert_eq 1 "$(pulses_of "" "$a" "state\\tnodata" "$b")" "nodata between, then a new asOf: pulse"
   out=$(probe split right "" "$a" "$(ok 1060 0 3000000 claude=3000000)")
@@ -397,18 +445,24 @@ animate end"
   done_it
 
   it "item.lua: compact forms; hidden draws nothing, closes the popup and never pulses (I.form)"
+  # split icon form keeps the main item drawn at zero width: it hosts the
+  # popup, and SketchyBar draws no popup for a hidden item.
   out=$(PROBE_FORMS=icon,hidden,full,bogus probe split right "" "$(ok 1 0 5 a=5)")
   assert_contains "$out" "form icon
 set stm.tokens.icon {drawing=true}
-set stm.tokens {drawing=false}
+set stm.tokens {background={drawing=false} drawing=true label={drawing=false} width=0}
 form hidden
 set stm.tokens.icon {drawing=false}
 set stm.tokens {drawing=false}
 set stm.tokens {popup={drawing=false}}
 form full
 set stm.tokens.icon {drawing=true}
-set stm.tokens {drawing=true}
+set stm.tokens {background={drawing=true} drawing=true label={drawing=true} width=dynamic}
 form bogus"
+  out=$(PROBE_FORMS=icon PROBE_CLICK=stm.tokens.icon probe split right "" "$(ok 1 0 5 a=5)")
+  assert_contains "$out" "click stm.tokens.icon
+set stm.tokens {popup={drawing=toggle}}"
+  assert_not_contains "$out" "set stm.tokens {drawing=false}"
   out=$(PROBE_FORMS=icon probe plain right "" "$(ok 1 0 5 a=5)")
   assert_contains "$out" "set stm.tokens {drawing=true label={drawing=false}}"
   done_it

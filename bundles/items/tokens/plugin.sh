@@ -4,11 +4,16 @@
 # item.lua runs this with NAME and SENDER and reads what it prints; the
 # plugin never calls sketchybar. One record per line, fields split by TAB:
 #   state ok | nodata | missing        (always, first)
-#   asof  <epoch> <stale 0|1>          (ok only)
+#   asof  <epoch|empty> <stale 0|1>    (ok only; empty = time unknown)
 #   total <tokens>                     (ok only)
 #   prov  <id> <name> <tokens>         (ok only, one per provider with a count)
 # missing: no aub. nodata: aub failed, its JSON is unusable, or no provider
 # has a token count today.
+#
+# The sample time is the newest `asOf` of a provider kept with a count: aub
+# stamps each provider with the time of the poll behind it. The top-level
+# `asOf` is only when aub ran, so it is never read. An older aub prints no
+# provider `asOf`: the time is unknown and the data never goes stale.
 #
 # The numbers come from the Agents Usage Bar cache: `aub usage --json` reads
 # it without touching the network. This plugin never calls a provider and
@@ -78,8 +83,8 @@ run_aub() {
 }
 
 # parse — the JSON in, tab-separated records out, from one stock process:
-#   asof <iso>
-#   prov <id> <name> <tokens>
+#   prov <id> <name> <tokens> <asOf>
+# <asOf> is empty when the provider has none, `?` when it is not a string.
 # Strings are kept to printable ASCII, so no value can carry a tab or newline
 # and forge a record; a count is a whole number (or a numeral string) or the
 # provider is left out. summarise still checks each field. Bad JSON makes
@@ -96,11 +101,12 @@ function run(argv) {
     return typeof v === "string" && /^[0-9]+$/.test(v) ? v : "";
   }
   if (!obj(doc) || !Array.isArray(doc.providers)) throw new Error("not aub usage JSON");
-  var out = ["asof\t" + text(doc.asOf)];
+  var out = [];
   doc.providers.slice(0, 32).forEach(function (p) {
     if (!obj(p)) return;
     var n = count(p.tokensToday);
-    if (n !== "") out.push(["prov", text(p.id), text(p.displayName), n].join("\t"));
+    var at = p.asOf === undefined || p.asOf === null ? "" : text(p.asOf) || "?";
+    if (n !== "") out.push(["prov", text(p.id), text(p.displayName), n, at].join("\t"));
   });
   return out.join("\n");
 }'
@@ -108,7 +114,9 @@ function run(argv) {
 # summarise — the records in, the records item.lua reads out (see the top).
 # The first provider per id wins; an id must be a lower-case slug; a name is
 # cut to 16 safe characters and falls back to the id; a count has at most 15
-# digits. No provider left → nodata.
+# digits. No provider left → nodata. Each kept provider's asOf is checked on
+# its own (readable, at most AHEAD_SECS ahead) and the newest good one is the
+# sample time; none given → unknown, not stale; given but none good → stale.
 summarise() {
   /usr/bin/awk -F'\t' -v now="$now" -v stale_secs="$STALE_SECS" -v ahead_secs="$AHEAD_SECS" '
     function epoch(s, y, m, d, hh, mm, ss, era, yoe, doy) {
@@ -127,8 +135,7 @@ summarise() {
       gsub(/^ +| +$/, "", s)
       return s
     }
-    $1 == "asof" && NF == 2 { asof = epoch($2) }
-    $1 == "prov" && NF == 4 {
+    $1 == "prov" && NF == 5 {
       if ($2 !~ /^[a-z0-9][a-z0-9._-]*$/ || length($2) > 32 || ($2 in seen)) next
       if ($4 !~ /^[0-9]+$/ || length($4) > 15) next
       seen[$2] = 1
@@ -136,12 +143,15 @@ summarise() {
       if (name == "") name = $2
       n++; ids[n] = $2; names[n] = name; toks[n] = $4
       total += $4
+      if ($5 == "") next
+      dated = 1
+      t = epoch($5)
+      if (t != "" && t - now <= ahead_secs && (asof == "" || t > asof)) asof = t
     }
     END {
       if (!n) { print "state\tnodata"; exit }
-      # An asOf from the future or unreadable is not trusted: no time, stale.
-      if (asof == "" || asof - now > ahead_secs) { asof = ""; stale = 1 }
-      else stale = now - asof > stale_secs ? 1 : 0
+      if (asof != "") stale = now - asof > stale_secs ? 1 : 0
+      else stale = dated ? 1 : 0
       print "state\tok"
       print "asof\t" asof "\t" stale
       printf "total\t%.0f\n", total

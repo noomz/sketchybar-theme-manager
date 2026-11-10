@@ -863,16 +863,23 @@ that reports a count. The label is that total: `999`, then `25.8K`, `255.7M`,
 green at no tokens to yellow at half of `scale` and red at `scale`, blended in
 between, so a slow day stays green and a heavy one turns red by evening.
 
+The time of the data is when Agents Usage Bar last polled: the newest poll
+time of the providers that report a count (not when `aub` ran). Going grey
+when stale and the burst flash need Agents Usage Bar newer than 0.1.30,
+which prints that poll time per provider; with an older one `tokens` shows
+the total and its colour only, never goes stale, and has no rate.
+
 Each time Agents Usage Bar takes a new sample, `tokens` works out the rate
 since the one before: the tokens added per minute over the providers that
 had a count both times. When that reaches `pulse` the colour flashes once,
 brighter and back, in under a second. The first sample after the bar loads
 has no rate; when a count goes down (the day rolled over) the rate is 0. The
 previous sample is kept in the bar's memory only, so a reload starts over.
+A reply older than the one shown is ignored.
 
 Click the item for its popup: the total and the time of the data, one row
 per provider, most tokens first, and the last rate (`1.3M/min`, or `--`).
-When the cache is more than 15 minutes old the item turns grey, keeps its
+When the newest poll is more than 15 minutes old the item turns grey, keeps its
 number and never flashes; the popup says `stale`. With no counts it shows
 `--`, and without `aub` it shows `no aub`.
 
