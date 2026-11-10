@@ -865,7 +865,7 @@ between, so a slow day stays green and a heavy one turns red by evening.
 
 The time of the data is when Agents Usage Bar last polled: the newest poll
 time of the providers that report a count (not when `aub` ran). Going grey
-when stale and the burst flash need Agents Usage Bar newer than 0.1.30,
+when stale and the burst flash need Agents Usage Bar 0.1.31 or later,
 which prints that poll time per provider; with an older one `tokens` shows
 the total and its colour only, never goes stale, and has no rate.
 
